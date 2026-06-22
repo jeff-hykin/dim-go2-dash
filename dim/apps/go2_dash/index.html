@@ -2,9 +2,12 @@
 <!--
   Go2 Dash — discover nearby Unitree Go2 robots (BLE + LAN) and provision them
   onto a wifi network over Bluetooth. The heavy lifting lives in the backend
-  (main.js → go2_helper.py, reusing dimos' go2tool). This is the panel: a list
-  of nearby dogs + a connect form, all in a side panel that slides away once a
-  dog is connected (the main area is reserved for the per-dog dashboard to come).
+  (main.js → go2_helper.py, reusing dimos' go2tool). This is the panel: a small
+  floating list of nearby dogs on the left. Each dog shows its name (rename it —
+  saved to the backend, keyed to its Bluetooth id) with a colour derived from
+  that id, plus its IP when it's on the network. A ⋯ menu opens "Connect to
+  Wi-Fi". The panel slides away once a dog is connected, leaving the stage for
+  the per-dog dashboard to come.
 -->
 <html lang="en">
 <head>
@@ -14,25 +17,25 @@
 <link rel="stylesheet" href="/assets/theme.css" />
 <style>
   html, body { height: 100%; margin: 0; overflow: hidden; }
-  body { display: flex; color: var(--fg); background: var(--bg);
-    font-family: var(--sans, system-ui, sans-serif); }
+  body { color: var(--fg); background: var(--bg); font-family: var(--sans, system-ui, sans-serif); }
 
   /* ── main stage: reserved for the per-dog dashboard (battery, camera, …) ── */
-  .stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+  .stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 40px; }
   .stage .empty { text-align: center; max-width: 360px; color: var(--muted-fg); }
-  .stage .empty .glyph { font-size: 46px; opacity: .5; margin-bottom: 14px; }
+  .stage .empty .glyph { font-size: 44px; opacity: .5; margin-bottom: 14px; }
   .stage .empty h1 { font-size: 16px; font-weight: 600; color: var(--fg); margin: 0 0 8px; letter-spacing: .02em; }
   .stage .empty p { font-size: 13px; line-height: 1.5; margin: 0; }
-  .stage.connected .glyph { color: var(--ok); opacity: 1; }
+  .stage.connected .glyph { opacity: 1; }
 
-  /* ── side panel ── */
-  .panel { width: 360px; flex: none; display: flex; flex-direction: column;
-    background: var(--card); border-left: 1px solid var(--border);
-    box-shadow: -8px 0 24px -18px rgba(0,0,0,.6);
-    transition: transform .32s cubic-bezier(.4,0,.2,1), opacity .32s; }
-  .panel.slid { transform: translateX(100%); opacity: 0; pointer-events: none; }
+  /* ── floating panel (left) ── */
+  .panel { position: fixed; left: 16px; top: 16px; bottom: 16px; width: 312px;
+    display: flex; flex-direction: column; background: var(--card);
+    border: 1px solid var(--border); border-radius: calc(var(--radius) * 1.6);
+    box-shadow: 0 18px 50px -20px rgba(0,0,0,.55), 0 2px 8px -4px rgba(0,0,0,.3);
+    overflow: hidden; transition: transform .32s cubic-bezier(.4,0,.2,1), opacity .32s; }
+  .panel.slid { transform: translateX(calc(-100% - 32px)); opacity: 0; pointer-events: none; }
 
-  .p-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+  .p-head { display: flex; align-items: center; gap: 10px; padding: 13px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
   .p-head .t { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
   .p-head .spacer { flex: 1; }
@@ -42,13 +45,12 @@
     transition: color .14s, border-color .14s; }
   .icon-btn:hover { color: var(--fg); border-color: var(--ring); }
 
-  .p-scan { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  .p-scan { display: flex; align-items: center; gap: 10px; padding: 11px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
   .status { font-size: 12px; color: var(--muted-fg); display: flex; align-items: center; gap: 7px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-fg); flex: none; }
   .dot.scanning { background: var(--primary); animation: pulse 1s ease-in-out infinite; }
   .dot.ok { background: var(--ok); }
-  .dot.warn { background: var(--danger); }
   @keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
 
   .btn { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
@@ -60,48 +62,66 @@
   .btn.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
   .btn.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
 
-  .list { flex: 1; overflow: auto; padding: 8px; }
-  .list .none { text-align: center; color: var(--muted-fg); font-size: 12px; line-height: 1.6; padding: 36px 18px; }
+  .list { flex: 1; overflow: auto; padding: 7px; }
+  .list .none { text-align: center; color: var(--muted-fg); font-size: 12px; line-height: 1.6; padding: 32px 18px; }
 
-  .dog { border: 1px solid var(--border); border-radius: var(--radius); margin: 6px 4px;
-    background: var(--bg); overflow: hidden; transition: border-color .14s; }
-  .dog:hover { border-color: var(--ring); }
-  .dog.sel { border-color: var(--primary); }
-  .dog .row { display: flex; align-items: center; gap: 11px; padding: 11px 12px; cursor: pointer; }
-  .dog .av { width: 30px; height: 30px; flex: none; }
-  .dog .meta { flex: 1; min-width: 0; }
-  .dog .nm { font-size: 13px; font-weight: 600; }
-  .dog .sub { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .tag { font-size: 10px; font-weight: 600; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px;
-    border: 1px solid var(--border); color: var(--muted-fg); }
-  .tag.lan { color: color-mix(in oklch, var(--ok) 75%, var(--fg)); border-color: color-mix(in oklch, var(--ok) 40%, var(--border)); }
-  .tag.ble { color: color-mix(in oklch, var(--primary) 75%, var(--fg)); border-color: color-mix(in oklch, var(--primary) 40%, var(--border)); }
+  .dog { position: relative; border-radius: var(--radius); margin: 3px 2px; padding: 9px 10px;
+    transition: background .14s; }
+  .dog:hover { background: var(--accent); }
+  .dog .row { display: flex; align-items: center; gap: 11px; }
+  .av { width: 26px; height: 26px; border-radius: 50%; flex: none;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 1px 3px -1px rgba(0,0,0,.5); }
+  .meta { flex: 1; min-width: 0; }
+  .nm { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 13px; }
+  .sub .serial { opacity: 0; transition: opacity .14s; }
+  .dog:hover .sub .serial { opacity: .8; }
+  .kebab { appearance: none; cursor: pointer; font: inherit; font-size: 16px; line-height: 1; color: var(--muted-fg);
+    background: transparent; border: 0; border-radius: var(--radius); width: 24px; height: 24px; flex: none;
+    opacity: 0; transition: opacity .14s, color .14s; }
+  .dog:hover .kebab, .dog.active .kebab { opacity: 1; }
+  .kebab:hover { color: var(--fg); }
 
-  /* connect form (expands under the selected dog) */
-  .form { border-top: 1px solid var(--border); padding: 12px; display: none; }
-  .dog.sel .form { display: block; }
+  /* ⋯ dropdown */
+  .menu { position: absolute; right: 8px; top: 38px; z-index: 5; min-width: 152px;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 12px 30px -12px rgba(0,0,0,.55); padding: 4px; display: none; }
+  .dog.menu-open .menu { display: block; }
+  .menu button { display: block; width: 100%; text-align: left; appearance: none; cursor: pointer;
+    font: inherit; font-size: 12.5px; color: var(--fg); background: transparent; border: 0;
+    border-radius: calc(var(--radius) - 2px); padding: 7px 9px; }
+  .menu button:hover { background: var(--accent); }
+
+  /* rename input (replaces the name in place) */
+  .rename { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 13.5px;
+    font-weight: 600; color: var(--fg); background: var(--bg); border: 1px solid var(--ring);
+    border-radius: var(--radius); padding: 3px 7px; }
+  .rename:focus { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); }
+
+  /* connect form */
+  .form { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
+  .dog.form-open .form { display: block; }
   .form label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
     color: var(--muted-fg); margin: 0 0 4px; }
-  .form .fld { margin-bottom: 10px; }
-  .form input, .form select { width: 100%; box-sizing: border-box; appearance: none; font: inherit;
-    font-size: 13px; color: var(--fg); background: var(--card); border: 1px solid var(--input);
-    border-radius: var(--radius); padding: 8px 10px; }
-  .form input:focus, .form select:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
-  .form .two { display: flex; gap: 9px; }
+  .form .fld { margin-bottom: 9px; }
+  .form input { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 13px;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--input); border-radius: var(--radius); padding: 7px 9px; }
+  .form input:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+  .form .two { display: flex; gap: 8px; }
   .form .two .fld { flex: 1; }
-  .form .actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
-  .log { margin-top: 10px; font-family: var(--mono); font-size: 11px; line-height: 1.5;
-    color: var(--muted-fg); max-height: 140px; overflow: auto; white-space: pre-wrap; }
+  .form .actions { display: flex; gap: 8px; align-items: center; }
+  .log { margin-top: 9px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--muted-fg);
+    max-height: 130px; overflow: auto; white-space: pre-wrap; }
   .log .ok { color: color-mix(in oklch, var(--ok) 80%, var(--fg)); }
   .log .err { color: color-mix(in oklch, var(--danger) 80%, var(--fg)); }
 
-  /* reopen tab (visible when panel is slid away) */
-  .reopen { position: fixed; top: 50%; right: 0; transform: translateY(-50%);
-    writing-mode: vertical-rl; cursor: pointer; padding: 14px 7px; font-size: 11px;
+  /* reopen tab (left edge, visible when panel is slid away) */
+  .reopen { position: fixed; top: 50%; left: 0; transform: translateY(-50%);
+    writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px; font-size: 11px;
     font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--primary-fg);
-    background: var(--primary); border-radius: var(--radius) 0 0 var(--radius);
-    box-shadow: -4px 0 14px -8px rgba(0,0,0,.5); display: none; }
+    background: var(--primary); border-radius: 0 var(--radius) var(--radius) 0;
+    box-shadow: 4px 0 14px -8px rgba(0,0,0,.5); display: none; }
   .reopen.show { display: block; }
 </style>
 </head>
@@ -110,7 +130,7 @@
     <div class="empty">
       <div class="glyph" id="stage-glyph">🐾</div>
       <h1 id="stage-title">No dog connected yet</h1>
-      <p id="stage-msg">Scan for nearby Go2s in the panel, then send wifi credentials to bring one onto your network. Battery, camera, blueprints &amp; controls will live here.</p>
+      <p id="stage-msg">Scan for nearby Go2s, then send wifi credentials to bring one onto your network. Battery, camera, blueprints &amp; controls will live here.</p>
     </div>
   </div>
 
@@ -118,7 +138,7 @@
     <div class="p-head">
       <span class="t">Go2 Setup</span>
       <span class="spacer"></span>
-      <button class="icon-btn" id="slide" title="Slide panel away">›</button>
+      <button class="icon-btn" id="slide" title="Slide panel away">‹</button>
     </div>
     <div class="p-scan">
       <button class="btn primary" id="scan">Scan</button>
@@ -129,7 +149,7 @@
     </div>
   </div>
 
-  <div class="reopen" id="reopen">Go2 Setup ‹</div>
+  <div class="reopen" id="reopen">Go2 Setup</div>
 
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/frontend.js"
@@ -153,21 +173,25 @@ const els = {
   stageMsg: document.getElementById("stage-msg"),
 }
 
-let devices = []        // [{serial,name,ble_mac,ip,lan_mac}]
-let selectedKey = null  // which dog's connect form is open
+let devices = []       // [{serial,name,ble_mac,ip,lan_mac,customName}]
 let scanning = false
 let hasPython = true
-
-const AVATAR = `<svg class="av" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M4 14.5 7 9h10l3 5.5" stroke="#7f97ab" stroke-width="1.4" stroke-linejoin="round"/>
-  <rect x="6.5" y="13" width="11" height="6" rx="1.6" stroke="#7f97ab" stroke-width="1.4"/>
-  <path d="M8 19v2M16 19v2" stroke="#7f97ab" stroke-width="1.4" stroke-linecap="round"/>
-  <circle cx="12" cy="6" r="1.4" fill="#45e0ff"/>
-  <path d="M12 7.4V9" stroke="#45e0ff" stroke-width="1.4"/>
-  <path d="M9.6 5.2a3.4 3.4 0 0 1 4.8 0M8 3.6a5.7 5.7 0 0 1 8 0" stroke="#00bcd4" stroke-width="1.2" stroke-linecap="round"/>
-</svg>`
+let menuKey = null     // ⋯ menu open for this dog
+let formKey = null     // connect form open for this dog
+let editKey = null     // rename input open for this dog
 
 function keyOf(d) { return d.serial || d.ble_mac || "" }
+function btId(d) { return d.ble_mac || d.serial || "" }
+function nameOf(d) {
+  return d.customName || d.name || (d.serial ? "Go2 " + d.serial.slice(-5) : (d.ble_mac || "Unknown Go2"))
+}
+
+// Deterministic pleasant colour from the Bluetooth id.
+function colorFor(id) {
+  let h = 0
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return `hsl(${h % 360} 62% 55%)`
+}
 
 function setStatus(text, cls) {
   els.status.textContent = text
@@ -175,26 +199,36 @@ function setStatus(text, cls) {
 }
 
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])) }
+function cssEsc(s) { return String(s).replace(/["\\]/g, "\\$&") }
 
 function dogHtml(d) {
   const key = keyOf(d)
-  const name = d.name || (d.serial ? "Go2 " + d.serial.slice(-5) : "Unknown Go2")
-  const tags = []
-  if (d.ble_mac) tags.push('<span class="tag ble">BLE</span>')
-  if (d.ip) tags.push('<span class="tag lan">LAN</span>')
-  const sub = [d.serial && ("serial " + d.serial), d.ip && ("ip " + d.ip), d.ble_mac && ("ble " + d.ble_mac)].filter(Boolean).join("  ·  ")
   const canConnect = !!d.ble_mac
-  return `<div class="dog${key === selectedKey ? " sel" : ""}" data-key="${esc(key)}">
-    <div class="row">${AVATAR}
-      <div class="meta"><div class="nm">${esc(name)}</div><div class="sub">${esc(sub || "—")}</div></div>
-      ${tags.join("")}
+  const classes = ["dog"]
+  if (menuKey === key) classes.push("menu-open", "active")
+  if (formKey === key) classes.push("form-open", "active")
+  const nameCell = (editKey === key)
+    ? `<input class="rename" value="${esc(nameOf(d))}" />`
+    : `<div class="nm">${esc(nameOf(d))}</div>`
+  // sub-line: IP always shown if present; serial revealed on hover
+  const ip = d.ip ? `<span class="ip">${esc(d.ip)}</span>` : ""
+  const serial = d.serial ? `<span class="serial">${d.ip ? " · " : ""}${esc(d.serial)}</span>` : ""
+  return `<div class="${classes.join(" ")}" data-key="${esc(key)}">
+    <div class="row">
+      <span class="av" style="background:${colorFor(btId(d))}"></span>
+      <div class="meta">${nameCell}<div class="sub">${ip}${serial}${(!ip && !serial) ? "—" : ""}</div></div>
+      <button class="kebab" title="More">⋯</button>
+    </div>
+    <div class="menu">
+      <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>Connect to Wi-Fi…</button>
+      <button class="mi-rename">Rename</button>
     </div>
     <div class="form">
-      ${canConnect ? "" : '<div class="log err">No BLE address — can\'t provision wifi to this one (LAN-only sighting).</div>'}
+      ${canConnect ? "" : '<div class="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>'}
       <div class="fld"><label>Wifi SSID</label><input class="f-ssid" placeholder="network name" ${canConnect ? "" : "disabled"} /></div>
       <div class="two">
         <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" ${canConnect ? "" : "disabled"} /></div>
-        <div class="fld" style="flex:0 0 84px"><label>Country</label><input class="f-country" value="US" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
+        <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="US" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
       </div>
       <div class="actions"><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>Connect</button></div>
       <div class="log f-log"></div>
@@ -214,6 +248,10 @@ function render() {
     return
   }
   els.list.innerHTML = devices.map(dogHtml).join("")
+  if (editKey) {
+    const inp = els.list.querySelector(`.dog[data-key="${cssEsc(editKey)}"] .rename`)
+    if (inp) { inp.focus(); inp.select() }
+  }
 }
 
 // ── events from the backend (tag "go2") ──
@@ -223,8 +261,7 @@ dimApp.receiveRequest((tag, msg) => {
     case "snapshot":
       hasPython = msg.hasPython
       devices = msg.devices || []
-      render()
-      break
+      render(); break
     case "scan_start":
       scanning = true; setStatus("Scanning…", "scanning"); els.scan.disabled = true; render(); break
     case "scan_done":
@@ -234,26 +271,26 @@ dimApp.receiveRequest((tag, msg) => {
     case "device": {
       const key = keyOf(msg)
       const i = devices.findIndex(d => keyOf(d) === key)
-      if (i >= 0) devices[i] = msg; else devices.push(msg)
+      if (i >= 0) devices[i] = { ...devices[i], ...msg }; else devices.push(msg)
       render(); break
+    }
+    case "renamed": {
+      const d = devices.find(x => keyOf(x) === msg.key)
+      if (d) { d.customName = msg.customName || undefined; render() }
+      break
     }
     case "progress": appendLog(msg.msg); break
     case "connect_result":
-      if (msg.ok) {
-        appendLog("✓ Connected" + (msg.serial ? " — serial " + msg.serial : ""), "ok")
-        onConnected()
-      } else {
-        appendLog("✗ " + (msg.error || "failed"), "err")
-        setBusy(false)
-      }
+      if (msg.ok) { appendLog("✓ Connected" + (msg.serial ? " — serial " + msg.serial : ""), "ok"); onConnected() }
+      else { appendLog("✗ " + (msg.error || "failed"), "err"); setBusy(false) }
       break
-    case "warn": /* non-fatal (e.g. a LAN interface w/o route) — ignore */ break
+    case "warn": break // non-fatal (e.g. a LAN interface w/o route)
   }
 })
 
 function appendLog(line, cls) {
-  if (!selectedKey) return
-  const log = els.list.querySelector(`.dog[data-key="${cssEsc(selectedKey)}"] .f-log`)
+  if (!formKey) return
+  const log = els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"] .f-log`)
   if (!log) return
   const div = document.createElement("div")
   if (cls) div.className = cls
@@ -262,40 +299,65 @@ function appendLog(line, cls) {
   log.scrollTop = log.scrollHeight
 }
 
-function cssEsc(s) { return String(s).replace(/["\\]/g, "\\$&") }
-
 function setBusy(on) {
-  const btn = els.list.querySelector(`.dog[data-key="${cssEsc(selectedKey)}"] .f-go`)
+  if (!formKey) return
+  const btn = els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"] .f-go`)
   if (btn) { btn.disabled = on; btn.textContent = on ? "Connecting…" : "Connect" }
 }
 
 function onConnected() {
   setBusy(false)
-  const d = devices.find(x => keyOf(x) === selectedKey)
+  const d = devices.find(x => keyOf(x) === formKey)
   els.stage.classList.add("connected")
   els.stageGlyph.textContent = "🐕"
-  els.stageTitle.textContent = (d && d.name) ? d.name + " connected" : "Go2 connected"
+  els.stageTitle.textContent = d ? nameOf(d) + " connected" : "Go2 connected"
   els.stageMsg.textContent = "Wifi credentials sent. Once it joins the network its dashboard — battery, camera, blueprints & controls — will appear here."
-  // slide the setup panel away so the (future) dog dashboard has the stage
   setTimeout(() => setSlid(true), 900)
 }
 
-// ── interactions ──
+// ── interactions (event delegation) ──
 els.list.addEventListener("click", (e) => {
-  const go = e.target.closest(".f-go")
-  if (go) { e.stopPropagation(); startConnect(); return }
-  if (e.target.closest(".form")) return // don't toggle while using the form
   const dog = e.target.closest(".dog")
   if (!dog) return
   const key = dog.dataset.key
-  selectedKey = (selectedKey === key) ? null : key
-  render()
+
+  if (e.target.closest(".kebab")) { menuKey = (menuKey === key) ? null : key; render(); return }
+  if (e.target.closest(".mi-connect")) {
+    if (e.target.disabled) return
+    formKey = key; menuKey = null; render(); return
+  }
+  if (e.target.closest(".mi-rename")) { editKey = key; menuKey = null; render(); return }
+  if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
 })
 
-function startConnect() {
-  const d = devices.find(x => keyOf(x) === selectedKey)
+// rename: commit on Enter / blur, cancel on Escape
+els.list.addEventListener("keydown", (e) => {
+  if (!e.target.classList.contains("rename")) return
+  if (e.key === "Enter") { e.target.blur() }
+  else if (e.key === "Escape") { editKey = null; render() }
+})
+els.list.addEventListener("blur", (e) => {
+  if (!e.target.classList.contains("rename")) return
+  const key = e.target.closest(".dog")?.dataset.key
+  if (key) {
+    const name = e.target.value.trim()
+    dimApp.send("rename", { key, name })
+    const d = devices.find(x => keyOf(x) === key)
+    if (d) d.customName = name || undefined
+  }
+  editKey = null
+  render()
+}, true)
+
+// click outside any dog closes an open ⋯ menu
+document.addEventListener("click", (e) => {
+  if (menuKey && !e.target.closest(".dog")) { menuKey = null; render() }
+})
+
+function startConnect(key) {
+  const d = devices.find(x => keyOf(x) === key)
   if (!d || !d.ble_mac) return
-  const root = els.list.querySelector(`.dog[data-key="${cssEsc(selectedKey)}"]`)
+  const root = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"]`)
   const ssid = root.querySelector(".f-ssid").value.trim()
   const password = root.querySelector(".f-pass").value
   const country = (root.querySelector(".f-country").value.trim() || "US").toUpperCase()
@@ -305,7 +367,10 @@ function startConnect() {
   dimApp.send("connect", { mac: d.ble_mac, ssid, password, country })
 }
 
-els.scan.addEventListener("click", () => { devices = []; selectedKey = null; dimApp.send("scan", { timeout: 7 }) })
+els.scan.addEventListener("click", () => {
+  devices = []; menuKey = formKey = editKey = null
+  dimApp.send("scan", { timeout: 7 })
+})
 
 function setSlid(slid) {
   els.panel.classList.toggle("slid", slid)
