@@ -77,11 +77,14 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 13px; }
   .sub .serial { opacity: 0; transition: opacity .14s; }
   .dog:hover .sub .serial { opacity: .8; }
-  .kebab { appearance: none; cursor: pointer; font: inherit; font-size: 16px; line-height: 1; color: var(--muted-fg);
+  .rowbtn { appearance: none; cursor: pointer; font: inherit; line-height: 1; color: var(--muted-fg);
     background: transparent; border: 0; border-radius: var(--radius); width: 24px; height: 24px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
     opacity: 0; transition: opacity .14s, color .14s; }
-  .dog:hover .kebab, .dog.active .kebab { opacity: 1; }
-  .kebab:hover { color: var(--fg); }
+  .edit { font-size: 13px; }
+  .kebab { font-size: 16px; }
+  .dog:hover .rowbtn, .dog.active .rowbtn { opacity: 1; }
+  .rowbtn:hover { color: var(--fg); }
 
   /* ⋯ dropdown */
   .menu { position: absolute; right: 8px; top: 38px; z-index: 5; min-width: 152px;
@@ -217,11 +220,11 @@ function dogHtml(d) {
     <div class="row">
       <span class="av" style="background:${colorFor(btId(d))}"></span>
       <div class="meta">${nameCell}<div class="sub">${ip}${serial}${(!ip && !serial) ? "—" : ""}</div></div>
-      <button class="kebab" title="More">⋯</button>
+      <button class="rowbtn edit" title="Rename">✎</button>
+      <button class="rowbtn kebab" title="More">⋯</button>
     </div>
     <div class="menu">
       <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>Connect to Wi-Fi…</button>
-      <button class="mi-rename">Rename</button>
     </div>
     <div class="form">
       ${canConnect ? "" : '<div class="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>'}
@@ -321,12 +324,12 @@ els.list.addEventListener("click", (e) => {
   if (!dog) return
   const key = dog.dataset.key
 
+  if (e.target.closest(".edit")) { editKey = key; menuKey = null; render(); return }
   if (e.target.closest(".kebab")) { menuKey = (menuKey === key) ? null : key; render(); return }
   if (e.target.closest(".mi-connect")) {
     if (e.target.disabled) return
     formKey = key; menuKey = null; render(); return
   }
-  if (e.target.closest(".mi-rename")) { editKey = key; menuKey = null; render(); return }
   if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
 })
 
