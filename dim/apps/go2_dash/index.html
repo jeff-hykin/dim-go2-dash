@@ -102,6 +102,39 @@
     border-radius: var(--radius); padding: 3px 7px; }
   .rename:focus { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); }
 
+  /* compact "Connect" button on the row (dogs that are on the network) */
+  .connect { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
+    letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; flex: none;
+    color: var(--primary-fg); background: var(--primary); border: 1px solid var(--primary);
+    border-radius: var(--radius); padding: 4px 10px; transition: background .14s; }
+  .connect:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
+  .dog.launch-open .connect { color: var(--fg); background: var(--card); border-color: var(--border); }
+
+  /* mini blueprint launcher (expands under a connected dog) */
+  .launcher { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
+  .dog.launch-open .launcher { display: block; }
+  .lh { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .lh-t { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-fg); }
+  .lh-ip { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted-fg);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .bp-filter { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 12px;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--input); border-radius: var(--radius);
+    padding: 6px 9px; margin-bottom: 6px; }
+  .bp-filter:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+  .bp-list { max-height: 184px; overflow: auto; }
+  .bp { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: var(--radius); }
+  .bp:hover { background: var(--accent); }
+  .bp-n { flex: 1; min-width: 0; font-size: 12px; font-family: var(--mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bp-go { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; flex: none;
+    color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 3px 9px; transition: background .14s, border-color .14s; }
+  .bp-go:hover { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+  .bp-none { font-size: 12px; color: var(--muted-fg); padding: 10px 6px; }
+  .launch-msg { margin-top: 7px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--muted-fg); }
+  .launch-msg .ok { color: color-mix(in oklch, var(--ok) 80%, var(--fg)); }
+  .launch-msg .err { color: color-mix(in oklch, var(--danger) 80%, var(--fg)); }
+
   /* connect form */
   .form { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
   .dog.form-open .form { display: block; }
@@ -180,8 +213,12 @@ let devices = []       // [{serial,name,ble_mac,ip,lan_mac,customName}]
 let scanning = false
 let hasPython = true
 let menuKey = null     // ⋯ menu open for this dog
-let formKey = null     // connect form open for this dog
+let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
+let launchKey = null   // blueprint launcher open for this dog
+let go2Blueprints = [] // dimos blueprint names containing "go2"
+let bpState = "loading" // loading | ready | error
+let bpError = null
 
 function keyOf(d) { return d.serial || d.ble_mac || "" }
 function btId(d) { return d.ble_mac || d.serial || "" }
@@ -210,6 +247,7 @@ function dogHtml(d) {
   const classes = ["dog"]
   if (menuKey === key) classes.push("menu-open", "active")
   if (formKey === key) classes.push("form-open", "active")
+  if (launchKey === key) classes.push("launch-open", "active")
   const nameCell = (editKey === key)
     ? `<input class="rename" value="${esc(nameOf(d))}" />`
     : `<div class="nm">${esc(nameOf(d))}</div>`
@@ -220,12 +258,14 @@ function dogHtml(d) {
     <div class="row">
       <span class="av" style="background:${colorFor(btId(d))}"></span>
       <div class="meta">${nameCell}<div class="sub">${ip}${serial}${(!ip && !serial) ? "—" : ""}</div></div>
+      ${d.ip ? `<button class="connect" title="Launch a Go2 blueprint against this robot">${launchKey === key ? "Close" : "Connect"}</button>` : ""}
       <button class="rowbtn edit" title="Rename">✎</button>
       <button class="rowbtn kebab" title="More">⋯</button>
     </div>
     <div class="menu">
       <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>Connect to Wi-Fi…</button>
     </div>
+    ${launchKey === key ? launcherHtml(d) : ""}
     <div class="form">
       ${canConnect ? "" : '<div class="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>'}
       <div class="fld"><label>Wifi SSID</label><input class="f-ssid" placeholder="network name" ${canConnect ? "" : "disabled"} /></div>
@@ -237,6 +277,33 @@ function dogHtml(d) {
       <div class="log f-log"></div>
     </div>
   </div>`
+}
+
+// Mini launcher: only dimos blueprints whose name mentions go2, launched against
+// this robot's ip. The Deno backend does the actual launch (assumes bridge up).
+function launcherHtml(d) {
+  let body
+  if (bpState === "loading") body = '<div class="bp-none">Loading blueprints…</div>'
+  else if (bpState === "error") body = `<div class="bp-none">Couldn't load blueprints${bpError ? " — " + esc(bpError) : ""}.</div>`
+  else if (!go2Blueprints.length) body = '<div class="bp-none">No Go2 blueprints found.</div>'
+  else body = `<input class="bp-filter" placeholder="filter blueprints…" />
+    <div class="bp-list">${go2Blueprints.map(bp => `<div class="bp" data-bp="${esc(bp)}"><span class="bp-n">${esc(bp)}</span><button class="bp-go" title="Launch">▷ Launch</button></div>`).join("")}</div>`
+  return `<div class="launcher">
+    <div class="lh"><span class="lh-t">Go2 Blueprints</span><span class="lh-ip">${esc(d.ip)}</span></div>
+    ${body}
+    <div class="launch-msg"></div>
+  </div>`
+}
+
+async function fetchBlueprints() {
+  try {
+    const res = await fetch("/api/blueprints")
+    const data = await res.json()
+    if (!data || data.ok === false) { bpState = "error"; bpError = data && data.error; render(); return }
+    go2Blueprints = (data.blueprints || []).filter(n => /go2/i.test(n)).sort()
+    bpState = "ready"
+  } catch (err) { bpState = "error"; bpError = err.message }
+  render()
 }
 
 function render() {
@@ -280,6 +347,13 @@ dimApp.receiveRequest((tag, msg) => {
     case "renamed": {
       const d = devices.find(x => keyOf(x) === msg.key)
       if (d) { d.customName = msg.customName || undefined; render() }
+      break
+    }
+    case "launch_result": {
+      const el = els.list.querySelector(`.dog[data-key="${cssEsc(launchKey)}"] .launch-msg`)
+      if (el) el.innerHTML = msg.ok
+        ? `<span class="ok">✓ Launched ${esc(msg.name)}${msg.pid ? " (pid " + msg.pid + ")" : ""}</span>`
+        : `<span class="err">✗ ${esc(msg.name)}: ${esc(msg.error || "failed")}</span>`
       break
     }
     case "progress": appendLog(msg.msg); break
@@ -330,7 +404,32 @@ els.list.addEventListener("click", (e) => {
     if (e.target.disabled) return
     formKey = key; menuKey = null; render(); return
   }
+  if (e.target.closest(".connect")) {
+    launchKey = (launchKey === key) ? null : key
+    menuKey = null
+    render()
+    if (launchKey && bpState !== "ready") fetchBlueprints()
+    return
+  }
+  if (e.target.closest(".bp-go")) {
+    const bp = e.target.closest(".bp")?.dataset.bp
+    const d = devices.find(x => keyOf(x) === key)
+    if (!bp || !d) return
+    const el = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"] .launch-msg`)
+    if (el) el.innerHTML = `Launching ${esc(bp)}…`
+    dimApp.send("launch", { name: bp, ip: d.ip })
+    return
+  }
   if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
+})
+
+// blueprint filter (direct DOM so the input keeps focus)
+els.list.addEventListener("input", (e) => {
+  if (!e.target.classList.contains("bp-filter")) return
+  const q = e.target.value.trim().toLowerCase()
+  e.target.closest(".launcher").querySelectorAll(".bp").forEach(row => {
+    row.style.display = row.dataset.bp.toLowerCase().includes(q) ? "" : "none"
+  })
 })
 
 // rename: commit on Enter / blur, cancel on Escape
@@ -371,7 +470,7 @@ function startConnect(key) {
 }
 
 els.scan.addEventListener("click", () => {
-  devices = []; menuKey = formKey = editKey = null
+  devices = []; menuKey = formKey = editKey = launchKey = null
   dimApp.send("scan", { timeout: 7 })
 })
 
@@ -383,6 +482,7 @@ els.slide.addEventListener("click", () => setSlid(true))
 els.reopen.addEventListener("click", () => setSlid(false))
 
 dimApp.send("hello")
+fetchBlueprints()
 render()
 </script>
 </body>

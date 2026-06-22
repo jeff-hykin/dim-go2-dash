@@ -132,6 +132,29 @@ dimApp.onReceive((kind, payload) => {
         sendToSidecar({ type: "scan", timeout: (payload && payload.timeout) || 7 })
     } else if (kind === "connect") {
         sendToSidecar({ type: "connect", ...(payload || {}) })
+    } else if (kind === "launch") {
+        // Launch a dimos blueprint via the dashboard's own API (we run inside
+        // that same Deno process). Assumes the python bridge is already up. The
+        // robot ip is forwarded for the eventual per-robot launch API — the
+        // current /api/launch ignores it, which is harmless.
+        const name = payload && payload.name
+        if (!name) return
+        const ip = payload && payload.ip
+        const port = Deno.env.get("DIM_DASHBOARD_PORT") || "1024"
+        const dhost = Deno.env.get("DIM_DASHBOARD_HOST") || "127.0.0.1"
+        ;(async () => {
+            try {
+                const res = await fetch(`http://${dhost}:${port}/api/launch`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ name, ip }),
+                })
+                const data = await res.json().catch(() => ({}))
+                dimApp.send("go2", { type: "launch_result", name, ok: !!data.ok, pid: data.pid, error: data.error })
+            } catch (err) {
+                dimApp.send("go2", { type: "launch_result", name, ok: false, error: err.message })
+            }
+        })()
     } else if (kind === "rename") {
         const key = payload && payload.key
         if (!key) return
