@@ -12,6 +12,10 @@ provisioning **Unitree Go2** robots.
 It's a side panel that slides away once a dog is connected, leaving the stage for
 the per-dog dashboard to come (battery, camera, blueprints, keyboard controls, …).
 
+| Discover | Connect to Wi-Fi |
+| --- | --- |
+| ![Discovering nearby Go2s](docs/discover.png) | ![Sending Wi-Fi credentials to a Go2](docs/connect-wifi.png) |
+
 ## How it works
 
 BLE scanning and the wifi handshake both go through CoreBluetooth, so this can't
