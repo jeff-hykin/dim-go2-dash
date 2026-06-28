@@ -27,6 +27,76 @@
   .stage .empty p { font-size: 13px; line-height: 1.5; margin: 0; }
   .stage.connected .glyph { opacity: 1; }
 
+  /* ── live control dashboard (fills the stage when driving a dog) ── */
+  .ctl { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 16px 16px 16px 344px;
+    gap: 14px; box-sizing: border-box; }
+  .panel.slid ~ .ctl { padding-left: 16px; } /* reclaim space when the panel slides away */
+  .ctl-head { display: flex; align-items: center; gap: 12px; flex: none; }
+  .ctl-head .nm { font-size: 16px; font-weight: 600; letter-spacing: .01em; }
+  .ctl-head .ip { font-family: var(--mono); font-size: 11px; }
+  .ctl-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase; color: var(--muted-fg);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+  .ctl-pill .d { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-fg); }
+  .ctl-pill.connecting { color: var(--primary); } .ctl-pill.connecting .d { background: var(--primary); animation: pulse 1s ease-in-out infinite; }
+  .ctl-pill.ready { color: var(--ok); } .ctl-pill.ready .d { background: var(--ok); }
+  .ctl-pill.error { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); } .ctl-pill.error .d { background: var(--danger); }
+  .ctl-head .spacer { flex: 1; }
+
+  /* camera viewport */
+  .cam-wrap { flex: 1; position: relative; min-height: 0; border-radius: calc(var(--radius) * 1.4);
+    overflow: hidden; background: #000; border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; }
+  .cam-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: none; }
+  .cam-wrap.live img { display: block; }
+  .cam-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 10px; color: var(--muted-fg); font-size: 13px; text-align: center; padding: 24px; }
+  .cam-wrap.live .cam-ph { display: none; }
+  .cam-ph .glyph { font-size: 40px; opacity: .5; }
+  /* keyboard hint overlaid on the camera */
+  .drive-hint { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; align-items: center;
+    font-size: 11px; color: var(--fg); background: color-mix(in oklch, black 55%, transparent);
+    border: 1px solid color-mix(in oklch, white 14%, transparent); border-radius: var(--radius);
+    padding: 7px 11px; backdrop-filter: blur(3px); }
+  .drive-hint b { font-family: var(--mono); font-weight: 600; }
+  .vel { position: absolute; right: 12px; bottom: 12px; font-family: var(--mono); font-size: 10.5px;
+    color: var(--fg); background: color-mix(in oklch, black 55%, transparent);
+    border: 1px solid color-mix(in oklch, white 14%, transparent); border-radius: var(--radius);
+    padding: 6px 9px; min-width: 118px; backdrop-filter: blur(3px); }
+  .vel.on { border-color: color-mix(in oklch, var(--primary) 60%, transparent); }
+
+  /* action bar */
+  .ctl-actions { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  .act { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+    letter-spacing: .03em; color: var(--fg); background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 8px 14px; transition: background .14s, border-color .14s; }
+  .act:hover { background: var(--accent); border-color: var(--ring); }
+  .act:active { transform: translateY(1px); }
+  .act.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
+  .act.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
+  .act.ok { border-color: var(--ok); color: var(--ok); }
+  .act.err { border-color: var(--danger); color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
+  .ctl-actions .gap { flex: 1; }
+
+  /* on-screen d-pad (click-and-hold, mirrors the keyboard) */
+  .dpad { flex: none; display: grid; grid-template-columns: repeat(5, 44px); grid-template-rows: 44px 44px;
+    gap: 6px; justify-content: start; }
+  .dbtn { appearance: none; cursor: pointer; user-select: none; touch-action: none; font: inherit; font-size: 17px;
+    color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center; }
+  .dbtn:hover { background: var(--accent); }
+  .dbtn.held { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+  .dbtn.fwd { grid-column: 3; grid-row: 1; }
+  .dbtn.left { grid-column: 2; grid-row: 2; }
+  .dbtn.back { grid-column: 3; grid-row: 2; }
+  .dbtn.right { grid-column: 4; grid-row: 2; }
+  .dbtn.sl { grid-column: 1; grid-row: 2; } .dbtn.sr { grid-column: 5; grid-row: 2; }
+
+  .ctl-err { flex: none; font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    color: color-mix(in oklch, var(--danger) 82%, var(--fg)); padding: 10px 12px; border-radius: var(--radius);
+    background: color-mix(in oklch, var(--danger) 10%, var(--card));
+    border: 1px solid color-mix(in oklch, var(--danger) 32%, var(--border)); }
+
   /* ── floating panel (left) ── */
   .panel { position: fixed; left: 16px; top: 16px; bottom: 16px; width: 312px;
     display: flex; flex-direction: column; background: var(--card);
@@ -73,18 +143,49 @@
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 1px 3px -1px rgba(0,0,0,.5); }
   .meta { flex: 1; min-width: 0; }
   .nm { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); margin-top: 1px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 13px; }
-  .sub .serial { opacity: 0; transition: opacity .14s; }
+  .sub { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); margin-top: 2px;
+    display: flex; align-items: center; gap: 6px; min-height: 16px; }
+  /* IP shows as a click-to-copy chip that never shrinks (the Connect button used
+     to crowd it into an ellipsis). The serial stays hover-revealed + truncating. */
+  .ip { flex: none; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 999px; padding: 1px 7px; line-height: 1.5; transition: color .14s, border-color .14s; }
+  .ip:hover { color: var(--primary); border-color: var(--ring); }
+  .ip .cp { font-size: 9px; opacity: .55; }
+  .ip.copied { color: var(--ok); border-color: var(--ok); }
+  .ip.copied .cp { opacity: 1; }
+  .sub .serial { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    opacity: 0; transition: opacity .14s; }
   .dog:hover .sub .serial { opacity: .8; }
+  /* "waiting for IP" status (after provisioning, before it shows on the network) */
+  .waiting { flex: none; display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--sans, system-ui); font-size: 10.5px; color: var(--muted-fg); }
+  .waiting .wd { width: 6px; height: 6px; border-radius: 50%; background: var(--primary);
+    animation: pulse 1s ease-in-out infinite; }
   .rowbtn { appearance: none; cursor: pointer; font: inherit; line-height: 1; color: var(--muted-fg);
     background: transparent; border: 0; border-radius: var(--radius); width: 24px; height: 24px; flex: none;
     display: inline-flex; align-items: center; justify-content: center;
     opacity: 0; transition: opacity .14s, color .14s; }
   .edit { font-size: 13px; }
   .kebab { font-size: 16px; }
+  .info { font-size: 13px; }
+  .dog.details-open .info { color: var(--primary); opacity: 1; }
   .dog:hover .rowbtn, .dog.active .rowbtn { opacity: 1; }
   .rowbtn:hover { color: var(--fg); }
+
+  /* details panel (ⓘ) — every identifier we know, each click-to-copy */
+  .details { margin: 8px 2px 2px; padding: 8px 10px; border-radius: var(--radius);
+    background: var(--bg); border: 1px solid var(--border); }
+  .d-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11.5px; }
+  .d-row + .d-row { border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent); }
+  .d-k { flex: none; width: 92px; color: var(--muted-fg); }
+  .d-v { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+    font-family: var(--mono); color: var(--fg); word-break: break-all; }
+  .d-v .cp { font-size: 9px; opacity: .5; flex: none; }
+  .d-v:hover { color: var(--primary); }
+  .d-v.copied { color: var(--ok); }
+  .d-v.copied .cp { opacity: 1; }
+  .d-empty { font-size: 11.5px; color: var(--muted-fg); }
 
   /* ⋯ dropdown */
   .menu { position: absolute; right: 8px; top: 38px; z-index: 5; min-width: 152px;
@@ -109,6 +210,14 @@
     border-radius: var(--radius); padding: 4px 10px; transition: background .14s; }
   .connect:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
   .dog.launch-open .connect { color: var(--fg); background: var(--card); border-color: var(--border); }
+
+  /* "Drive" button — opens the live control dashboard for this dog */
+  .drive { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
+    letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; flex: none;
+    color: var(--fg); background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 4px 10px; transition: background .14s, border-color .14s; }
+  .drive:hover { background: var(--accent); border-color: var(--ring); }
+  .dog.driving .drive { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
 
   /* mini blueprint launcher (expands under a connected dog) */
   .launcher { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
@@ -152,6 +261,33 @@
   .log .ok { color: color-mix(in oklch, var(--ok) 80%, var(--fg)); }
   .log .err { color: color-mix(in oklch, var(--danger) 80%, var(--fg)); }
 
+  /* "you're on a different network" warning under the SSID field */
+  .f-warn { display: none; margin: -3px 0 9px; font-size: 11px; line-height: 1.45; padding: 6px 8px;
+    border-radius: var(--radius); color: color-mix(in oklch, var(--danger) 78%, var(--fg));
+    background: color-mix(in oklch, var(--danger) 12%, var(--card));
+    border: 1px solid color-mix(in oklch, var(--danger) 35%, var(--border)); }
+  .f-warn.show { display: block; }
+  .f-hint { margin: -3px 0 9px; font-size: 10.5px; line-height: 1.45; color: var(--muted-fg); }
+
+  /* ARP fallback: warning banner + unverified dog card */
+  .arp-warn { font-size: 11px; line-height: 1.5; margin: 2px 2px 9px; padding: 8px 10px; border-radius: var(--radius);
+    color: color-mix(in oklch, var(--warn, #e2a23b) 82%, var(--fg));
+    background: color-mix(in oklch, var(--warn, #e2a23b) 13%, var(--card));
+    border: 1px solid color-mix(in oklch, var(--warn, #e2a23b) 38%, var(--border)); }
+  .arp-warn b { color: color-mix(in oklch, var(--warn, #e2a23b) 90%, var(--fg)); }
+  .dog.arp { border: 1px dashed color-mix(in oklch, var(--warn, #e2a23b) 45%, var(--border)); }
+  .av.arp-av { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; box-shadow: none;
+    color: color-mix(in oklch, var(--warn, #e2a23b) 88%, var(--fg));
+    background: color-mix(in oklch, var(--warn, #e2a23b) 22%, var(--card)); }
+  .arp-tag { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-left: 6px;
+    color: color-mix(in oklch, var(--warn, #e2a23b) 82%, var(--fg)); white-space: nowrap;
+    border: 1px solid color-mix(in oklch, var(--warn, #e2a23b) 42%, var(--border)); border-radius: 999px; padding: 1px 6px; }
+
+  /* inline glyphs that disambiguate dog→wifi vs computer→dog actions */
+  .ic { width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; flex: none; }
+  .connect .ic { width: 12px; height: 12px; margin-right: 4px; }
+  .menu button .ic { width: 12px; height: 12px; margin-right: 6px; }
+
   /* reopen tab (left edge, visible when panel is slid away) */
   .reopen { position: fixed; top: 50%; left: 0; transform: translateY(-50%);
     writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px; font-size: 11px;
@@ -159,6 +295,26 @@
     background: var(--primary); border-radius: 0 var(--radius) var(--radius) 0;
     box-shadow: 4px 0 14px -8px rgba(0,0,0,.5); display: none; }
   .reopen.show { display: block; }
+
+  /* collapsible "not connecting?" help at the bottom of the panel */
+  .p-help { flex: none; border-top: 1px solid var(--border); padding: 7px 14px 11px; }
+  .help-toggle { appearance: none; cursor: pointer; font: inherit; font-size: 11.5px; color: var(--muted-fg);
+    background: transparent; border: 0; padding: 4px 0; display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; }
+  .help-toggle:hover { color: var(--fg); }
+  .help-toggle .hc { transition: transform .15s; font-size: 9px; }
+  .p-help.open .help-toggle .hc { transform: rotate(90deg); }
+  .help-body { display: none; font-size: 11.5px; line-height: 1.5; color: var(--muted-fg); margin-top: 3px; }
+  .p-help.open .help-body { display: block; }
+  .help-body p { margin: 6px 0; }
+  .help-body b { color: var(--fg); font-weight: 600; }
+  .help-body ul { margin: 6px 0; padding-left: 15px; }
+  .help-body li { margin: 5px 0; }
+  .help-body code { font-family: var(--mono); font-size: 10.5px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  .help-cmd { font-family: var(--mono); font-size: 10.5px; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; margin: 5px 0; overflow-x: auto;
+    white-space: pre; cursor: pointer; transition: border-color .12s; }
+  .help-cmd:hover { border-color: var(--ring); }
+  .help-cmd.copied { border-color: var(--ok); color: var(--ok); }
 </style>
 </head>
 <body class="science">
@@ -183,9 +339,26 @@
     <div class="list" id="list">
       <div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>
     </div>
+    <div class="p-help" id="p-help">
+      <button class="help-toggle" id="help-toggle"><span class="hc">▸</span>A dog shows but never gets an IP?</button>
+      <div class="help-body">
+        <p>A Go2 is found over <b>Bluetooth</b>, but its IP only appears once it's discovered on your <b>network</b>. If the IP never shows:</p>
+        <ul>
+          <li>Make sure the dog joined the <b>same Wi-Fi</b> as this computer.</li>
+          <li>On macOS a <b>VPN</b> can block LAN discovery. If yours <b>hijacks the route</b> (Tailscale &amp; other tun VPNs), route the Go2 discovery group out your Wi-Fi (swap <code>en0</code> for your Wi-Fi device):</li>
+        </ul>
+        <pre class="help-cmd" id="help-cmd" title="Click to copy">sudo route -n add -host 231.1.1.1 -interface en0</pre>
+        <ul>
+          <li>If your VPN has a <b>kill-switch firewall</b> (Mullvad &amp; co.), the route won't help — enable “local network sharing” (then reconnect), or temporarily disconnect the VPN.</li>
+        </ul>
+        <p>Then press <b>Scan</b> again.</p>
+      </div>
+    </div>
   </div>
 
   <div class="reopen" id="reopen">Go2 Setup</div>
+
+  <div class="ctl" id="ctl" style="display:none"></div>
 
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/frontend.js"
@@ -204,6 +377,7 @@ const els = {
   reopen: document.getElementById("reopen"),
   slide: document.getElementById("slide"),
   stage: document.getElementById("stage"),
+  ctl: document.getElementById("ctl"),
   stageGlyph: document.getElementById("stage-glyph"),
   stageTitle: document.getElementById("stage-title"),
   stageMsg: document.getElementById("stage-msg"),
@@ -216,11 +390,36 @@ let menuKey = null     // ⋯ menu open for this dog
 let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
 let launchKey = null   // blueprint launcher open for this dog
+let detailsKey = null  // details panel open for this dog
 let go2Blueprints = [] // dimos blueprint names containing "go2"
 let bpState = "loading" // loading | ready | error
 let bpError = null
+let hostSsid = ""      // wifi SSID this computer is on (from the backend)
+let hostSsidStatus = "unknown" // ok | redacted | unknown
+const awaitingIp = new Set()   // dog keys provisioned but not yet seen on the network
 
-function keyOf(d) { return d.serial || d.ble_mac || "" }
+// ── live control (WebRTC drive) state ──
+let controlKey = null          // dog key currently being driven (null = not driving)
+let controlStatus = "idle"     // idle | connecting | ready | error | closed
+let controlError = ""          // last error string when status === "error"
+let sawVideo = false           // first camera frame seen yet
+const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
+let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
+
+// Two different "connects" live in this panel, so each gets its own glyph:
+//   • dog → wifi  (provision the robot onto a network)  → wifi waves
+//   • computer → dog (open this machine's link to the robot) → link/chain
+const ICON_WIFI = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 11.5a12 12 0 0 1 16 0"/><path d="M7.5 15a7 7 0 0 1 9 0"/><circle cx="12" cy="18.5" r="1.15" fill="currentColor" stroke="none"/></svg>'
+const ICON_LINK = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5l5-5"/><path d="M11 6.8l1.1-1.1a3.6 3.6 0 0 1 5.1 5.1l-1.1 1.1"/><path d="M13 17.2l-1.1 1.1a3.6 3.6 0 0 1-5.1-5.1l1.1-1.1"/></svg>'
+const ICON_DRIVE = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="10" rx="4"/><path d="M7 12h3M8.5 10.5v3"/><circle cx="16" cy="11" r=".6" fill="currentColor"/><circle cx="18" cy="13.5" r=".6" fill="currentColor"/></svg>'
+
+// Last-used wifi creds, kept in localStorage so the next dog autofills.
+const WIFI_LS = "go2dash.wifi"
+function savedWifi() { try { return JSON.parse(localStorage.getItem(WIFI_LS)) || {} } catch { return {} } }
+function saveWifi(w) { try { localStorage.setItem(WIFI_LS, JSON.stringify(w)) } catch { /* private mode */ } }
+let lastAttempt = null // creds of the in-flight connect, saved once it succeeds
+
+function keyOf(d) { return d.serial || d.ble_mac || d.ip || "" }
 function btId(d) { return d.ble_mac || d.serial || "" }
 function nameOf(d) {
   return d.customName || d.name || (d.serial ? "Go2 " + d.serial.slice(-5) : (d.ble_mac || "Unknown Go2"))
@@ -241,6 +440,31 @@ function setStatus(text, cls) {
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])) }
 function cssEsc(s) { return String(s).replace(/["\\]/g, "\\$&") }
 
+// Copy with a fallback for sandboxed iframes where navigator.clipboard is blocked.
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true } catch { /* fall through */ }
+  try {
+    const ta = document.createElement("textarea")
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0"
+    document.body.appendChild(ta); ta.focus(); ta.select()
+    const ok = document.execCommand("copy"); ta.remove(); return ok
+  } catch { return false }
+}
+
+// Details panel: every field we know about this dog, each click-to-copy.
+function detailRow(label, value) {
+  if (!value) return ""
+  return `<div class="d-row"><span class="d-k">${label}</span><span class="d-v copyable" data-copy="${esc(value)}" title="Click to copy">${esc(value)}<span class="cp">⧉</span></span></div>`
+}
+function detailsHtml(d) {
+  const rows = detailRow("Bluetooth name", d.name)
+    + detailRow("Serial", d.serial)
+    + detailRow("Bluetooth ID", d.ble_mac)
+    + detailRow("IP address", d.ip)
+    + detailRow("LAN MAC", d.lan_mac)
+  return `<div class="details">${rows || '<div class="d-empty">No identifiers yet.</div>'}</div>`
+}
+
 function dogHtml(d) {
   const key = keyOf(d)
   const canConnect = !!d.ble_mac
@@ -248,32 +472,52 @@ function dogHtml(d) {
   if (menuKey === key) classes.push("menu-open", "active")
   if (formKey === key) classes.push("form-open", "active")
   if (launchKey === key) classes.push("launch-open", "active")
+  if (detailsKey === key) classes.push("details-open", "active")
+  if (controlKey === key) classes.push("driving", "active")
   const nameCell = (editKey === key)
     ? `<input class="rename" value="${esc(nameOf(d))}" />`
     : `<div class="nm">${esc(nameOf(d))}</div>`
-  // sub-line: IP always shown if present; serial revealed on hover
-  const ip = d.ip ? `<span class="ip">${esc(d.ip)}</span>` : ""
-  const serial = d.serial ? `<span class="serial">${d.ip ? " · " : ""}${esc(d.serial)}</span>` : ""
+  // sub-line: IP as a click-to-copy chip (always fully visible); serial on hover
+  const ip = d.ip ? `<span class="ip" data-ip="${esc(d.ip)}" title="Click to copy IP">${esc(d.ip)}<span class="cp">⧉</span></span>` : ""
+  const serial = d.serial ? `<span class="serial">${esc(d.serial)}</span>` : ""
+  // after provisioning, show we're waiting for it to appear on the network
+  const waiting = (!d.ip && awaitingIp.has(key)) ? `<span class="waiting"><span class="wd"></span>waiting for IP…</span>` : ""
+  // form prefill: SSID = this computer's network (so the dog lands where we can
+  // reach it), else the last network we used; password reused only if it goes
+  // with that same SSID.
+  const sw = savedWifi()
+  const ssidVal = (hostSsidStatus === "ok" ? hostSsid : "") || sw.ssid || ""
+  const passVal = (sw.ssid && sw.ssid === ssidVal) ? (sw.password || "") : ""
+  const countryVal = sw.country || "US"
+  // macOS hides the SSID without Location Services — say so instead of misfiring.
+  const ssidHint = hostSsidStatus === "redacted"
+    ? `<div class="f-hint">macOS hid this Mac's Wi-Fi name (grant the dashboard Location Services to enable the same-network check).</div>`
+    : ""
   return `<div class="${classes.join(" ")}" data-key="${esc(key)}">
     <div class="row">
       <span class="av" style="background:${colorFor(btId(d))}"></span>
-      <div class="meta">${nameCell}<div class="sub">${ip}${serial}${(!ip && !serial) ? "—" : ""}</div></div>
-      ${d.ip ? `<button class="connect" title="Launch a Go2 blueprint against this robot">${launchKey === key ? "Close" : "Connect"}</button>` : ""}
+      <div class="meta">${nameCell}<div class="sub">${ip}${waiting}${serial}${(!ip && !waiting && !serial) ? "—" : ""}</div></div>
+      ${d.ip ? `<button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Stop" : ICON_DRIVE + "Drive"}</button>` : ""}
+      ${d.ip ? `<button class="connect" title="Connect this computer to the robot (launch a Go2 blueprint)">${launchKey === key ? "Close" : ICON_LINK + "Connect"}</button>` : ""}
+      <button class="rowbtn info" title="Details">ⓘ</button>
       <button class="rowbtn edit" title="Rename">✎</button>
       <button class="rowbtn kebab" title="More">⋯</button>
     </div>
+    ${detailsKey === key ? detailsHtml(d) : ""}
     <div class="menu">
-      <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>Connect to Wi-Fi…</button>
+      <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>${ICON_WIFI}Connect to Wi-Fi…</button>
     </div>
     ${launchKey === key ? launcherHtml(d) : ""}
     <div class="form">
       ${canConnect ? "" : '<div class="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>'}
-      <div class="fld"><label>Wifi SSID</label><input class="f-ssid" placeholder="network name" ${canConnect ? "" : "disabled"} /></div>
+      <div class="fld"><label>Wifi SSID — connect the dog to a network</label><input class="f-ssid" placeholder="network name" value="${esc(ssidVal)}" ${canConnect ? "" : "disabled"} /></div>
+      <div class="f-warn"></div>
+      ${ssidHint}
       <div class="two">
-        <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" ${canConnect ? "" : "disabled"} /></div>
-        <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="US" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
+        <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" value="${esc(passVal)}" ${canConnect ? "" : "disabled"} /></div>
+        <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="${esc(countryVal)}" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
       </div>
-      <div class="actions"><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>Connect</button></div>
+      <div class="actions"><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button></div>
       <div class="log f-log"></div>
     </div>
   </div>`
@@ -306,6 +550,22 @@ async function fetchBlueprints() {
   render()
 }
 
+// ARP-fallback card: an IP found on the LAN (via the OS ARP table) that the real
+// Go2 discovery couldn't confirm — flagged unverified, with no name/serial to tie
+// it to a specific dog.
+function arpDogHtml(d) {
+  const key = keyOf(d)
+  return `<div class="dog arp" data-key="${esc(key)}">
+    <div class="row">
+      <span class="av arp-av" title="Found via ARP — unverified">⚠</span>
+      <div class="meta">
+        <div class="nm">Possible Go2 <span class="arp-tag">ARP · unverified</span></div>
+        <div class="sub"><span class="ip" data-ip="${esc(d.ip)}" title="Click to copy IP">${esc(d.ip)}<span class="cp">⧉</span></span>${d.lan_mac ? `<span class="serial">${esc(d.lan_mac)}</span>` : ""}</div>
+      </div>
+    </div>
+  </div>`
+}
+
 function render() {
   if (!hasPython) {
     els.list.innerHTML = '<div class="none">The dimos venv isn\'t available, so BLE discovery can\'t run.<br />Open this from a dashboard with dimos installed.</div>'
@@ -317,19 +577,51 @@ function render() {
       : '<div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>'
     return
   }
-  els.list.innerHTML = devices.map(dogHtml).join("")
+  const arpCount = devices.filter(d => d.arp_only).length
+  const banner = arpCount
+    ? `<div class="arp-warn"><b>⚠ ${arpCount} found only via ARP fallback.</b> An IP is live on your network but the normal Go2 discovery couldn't confirm it — likely a VPN blocking discovery. The IP is real, but it can't be matched to a specific dog's name/serial, so treat it as unverified.</div>`
+    : ""
+  els.list.innerHTML = banner + devices.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
   if (editKey) {
     const inp = els.list.querySelector(`.dog[data-key="${cssEsc(editKey)}"] .rename`)
     if (inp) { inp.focus(); inp.select() }
   }
+  if (formKey) updateWarn(els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"]`))
 }
 
-// ── events from the backend (tag "go2") ──
+// ── events from the live-control communicator go2_control.py (tag "go2ctl") ──
+dimApp.receiveRequest((tag, msg) => {
+  if (tag !== "go2ctl") return
+  switch (msg.type) {
+    case "connecting": controlStatus = "connecting"; renderControl(); break
+    case "ready": controlStatus = "ready"; renderControl(); break
+    case "error":
+      controlStatus = "error"; controlError = msg.error || "connection failed"; renderControl(); break
+    case "video": sawVideo = true; renderControl(); break
+    case "frame": {
+      const img = document.getElementById("cam")
+      if (img) img.src = "data:image/jpeg;base64," + msg.data
+      const wrap = document.getElementById("cam-wrap")
+      if (wrap && !wrap.classList.contains("live")) wrap.classList.add("live")
+      break
+    }
+    case "action_result": flashAction(msg.name, msg.ok); break
+    case "closed":
+      // backend lost / closed the control process — drop back to the idle stage
+      if (controlKey) { controlKey = null; controlStatus = "idle"; pressed.clear(); moving = false; render() }
+      break
+    case "warn": break // non-fatal (bad frame, transient video hiccup)
+  }
+})
+
+// ── events from the discovery backend (tag "go2") ──
 dimApp.receiveRequest((tag, msg) => {
   if (tag !== "go2") return
   switch (msg.type) {
     case "snapshot":
       hasPython = msg.hasPython
+      hostSsid = msg.hostSsid || ""
+      hostSsidStatus = msg.hostSsidStatus || "unknown"
       devices = msg.devices || []
       render(); break
     case "scan_start":
@@ -340,8 +632,23 @@ dimApp.receiveRequest((tag, msg) => {
       render(); break
     case "device": {
       const key = keyOf(msg)
+      // dedupe: a serial-bearing record supersedes any serial-less card for the
+      // same BLE id (belt-and-suspenders alongside the backend's drop event)
+      if (msg.serial && msg.ble_mac) {
+        devices = devices.filter(d => d.serial || d.ble_mac !== msg.ble_mac)
+      }
+      if (msg.ip) awaitingIp.delete(key) // it showed up on the network
       const i = devices.findIndex(d => keyOf(d) === key)
       if (i >= 0) devices[i] = { ...devices[i], ...msg }; else devices.push(msg)
+      render(); break
+    }
+    case "drop": {
+      devices = devices.filter(d => keyOf(d) !== msg.key)
+      if (menuKey === msg.key) menuKey = null
+      if (formKey === msg.key) formKey = null
+      if (editKey === msg.key) editKey = null
+      if (launchKey === msg.key) launchKey = null
+      if (controlKey === msg.key) stopControl()
       render(); break
     }
     case "renamed": {
@@ -358,12 +665,32 @@ dimApp.receiveRequest((tag, msg) => {
     }
     case "progress": appendLog(msg.msg); break
     case "connect_result":
-      if (msg.ok) { appendLog("✓ Connected" + (msg.serial ? " — serial " + msg.serial : ""), "ok"); onConnected() }
-      else { appendLog("✗ " + (msg.error || "failed"), "err"); setBusy(false) }
+      if (msg.ok) {
+        appendLog("✓ Wi-Fi credentials accepted" + (msg.serial ? " — serial " + msg.serial : ""), "ok")
+        if (lastAttempt) saveWifi(lastAttempt) // remember working creds for the next dog
+        if (formKey) awaitingIp.add(formKey) // now wait for it to appear on the network
+        onConnected()
+      } else { appendLog("✗ " + (msg.error || "failed"), "err"); setBusy(false) }
       break
     case "warn": break // non-fatal (e.g. a LAN interface w/o route)
   }
 })
+
+// Warn (don't block) when the SSID being sent isn't the network this computer is
+// on — a dog there can't be reached or discovered from here.
+function mismatchMsg(ssid) {
+  // only warn when we actually know this machine's network (not redacted/unknown)
+  if (hostSsidStatus !== "ok" || !hostSsid || !ssid || ssid === hostSsid) return ""
+  return `⚠ This computer is on “${hostSsid}”, not “${ssid}”. A dog put on “${ssid}” won't be reachable or get an IP here unless you also move this machine onto “${ssid}”.`
+}
+function updateWarn(root) {
+  if (!root) return
+  const inp = root.querySelector(".f-ssid"), warn = root.querySelector(".f-warn")
+  if (!inp || !warn) return
+  const msg = mismatchMsg(inp.value.trim())
+  warn.textContent = msg
+  warn.classList.toggle("show", !!msg)
+}
 
 function appendLog(line, cls) {
   if (!formKey) return
@@ -379,18 +706,191 @@ function appendLog(line, cls) {
 function setBusy(on) {
   if (!formKey) return
   const btn = els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"] .f-go`)
-  if (btn) { btn.disabled = on; btn.textContent = on ? "Connecting…" : "Connect" }
+  if (btn) { btn.disabled = on; btn.innerHTML = on ? "Connecting…" : ICON_WIFI + "Connect" }
 }
 
 function onConnected() {
   setBusy(false)
   const d = devices.find(x => keyOf(x) === formKey)
+  const nm = d ? nameOf(d) : "Go2"
   els.stage.classList.add("connected")
-  els.stageGlyph.textContent = "🐕"
-  els.stageTitle.textContent = d ? nameOf(d) + " connected" : "Go2 connected"
-  els.stageMsg.textContent = "Wifi credentials sent. Once it joins the network its dashboard — battery, camera, blueprints & controls — will appear here."
-  setTimeout(() => setSlid(true), 900)
+  els.stageGlyph.textContent = "📡"
+  // not "connected" — we've only handed it Wi-Fi creds; it isn't reachable until
+  // it shows up on the network with an IP.
+  els.stageTitle.textContent = "Wi-Fi sent to " + nm + " — waiting for it on the network"
+  els.stageMsg.textContent = "Credentials delivered over Bluetooth. Once " + nm + " joins the network and we see its IP, its dashboard — battery, camera, blueprints & controls — will appear here."
+  // fold the wifi form back up once the success line has been seen
+  setTimeout(() => { formKey = null; render() }, 1200)
 }
+
+// ── live control: drive one dog over WebRTC (camera + keyboard) ──
+// Sport-mode buttons. "stand" is special-cased in go2_control.py (stand up AND enter
+// BalanceStand so driving works); the rest are SPORT_CMD names.
+const CTL_ACTIONS = [
+  { name: "stand", label: "Stand", primary: true },
+  { name: "Sit", label: "Sit" },
+  { name: "StandDown", label: "Lie Down" },
+  { name: "Hello", label: "Hello" },
+  { name: "Stretch", label: "Stretch" },
+  { name: "RecoveryStand", label: "Recover" },
+  { name: "Damp", label: "Relax" },
+]
+// keyboard → logical axis key (w/s fwd-back, a/d turn, q/e strafe)
+const KEYMAP = {
+  keyw: "w", arrowup: "w", keys: "s", arrowdown: "s",
+  keya: "a", arrowleft: "a", keyd: "d", arrowright: "d",
+  keyq: "q", keye: "e",
+}
+const DRIVE_TICK_MS = 120 // WIRELESS_CONTROLLER wants a steady command stream
+
+function startControl(key) {
+  const d = devices.find(x => keyOf(x) === key)
+  if (!d || !d.ip) return
+  controlKey = key
+  controlStatus = "connecting"
+  controlError = ""
+  sawVideo = false
+  pressed.clear(); moving = false
+  launchKey = null // don't keep the blueprint launcher open for the same dog
+  dimApp.send("open_control", { ip: d.ip })
+  render()        // list row: Drive → Stop
+  renderControl() // build the stage UI
+}
+
+function stopControl() {
+  if (controlKey === null) return
+  dimApp.send("close_control", {})
+  controlKey = null
+  controlStatus = "idle"
+  controlError = ""
+  sawVideo = false
+  pressed.clear(); moving = false
+  render()
+  renderControl()
+}
+
+function renderControl() {
+  const host = els.ctl
+  if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; return }
+  const d = devices.find(x => keyOf(x) === controlKey)
+  const nm = d ? nameOf(d) : "Go2"
+  const ip = d ? (d.ip || "") : ""
+  els.stage.style.display = "none"
+  host.style.display = "flex"
+  const label = { connecting: "Connecting", ready: "Live", error: "Error", closed: "Closed", idle: "…" }[controlStatus] || controlStatus
+  const phMsg = controlStatus === "ready" ? "Waiting for video…" : ("Connecting to " + esc(nm) + "…")
+  const actions = CTL_ACTIONS.map(a => `<button class="act${a.primary ? " primary" : ""}" data-name="${esc(a.name)}">${esc(a.label)}</button>`).join("")
+  host.innerHTML = `
+    <div class="ctl-head">
+      <span class="nm">${esc(nm)}</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--muted-fg)">${esc(ip)}</span>
+      <span class="ctl-pill ${controlStatus}"><span class="d"></span>${label}</span>
+      <span class="spacer"></span>
+      <button class="act ctl-close" title="Stop driving">✕ Stop</button>
+    </div>
+    ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}</div>` : ""}
+    <div class="cam-wrap" id="cam-wrap">
+      <img id="cam" alt="" />
+      <div class="cam-ph"><div class="glyph">📷</div><div>${phMsg}</div></div>
+      <div class="drive-hint"><span><b>WASD</b> / <b>↑↓←→</b> drive</span><span><b>Q</b>/<b>E</b> strafe</span></div>
+      <div class="vel" id="vel">fwd 0.00 · str 0.00 · yaw 0.00</div>
+    </div>
+    <div class="ctl-actions">${actions}</div>
+    <div class="dpad">
+      <button class="dbtn sl" data-k="q" title="Strafe left">⟲</button>
+      <button class="dbtn fwd" data-k="w" title="Forward">▲</button>
+      <button class="dbtn left" data-k="a" title="Turn left">◀</button>
+      <button class="dbtn back" data-k="s" title="Backward">▼</button>
+      <button class="dbtn right" data-k="d" title="Turn right">▶</button>
+      <button class="dbtn sr" data-k="e" title="Strafe right">⟳</button>
+    </div>`
+  if (sawVideo) { const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
+  reflectKeys()
+}
+
+function flashAction(name, ok) {
+  const el = els.ctl.querySelector(`.act[data-name="${cssEsc(name)}"]`)
+  if (!el) return
+  el.classList.remove("ok", "err")
+  void el.offsetWidth // restart the flash if the same button fires twice
+  el.classList.add(ok ? "ok" : "err")
+  setTimeout(() => el.classList.remove("ok", "err"), 900)
+}
+
+// Held keys → a normalized -1..1 velocity vector.
+function velFromKeys() {
+  return {
+    forward: (pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0),
+    strafe: (pressed.has("q") ? 1 : 0) - (pressed.has("e") ? 1 : 0),
+    turn: (pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0),
+  }
+}
+function updateVel(v) {
+  const el = document.getElementById("vel")
+  if (!el) return
+  el.textContent = `fwd ${v.forward.toFixed(2)} · str ${v.strafe.toFixed(2)} · yaw ${v.turn.toFixed(2)}`
+  el.classList.toggle("on", !!(v.forward || v.strafe || v.turn))
+}
+function reflectKeys() {
+  if (controlKey === null) return
+  els.ctl.querySelectorAll(".dbtn").forEach(b => b.classList.toggle("held", pressed.has(b.dataset.k)))
+  updateVel(velFromKeys())
+}
+
+// Steady tick: stream the current velocity while ready, send one zero on release.
+setInterval(() => {
+  if (controlKey === null || controlStatus !== "ready") return
+  const v = velFromKeys()
+  if (v.forward || v.strafe || v.turn) {
+    dimApp.send("move", v)
+    moving = true
+  } else if (moving) {
+    dimApp.send("move", { forward: 0, strafe: 0, turn: 0 })
+    moving = false
+  }
+}, DRIVE_TICK_MS)
+
+function codeKey(e) { return KEYMAP[(e.code || "").toLowerCase()] || KEYMAP[(e.key || "").toLowerCase()] }
+window.addEventListener("keydown", (e) => {
+  if (controlKey === null) return
+  const t = e.target
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return // don't drive while typing
+  const k = codeKey(e)
+  if (!k) return
+  e.preventDefault()
+  if (!pressed.has(k)) { pressed.add(k); reflectKeys() }
+})
+window.addEventListener("keyup", (e) => {
+  if (controlKey === null) return
+  const k = codeKey(e)
+  if (!k) return
+  if (pressed.delete(k)) reflectKeys()
+})
+// drop all held keys if focus leaves the window (avoid a stuck throttle)
+window.addEventListener("blur", () => { if (pressed.size) { pressed.clear(); reflectKeys() } })
+
+// on-screen d-pad: press-and-hold, mirrors the keyboard
+els.ctl.addEventListener("pointerdown", (e) => {
+  const db = e.target.closest(".dbtn")
+  if (!db) return
+  e.preventDefault()
+  db.setPointerCapture && db.setPointerCapture(e.pointerId)
+  if (!pressed.has(db.dataset.k)) { pressed.add(db.dataset.k); reflectKeys() }
+})
+function releasePad(e) {
+  const db = e.target.closest(".dbtn")
+  if (!db) return
+  if (pressed.delete(db.dataset.k)) reflectKeys()
+}
+els.ctl.addEventListener("pointerup", releasePad)
+els.ctl.addEventListener("pointercancel", releasePad)
+
+// action buttons + stop
+els.ctl.addEventListener("click", (e) => {
+  if (e.target.closest(".ctl-close")) { stopControl(); return }
+  const act = e.target.closest(".act:not(.ctl-close)")
+  if (act && act.dataset.name) dimApp.send("action", { name: act.dataset.name })
+})
 
 // ── interactions (event delegation) ──
 els.list.addEventListener("click", (e) => {
@@ -398,11 +898,28 @@ els.list.addEventListener("click", (e) => {
   if (!dog) return
   const key = dog.dataset.key
 
+  const copyEl = e.target.closest(".ip, .copyable")
+  if (copyEl) {
+    copyText(copyEl.dataset.copy ?? copyEl.dataset.ip ?? "").then((ok) => {
+      if (!ok) return
+      copyEl.classList.add("copied")
+      const cp = copyEl.querySelector(".cp"); const was = cp ? cp.textContent : ""
+      if (cp) cp.textContent = "✓"
+      setTimeout(() => { copyEl.classList.remove("copied"); if (cp) cp.textContent = was }, 1100)
+    })
+    return
+  }
+  if (e.target.closest(".info")) { detailsKey = (detailsKey === key) ? null : key; menuKey = null; render(); return }
   if (e.target.closest(".edit")) { editKey = key; menuKey = null; render(); return }
   if (e.target.closest(".kebab")) { menuKey = (menuKey === key) ? null : key; render(); return }
   if (e.target.closest(".mi-connect")) {
     if (e.target.disabled) return
     formKey = key; menuKey = null; render(); return
+  }
+  if (e.target.closest(".drive")) {
+    if (controlKey === key) { stopControl() } else { startControl(key) }
+    menuKey = null
+    return
   }
   if (e.target.closest(".connect")) {
     launchKey = (launchKey === key) ? null : key
@@ -423,8 +940,10 @@ els.list.addEventListener("click", (e) => {
   if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
 })
 
-// blueprint filter (direct DOM so the input keeps focus)
+// live SSID-mismatch warning (direct DOM so the input keeps focus)
 els.list.addEventListener("input", (e) => {
+  if (e.target.classList.contains("f-ssid")) { updateWarn(e.target.closest(".dog")); return }
+  // blueprint filter (direct DOM so the input keeps focus)
   if (!e.target.classList.contains("bp-filter")) return
   const q = e.target.value.trim().toLowerCase()
   e.target.closest(".launcher").querySelectorAll(".bp").forEach(row => {
@@ -465,11 +984,13 @@ function startConnect(key) {
   const country = (root.querySelector(".f-country").value.trim() || "US").toUpperCase()
   if (!ssid) { appendLog("Enter a wifi SSID first.", "err"); return }
   root.querySelector(".f-log").innerHTML = ""
+  lastAttempt = { ssid, password, country } // saved to localStorage iff it succeeds
   setBusy(true)
   dimApp.send("connect", { mac: d.ble_mac, ssid, password, country })
 }
 
 els.scan.addEventListener("click", () => {
+  if (controlKey !== null) stopControl() // re-scan wipes the list; drop the drive session
   devices = []; menuKey = formKey = editKey = launchKey = null
   dimApp.send("scan", { timeout: 7 })
 })
@@ -480,6 +1001,15 @@ function setSlid(slid) {
 }
 els.slide.addEventListener("click", () => setSlid(true))
 els.reopen.addEventListener("click", () => setSlid(false))
+
+// "not connecting?" help: expand/collapse + click-to-copy the route command
+document.getElementById("help-toggle").addEventListener("click", () => {
+  document.getElementById("p-help").classList.toggle("open")
+})
+document.getElementById("help-cmd").addEventListener("click", () => {
+  const el = document.getElementById("help-cmd")
+  copyText(el.textContent).then((ok) => { if (!ok) return; el.classList.add("copied"); setTimeout(() => el.classList.remove("copied"), 1100) })
+})
 
 dimApp.send("hello")
 fetchBlueprints()

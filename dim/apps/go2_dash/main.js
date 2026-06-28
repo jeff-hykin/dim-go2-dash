@@ -13,7 +13,8 @@
 import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts"
 import { DimAppBackend, dimContext } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/backend.js"
 
-const SIDECAR = new URL("./go2_helper.py", import.meta.url).pathname
+const HELPER_SCRIPT = new URL("./go2_helper.py", import.meta.url).pathname
+const CONTROL_SCRIPT = new URL("./go2_control.py", import.meta.url).pathname
 const RESTART_MS = 3000
 const HOME = Deno.env.get("HOME") || "."
 const NAMES_DIR = `${HOME}/.local/share/dim`
@@ -29,9 +30,73 @@ let ready = false
 const devices = new Map()
 // User-given names, keyed the same way. Persisted to NAMES_FILE.
 let names = {}
+// SSID of the wifi network THIS machine is on (best-effort). The panel autofills
+// it and warns when you'd provision a dog onto a different one — a dog on another
+// network won't be reachable / discoverable from here.
+//   status: "ok"       — real SSID in hostSsid
+//           "redacted" — macOS hid it (the dashboard lacks Location Services perm);
+//                        it literally returns the string "<redacted>"
+//           "unknown"  — no wifi / couldn't read it
+let hostSsid = ""
+let hostSsidStatus = "unknown"
 
 function deviceKey(device) {
-    return device.serial || device.ble_mac || JSON.stringify(device)
+    return device.serial || device.ble_mac || device.ip || JSON.stringify(device)
+}
+
+async function runCmd(cmd, args) {
+    try {
+        const out = await new Deno.Command(cmd, { args, stdout: "piped", stderr: "null" }).output()
+        if (!out.success) return ""
+        return new TextDecoder().decode(out.stdout)
+    } catch {
+        return "" // command missing / not permitted — treat as "unknown"
+    }
+}
+
+// Best-effort current-wifi SSID, mac + linux. Returns "" if it can't tell.
+async function detectSsid() {
+    const os = Deno.build.os
+    if (os === "darwin") {
+        // Find the Wi-Fi device (usually en0).
+        const ports = await runCmd("networksetup", ["-listallhardwareports"])
+        const dev = (ports.match(/Hardware Port:\s*Wi-Fi[\s\S]*?Device:\s*(\w+)/) || [])[1] || "en0"
+        // Modern macOS gates `networksetup -getairportnetwork` behind Location
+        // Services, but `ipconfig getsummary` still prints "SSID : <name>".
+        const summary = await runCmd("ipconfig", ["getsummary", dev])
+        const fromSummary = (summary.match(/\bSSID\s*:\s*(.+)/) || [])[1]
+        if (fromSummary) return fromSummary.trim()
+        const ns = await runCmd("networksetup", ["-getairportnetwork", dev])
+        const fromNs = (ns.match(/Current Wi-Fi Network:\s*(.+)/) || [])[1]
+        return fromNs ? fromNs.trim() : ""
+    }
+    if (os === "linux") {
+        // NetworkManager first (most desktops), then the wireless-tools fallback.
+        const nm = await runCmd("nmcli", ["-t", "-f", "active,ssid", "dev", "wifi"])
+        for (const line of nm.split("\n")) {
+            if (line.startsWith("yes:")) return line.slice(4).trim()
+        }
+        const iw = await runCmd("iwgetid", ["-r"])
+        return iw.trim()
+    }
+    return ""
+}
+
+async function refreshSsid() {
+    let raw = ""
+    try { raw = await detectSsid() } catch { raw = "" }
+    if (!raw) {
+        hostSsid = ""
+        hostSsidStatus = "unknown"
+    } else if (/redacted/i.test(raw)) {
+        // macOS privacy: hidden behind Location Services. Treat as "we can't tell"
+        // so we never autofill or warn off a bogus name.
+        hostSsid = ""
+        hostSsidStatus = "redacted"
+    } else {
+        hostSsid = raw
+        hostSsidStatus = "ok"
+    }
 }
 
 // Overlay the saved custom name (if any) onto a device record.
@@ -62,6 +127,8 @@ function snapshot() {
         type: "snapshot",
         ready,
         hasPython: !!ctx.python,
+        hostSsid,
+        hostSsidStatus,
         devices: [...devices.values()].map(named),
     })
 }
@@ -76,7 +143,7 @@ async function start() {
     }
     try {
         child = new Deno.Command(ctx.python, {
-            args: [SIDECAR],
+            args: [HELPER_SCRIPT],
             cwd: ctx.dimosDir || undefined,
             stdin: "piped",
             stdout: "piped",
@@ -86,7 +153,7 @@ async function start() {
     } catch (err) {
         ready = false
         snapshot()
-        console.error(`go2_dash: could not start sidecar — ${err.message}`)
+        console.error(`go2_dash: could not start helper — ${err.message}`)
         setTimeout(start, RESTART_MS)
         return
     }
@@ -106,6 +173,11 @@ async function start() {
                 dimApp.send("go2", named(event)) // overlay saved name
                 continue
             }
+            if (event.type === "drop") {
+                devices.delete(event.key) // a serial-less dup folded into its serial card
+                dimApp.send("go2", event)
+                continue
+            }
             dimApp.send("go2", event)
         }
     })()
@@ -119,19 +191,93 @@ async function start() {
     })
 }
 
-function sendToSidecar(obj) {
+function sendToHelper(obj) {
     if (!writer) return
     writer.write(new TextEncoder().encode(JSON.stringify(obj) + "\n"))
-        .catch(() => { /* sidecar gone — status flips on exit */ })
+        .catch(() => { /* helper gone — status flips on exit */ })
+}
+
+// ── live control communicator (go2_control.py) ──────────────────────────────
+// One process per open dog: connects to a single robot by ip over WebRTC and
+// relays movement / actions / camera. We keep at most one open at a time (the
+// dashboard shows one dog), and forward its events to the panel on tag "go2ctl".
+let controlChild = null
+let controlWriter = null
+let controlIp = null
+
+function stopControl() {
+    controlIp = null
+    controlWriter = null
+    const child = controlChild
+    controlChild = null
+    if (child) {
+        try { child.kill() } catch { /* already gone */ }
+    }
+}
+
+function startControl(ip, aesKey) {
+    if (!ip) return
+    stopControl()
+    if (!ctx.python) {
+        dimApp.send("go2ctl", { type: "error", error: "The dimos venv isn't available." })
+        return
+    }
+    controlIp = ip
+    try {
+        controlChild = new Deno.Command(ctx.python, {
+            args: [CONTROL_SCRIPT, ip, aesKey || ""],
+            cwd: ctx.dimosDir || undefined,
+            stdin: "piped",
+            stdout: "piped",
+            stderr: "null",
+            env: { PYTHONUNBUFFERED: "1" },
+        }).spawn()
+    } catch (err) {
+        controlChild = null
+        controlIp = null
+        dimApp.send("go2ctl", { type: "error", error: err.message })
+        return
+    }
+    controlWriter = controlChild.stdin.getWriter()
+    const child = controlChild
+
+    ;(async () => {
+        const lines = child.stdout
+            .pipeThrough(new TextDecoderStream())
+            .pipeThrough(new TextLineStream())
+        for await (const line of lines) {
+            if (!line.trim()) continue
+            let event
+            try { event = JSON.parse(line) } catch { continue }
+            dimApp.send("go2ctl", event)
+        }
+    })()
+
+    child.status.then(() => {
+        // Only announce a close if this is still the active child (not a restart).
+        if (controlChild === child) {
+            controlChild = null
+            controlWriter = null
+            controlIp = null
+            dimApp.send("go2ctl", { type: "closed" })
+        }
+    })
+}
+
+function sendToControl(obj) {
+    if (!controlWriter) return
+    controlWriter.write(new TextEncoder().encode(JSON.stringify(obj) + "\n"))
+        .catch(() => { /* helper gone — "closed" fires on exit */ })
 }
 
 dimApp.onReceive((kind, payload) => {
     if (kind === "scan") {
         // A re-scan re-discovers from scratch; clear the cache so stale rows go.
         devices.clear()
-        sendToSidecar({ type: "scan", timeout: (payload && payload.timeout) || 7 })
+        refreshSsid().then(snapshot) // the machine may have hopped networks
+        sendToHelper({ type: "scan", timeout: (payload && payload.timeout) || 7 })
     } else if (kind === "connect") {
-        sendToSidecar({ type: "connect", ...(payload || {}) })
+        sendToHelper({ type: "connect", ...(payload || {}) })
     } else if (kind === "launch") {
         // Launch a dimos blueprint via the dashboard's own API (we run inside
         // that same Deno process). Assumes the python bridge is already up. The
@@ -163,10 +309,19 @@ dimApp.onReceive((kind, payload) => {
         else delete names[key]
         saveNames()
         dimApp.send("go2", { type: "renamed", key, customName: name || null })
+    } else if (kind === "open_control") {
+        startControl(payload && payload.ip, payload && payload.aesKey)
+    } else if (kind === "close_control") {
+        stopControl()
+    } else if (kind === "move") {
+        sendToControl({ type: "move", ...(payload || {}) })
+    } else if (kind === "action") {
+        sendToControl({ type: "action", name: payload && payload.name })
     } else if (kind === "hello") {
-        snapshot() // bring a freshly-opened panel up to date
+        refreshSsid().then(snapshot) // bring a freshly-opened panel up to date
     }
 })
 
 await loadNames()
+await refreshSsid()
 start()
