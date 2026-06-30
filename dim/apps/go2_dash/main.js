@@ -11,7 +11,7 @@
 // across scans and restarts.
 
 import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts"
-import { DimAppBackend, dimContext } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/backend.js"
+import { DimAppBackend, dimContext } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/backend.js"
 
 const HELPER_SCRIPT = new URL("./go2_helper.py", import.meta.url).pathname
 const CONTROL_SCRIPT = new URL("./go2_control.py", import.meta.url).pathname
@@ -96,6 +96,54 @@ async function refreshSsid() {
     } else {
         hostSsid = raw
         hostSsidStatus = "ok"
+    }
+}
+
+// macOS only: dimos' LAN discovery multicasts its probe to 231.1.1.1, but that
+// group has no route by default — it lands on lo0 (or a full-tunnel VPN owns the
+// default route), so the send dies with "No route to host" and the multicast path
+// finds nothing (go2_helper falls back to broadcast + ARP). Pinning a host route
+// for the group onto the Wi-Fi NIC lets the multicast probe actually reach the
+// dogs. That needs root, so it goes through the desktop password modal via
+// dimApp.sudo.run; if the user cancels we just keep using broadcast/ARP.
+const MULTICAST_GROUP = "231.1.1.1"
+let multicastRouteReady = false
+
+async function wifiDevice() {
+    const ports = await runCmd("networksetup", ["-listallhardwareports"])
+    return (ports.match(/Hardware Port:\s*Wi-Fi[\s\S]*?Device:\s*(\w+)/) || [])[1] || "en0"
+}
+
+// Which interface a packet to `host` currently leaves on (no sudo — read-only).
+async function routeIface(host) {
+    const out = await runCmd("route", ["-n", "get", host])
+    return (out.match(/interface:\s*(\w+)/) || [])[1] || null
+}
+
+async function ensureMulticastRoute() {
+    if (multicastRouteReady || Deno.build.os !== "darwin") {
+        return
+    }
+    const dev = await wifiDevice()
+    // Only prompt for sudo if the group is NOT already routed out the Wi-Fi NIC.
+    // It already is when there's no VPN, or when a prior session added the route
+    // (routes persist until reboot) — in those cases discovery works untouched
+    // and we never pop the password modal.
+    if ((await routeIface(MULTICAST_GROUP)) === dev) {
+        multicastRouteReady = true
+        return
+    }
+    try {
+        const res = await dimApp.sudo.run(["route", "-n", "add", "-host", MULTICAST_GROUP, "-interface", dev])
+        if (res.cancelled) {
+            // User declined — leave it un-added so a later scan can re-prompt;
+            // discovery still works via the broadcast/ARP fallbacks.
+            dimApp.send("go2", { type: "warn", msg: "Skipped LAN multicast route — using broadcast/ARP discovery only." })
+            return
+        }
+        multicastRouteReady = true
+    } catch (err) {
+        dimApp.send("go2", { type: "warn", msg: `Could not add LAN multicast route: ${err.message}` })
     }
 }
 
@@ -275,7 +323,11 @@ dimApp.onReceive((kind, payload) => {
         // A re-scan re-discovers from scratch; clear the cache so stale rows go.
         devices.clear()
         refreshSsid().then(snapshot) // the machine may have hopped networks
-        sendToHelper({ type: "scan", timeout: (payload && payload.timeout) || 7 })
+        // Add the multicast route (once, behind the password modal) so dimos'
+        // native multicast LAN discovery can reach the dogs, THEN start the scan.
+        ensureMulticastRoute().finally(() => {
+            sendToHelper({ type: "scan", timeout: (payload && payload.timeout) || 7 })
+        })
     } else if (kind === "connect") {
         sendToHelper({ type: "connect", ...(payload || {}) })
     } else if (kind === "launch") {
