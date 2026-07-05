@@ -64,8 +64,8 @@
   .mode-badge.stand, .mode-badge.pose { color: color-mix(in oklch, var(--ok) 62%, white);
     border-color: color-mix(in oklch, var(--ok) 42%, transparent); }
   .mode-badge.rising { color: color-mix(in oklch, var(--primary) 60%, white); }
-  .cam-wrap img { width: 100%; height: 100%; object-fit: contain; display: none; }
-  .cam-wrap.live img { display: block; }
+  .cam-wrap video { width: 100%; height: 100%; object-fit: contain; display: none; }
+  .cam-wrap.live video { display: block; }
   .cam-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 10px; color: var(--muted-fg); font-size: 13px; text-align: center; padding: 24px; }
   .cam-wrap.live .cam-ph { display: none; }
@@ -420,6 +420,9 @@
 
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/frontend.js"
+// In-browser WebRTC control of one Go2. Vendored rather than pulled from esm.sh,
+// so the panel still works behind the robot's VPN with no CDN reachable.
+import { UnitreeConnection, SPORT_CMD } from "./vendor/unitree.js"
 
 // follow the shell's light/dark like the other apps
 ;(function () { const m = matchMedia("(prefers-color-scheme: light)"); const a = () => document.body.classList.toggle("dark", !m.matches); a(); m.addEventListener("change", a) })()
@@ -463,10 +466,14 @@ let controlStatus = "idle"     // idle | connecting | ready | error | closed
 let controlError = ""          // last error string when status === "error"
 let sawVideo = false           // first camera frame seen yet
 let cmdSearching = false       // slash-search over the command bar is open
-let lastFrameSrc = null        // last camera frame kept across re-renders / reconnects
+let conn = null                // live UnitreeConnection (WebRTC) to the driven dog
+let videoStream = null         // the robot's MediaStream, reattached across re-renders
+let connIp = ""                // ip of the current connection (for reconnect)
+let connAes = ""               // per-device AES key, if any (data2=3 firmware)
+let reconnectTimer = null      // pending auto-reconnect after a dropped peer link
 const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
 let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
-let dogMode = ""               // backend-reported mode: resting | rising | stand | pose (stand/pose drive)
+let dogMode = ""               // local mode: resting | rising | stand | pose (stand/pose drive)
 
 // Two different "connects" live in this panel, so each gets its own glyph:
 //   • dog → wifi  (provision the robot onto a network)  → wifi waves
@@ -653,36 +660,33 @@ function render() {
   if (formKey) updateWarn(els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"]`))
 }
 
-// ── events from the live-control communicator go2_control.py (tag "go2ctl") ──
+// ── WebRTC signaling relay over the app-bus ──
+// UnitreeConnection wants to POST the two handshake requests itself; the robot's
+// plain-HTTP port has no CORS, so we override its one network seam (_relayPost)
+// to tunnel each POST through the backend on tag "relay" and await "relay_result".
+let relaySeq = 0
+const relayPending = new Map()
 dimApp.receiveRequest((tag, msg) => {
-  if (tag !== "go2ctl") return
-  switch (msg.type) {
-    case "connecting": controlStatus = "connecting"; renderControl(); break
-    case "ready": controlStatus = "ready"; renderControl(); break
-    case "reconnecting": controlStatus = "reconnecting"; dogMode = ""; renderControl(); break
-    case "mode": dogMode = msg.mode || ""; renderControl(); break
-    case "error":
-      controlStatus = "error"; controlError = msg.error || "connection failed"; renderControl(); break
-    case "video": sawVideo = true; renderControl(); break
-    case "frame": {
-      lastFrameSrc = "data:image/jpeg;base64," + msg.data
-      const img = document.getElementById("cam")
-      if (img) img.src = lastFrameSrc
-      const wrap = document.getElementById("cam-wrap")
-      if (wrap && !wrap.classList.contains("live")) wrap.classList.add("live")
-      break
-    }
-    case "action_result":
-      // driveability follows the backend "mode" event, not this result
-      flashAction(msg.name, msg.ok)
-      break
-    case "closed":
-      // backend lost / closed the control process — drop back to the idle stage
-      if (controlKey) { controlKey = null; controlStatus = "idle"; lastFrameSrc = null; pressed.clear(); moving = false; dogMode = ""; setSlid(false); renderControl(); render() }
-      break
-    case "warn": break // non-fatal (bad frame, transient video hiccup)
-  }
+  if (tag !== "relay_result") return
+  const pending = relayPending.get(msg.id)
+  if (!pending) return
+  relayPending.delete(msg.id)
+  if (msg.ok) pending.resolve(msg.body || "")
+  else pending.reject(new Error(msg.error || ("signaling failed (" + msg.status + ")")))
 })
+
+class BusUnitreeConnection extends UnitreeConnection {
+  async _relayPost(path, body) {
+    const id = ++relaySeq
+    return await new Promise((resolve, reject) => {
+      relayPending.set(id, { resolve, reject })
+      dimApp.send("relay", { id, ip: this.ip, path, body: body ?? null })
+      setTimeout(() => {
+        if (relayPending.delete(id)) reject(new Error("signaling timed out"))
+      }, 8000)
+    })
+  }
+}
 
 // ── events from the discovery backend (tag "go2") ──
 dimApp.receiveRequest((tag, msg) => {
@@ -794,11 +798,11 @@ function onConnected() {
 }
 
 // ── live control: drive one dog over WebRTC (camera + keyboard) ──
-// Sport-mode buttons. "stand" and "pose" are special-cased in go2_control.py; the
-// rest are SPORT_CMD names. "Stand" gets the dog upright AND into drivable
+// Sport-mode buttons. "stand" and "pose" are handled specially in doAction(); the
+// rest map to sport command ids. "Stand" gets the dog upright AND into drivable
 // BalanceStand in one press (drive keys walk it). "Pose" builds on that stand so
-// the drive keys twist the body in place. The backend reports the live mode via
-// {type:"mode"}, and dogMode gates driving — see driveAllowed().
+// the drive keys twist the body in place. dogMode is tracked locally and gates
+// driving — see driveAllowed().
 const CTL_ACTIONS = [
   { name: "stand", label: "Stand", primary: true },
   { name: "pose", label: "Pose" },
@@ -810,13 +814,25 @@ const CTL_ACTIONS = [
   { name: "RecoveryStand", label: "Recover" },
   { name: "Damp", label: "Relax" },
 ]
+// Sport ids the vendored SPORT_CMD doesn't include.
+const EXTRA_SPORT = { Pose: 1028, FrontJump: 1031 }
+// Actions that leave the dog in a non-drivable posture — mode drops to "resting".
+const RESTING_ACTIONS = new Set(["Sit", "StandDown", "Damp"])
+// Velocity envelope: a normalized -1..1 axis from the UI maps to these maxima.
+const MAX_FORWARD = 0.6, MAX_LATERAL = 0.4, MAX_YAW = 0.8
+// After standing up, wait before BalanceStand so joystick control latches (issued
+// mid-rise it doesn't stick) — mirrors dimos' Go2 startup.
+const STAND_SETTLE_MS = 3000
 // keyboard → logical axis key (w/s fwd-back, a/d turn, q/e strafe)
 const KEYMAP = {
   keyw: "w", arrowup: "w", keys: "s", arrowdown: "s",
   keya: "a", arrowleft: "a", keyd: "d", arrowright: "d",
   keyq: "q", keye: "e",
 }
-const DRIVE_TICK_MS = 120 // WIRELESS_CONTROLLER wants a steady command stream
+const DRIVE_TICK_MS = 120 // sport Move decays on the robot; keep a steady stream
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+function setMode(mode) { dogMode = mode; renderControl() }
 
 function startControl(key) {
   const d = devices.find(x => keyOf(x) === key)
@@ -825,29 +841,118 @@ function startControl(key) {
   controlStatus = "connecting"
   controlError = ""
   sawVideo = false
-  lastFrameSrc = null
+  videoStream = null
   cmdSearching = false
-  pressed.clear(); moving = false; dogMode = ""
+  pressed.clear(); moving = false; dogMode = "resting"
+  connIp = d.ip
+  connAes = d.aesKey || ""
   launchKey = null // don't keep the blueprint launcher open for the same dog
   setSlid(true)    // auto-minimize the Go2 Setup panel while driving
-  dimApp.send("open_control", { ip: d.ip })
-  render()        // list row: Drive → Disconnect
-  renderControl() // build the stage UI
+  render()         // list row: Drive → Disconnect
+  renderControl()  // build the stage UI
+  openConn()
+}
+
+// Build (or rebuild, on reconnect) the WebRTC connection to connIp.
+function openConn() {
+  clearTimeout(reconnectTimer)
+  conn = new BusUnitreeConnection({
+    ip: connIp,
+    aes128Key: connAes,
+    onVideo: (stream) => {
+      videoStream = stream
+      sawVideo = true
+      const cam = document.getElementById("cam")
+      if (cam) { cam.srcObject = stream; cam.play?.().catch(() => {}) }
+      const wrap = document.getElementById("cam-wrap")
+      if (wrap) wrap.classList.add("live")
+    },
+    onStatus: (state) => {
+      if (controlKey === null) return
+      if (state === "connecting") controlStatus = "connecting"
+      else if (state === "connected") controlStatus = "ready"
+      else return // "disconnected" is driven by our own teardown/reconnect
+      renderControl()
+    },
+    onLog: () => {},
+  })
+  const connecting = conn.connect()
+  watchPeer(conn.pc) // pc exists synchronously once connect() is called
+  connecting.catch((err) => {
+    if (controlKey === null || conn === null) return
+    controlStatus = "error"
+    controlError = err.message || "connection failed"
+    renderControl()
+  })
+}
+
+// A dropped peer link (dog off Wi-Fi / track died) rebuilds the connection in place.
+function watchPeer(pc) {
+  if (!pc) return
+  pc.addEventListener("connectionstatechange", () => {
+    if (controlKey === null || conn === null || pc !== conn.pc) return
+    if (pc.connectionState === "failed") scheduleReconnect()
+  })
+}
+
+function scheduleReconnect() {
+  if (controlKey === null || controlStatus === "reconnecting") return
+  controlStatus = "reconnecting"
+  dogMode = "resting"
+  sawVideo = false
+  videoStream = null
+  try { conn && conn.disconnect() } catch { /* already gone */ }
+  conn = null
+  renderControl()
+  clearTimeout(reconnectTimer)
+  reconnectTimer = setTimeout(openConn, 1500)
 }
 
 function stopControl() {
   if (controlKey === null) return
-  dimApp.send("close_control", {})
+  clearTimeout(reconnectTimer)
+  try { conn && conn.disconnect() } catch { /* already gone */ }
+  conn = null
   controlKey = null
   controlStatus = "idle"
   controlError = ""
   sawVideo = false
-  lastFrameSrc = null
+  videoStream = null
   pressed.clear(); moving = false; dogMode = ""
   hideToast()
   setSlid(false)   // bring the Go2 Setup panel back
   render()
   renderControl()
+}
+
+// "stand" / "pose" build drivable postures; everything else is a raw sport cmd.
+async function doAction(name) {
+  if (!conn || controlStatus !== "ready") return
+  flashAction(name, true) // fire-and-forget over the data channel; no ack
+  if (name === "stand") {
+    if (dogMode === "pose") {
+      conn.sport(SPORT_CMD.BalanceStand) // already up — just drop pose
+    } else {
+      setMode("rising")
+      conn.setMotionMode("normal")
+      conn.sport(SPORT_CMD.StandUp)
+      await sleep(STAND_SETTLE_MS)
+      if (controlKey === null || !conn) return
+      conn.sport(SPORT_CMD.BalanceStand)
+    }
+    setMode("stand")
+    return
+  }
+  if (name === "pose") {
+    conn.sport(SPORT_CMD.BalanceStand)
+    conn.sport(EXTRA_SPORT.Pose, { data: true })
+    setMode("pose")
+    return
+  }
+  const apiId = SPORT_CMD[name] ?? EXTRA_SPORT[name]
+  if (apiId == null) return
+  conn.sport(apiId)
+  if (RESTING_ACTIONS.has(name)) setMode("resting")
 }
 
 function renderControl() {
@@ -866,7 +971,7 @@ function renderControl() {
   const actions = CTL_ACTIONS.map(a => `<button class="act${a.primary ? " primary" : ""}" data-name="${esc(a.name)}">${esc(a.label)}</button>`).join("")
   host.innerHTML = `
     <div class="cam-wrap" id="cam-wrap">
-      <img id="cam" alt="" />
+      <video id="cam" autoplay muted playsinline></video>
       <div class="cam-ph"><div class="glyph">📷</div><div>${phMsg}</div></div>
       <div class="ctl-top">
         <span class="nm">${esc(nm)}</span>
@@ -894,7 +999,7 @@ function renderControl() {
       </div>
     </div>`
   const cam = document.getElementById("cam")
-  if (lastFrameSrc && cam) { cam.src = lastFrameSrc; const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
+  if (videoStream && cam) { cam.srcObject = videoStream; cam.play?.().catch(() => {}) }
   if (sawVideo) { const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
   reflectKeys()
 }
@@ -951,15 +1056,15 @@ function reflectKeys() {
   updateVel(velFromKeys())
 }
 
-// Steady tick: stream the current velocity while ready, send one zero on release.
+// Steady tick: stream the current velocity while ready, stop once on release.
 setInterval(() => {
-  if (controlKey === null || controlStatus !== "ready") return
+  if (controlKey === null || controlStatus !== "ready" || !conn) return
   const v = velFromKeys()
   if (v.forward || v.strafe || v.turn) {
-    dimApp.send("move", v)
+    conn.move(v.forward * MAX_FORWARD, v.strafe * MAX_LATERAL, v.turn * MAX_YAW)
     moving = true
   } else if (moving) {
-    dimApp.send("move", { forward: 0, strafe: 0, turn: 0 })
+    conn.stopMove()
     moving = false
   }
 }, DRIVE_TICK_MS)
@@ -969,6 +1074,8 @@ window.addEventListener("keydown", (e) => {
   if (controlKey === null) return
   const t = e.target
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return // don't drive while typing
+  // Let modified combos (e.g. alt+arrows = switch apps) fall through to the shell.
+  if (e.altKey || e.ctrlKey || e.metaKey) return
   if (e.key === "/" && !e.repeat) { e.preventDefault(); openCmdSearch(); return }
   const k = codeKey(e)
   if (!k) return
@@ -1006,7 +1113,7 @@ els.ctl.addEventListener("pointercancel", releasePad)
 els.ctl.addEventListener("click", (e) => {
   if (e.target.closest(".ctl-close")) { stopControl(); return }
   const act = e.target.closest(".act:not(.ctl-close)")
-  if (act && act.dataset.name) dimApp.send("action", { name: act.dataset.name })
+  if (act && act.dataset.name) doAction(act.dataset.name)
 })
 
 // ── command bar slash-search ──
@@ -1034,7 +1141,7 @@ function closeCmdSearch() {
 }
 function runFirstCmd() {
   const first = document.getElementById("cmd-bar")?.querySelector(".cmd-scroll .act:not(.nomatch)")
-  if (first && first.dataset.name) dimApp.send("action", { name: first.dataset.name })
+  if (first && first.dataset.name) doAction(first.dataset.name)
 }
 els.ctl.addEventListener("input", (e) => {
   if (e.target.id === "cmd-search-input") filterCmds()
@@ -1154,6 +1261,14 @@ function setSlid(slid) {
 }
 els.slide.addEventListener("click", () => setSlid(true))
 els.reopen.addEventListener("click", () => setSlid(false))
+// "j" toggles the setup panel for mouse-free use (skip while typing in a field).
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "j" || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return
+  const t = e.target
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
+  e.preventDefault()
+  setSlid(!els.panel.classList.contains("slid"))
+})
 
 // "not connecting?" help: expand/collapse + click-to-copy the route command
 document.getElementById("help-toggle").addEventListener("click", () => {

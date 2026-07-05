@@ -4,7 +4,8 @@
 // wifi handshake both go through CoreBluetooth (bleak), so this can't be pure
 // Deno — we shell into the dimos venv and run go2_helper.py, which reuses the
 // exact code behind `dimos go2tool` and speaks newline-JSON over stdio. We pipe
-// that to/from the browser panel over the app-bus.
+// that to/from the browser panel over the app-bus. Live control, by contrast,
+// runs entirely in the browser over WebRTC — see the signaling relay below.
 //
 // We also keep a small persisted map of user-given names, keyed by the robot's
 // Bluetooth id (its serial / BLE address), so a dog you renamed stays named
@@ -14,8 +15,16 @@ import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_
 import { DimAppBackend, dimContext } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/backend.js"
 
 const HELPER_SCRIPT = new URL("./go2_helper.py", import.meta.url).pathname
-const CONTROL_SCRIPT = new URL("./go2_control.py", import.meta.url).pathname
 const RESTART_MS = 3000
+// Live control now runs in the browser (unitree_go2_webrtc_js). The browser
+// can't reach the robot's plain-HTTP signaling port directly (no CORS headers),
+// so the panel relays the WebRTC handshake POSTs through here over the app-bus;
+// once the peer connection is up, video/data/control flow browser <-> robot and
+// never touch this process again.
+const SIGNALING_PORTS = [9991]
+const RELAY_PATH_OK = /^\/con_[A-Za-z0-9_]*$/
+const RELAY_HOST_OK = /^[A-Za-z0-9.\-]+$/
+const RELAY_TIMEOUT_MS = 4000
 const HOME = Deno.env.get("HOME") || "."
 const NAMES_DIR = `${HOME}/.local/share/dim`
 const NAMES_FILE = `${NAMES_DIR}/go2_dash_names.json`
@@ -245,77 +254,38 @@ function sendToHelper(obj) {
         .catch(() => { /* helper gone — status flips on exit */ })
 }
 
-// ── live control communicator (go2_control.py) ──────────────────────────────
-// One process per open dog: connects to a single robot by ip over WebRTC and
-// relays movement / actions / camera. We keep at most one open at a time (the
-// dashboard shows one dog), and forward its events to the panel on tag "go2ctl".
-let controlChild = null
-let controlWriter = null
-let controlIp = null
-
-function stopControl() {
-    controlIp = null
-    controlWriter = null
-    const child = controlChild
-    controlChild = null
-    if (child) {
-        try { child.kill() } catch { /* already gone */ }
-    }
-}
-
-function startControl(ip, aesKey) {
-    if (!ip) return
-    stopControl()
-    if (!ctx.python) {
-        dimApp.send("go2ctl", { type: "error", error: "The dimos venv isn't available." })
+// ── WebRTC signaling relay (for the in-browser controller) ───────────────────
+// The panel's UnitreeConnection runs the whole WebRTC handshake in the browser,
+// but the two signaling POSTs (con_notify / con_ing_*) can't go browser->robot
+// directly — the robot's plain-HTTP port sends no CORS headers. The panel sends
+// them here over tag "relay" {id, ip, path, body}; we forward to the robot and
+// answer on tag "relay_result" {id, ok, status, body}. Once the peer connection
+// is up, video/data/control flow browser <-> robot and never touch this process.
+// Restricting the path to /con_* keeps this from becoming an open proxy.
+async function doRelay(req) {
+    const id = req && req.id
+    const ip = req && req.ip
+    const path = req && req.path
+    if (!ip || !path || !RELAY_HOST_OK.test(ip) || !RELAY_PATH_OK.test(path)) {
+        dimApp.send("relay_result", { id, ok: false, status: 400, error: "bad ip/path" })
         return
     }
-    controlIp = ip
-    try {
-        controlChild = new Deno.Command(ctx.python, {
-            args: [CONTROL_SCRIPT, ip, aesKey || ""],
-            cwd: ctx.dimosDir || undefined,
-            stdin: "piped",
-            stdout: "piped",
-            stderr: "null",
-            env: { PYTHONUNBUFFERED: "1" },
-        }).spawn()
-    } catch (err) {
-        controlChild = null
-        controlIp = null
-        dimApp.send("go2ctl", { type: "error", error: err.message })
-        return
+    let lastErr = ""
+    for (const port of SIGNALING_PORTS) {
+        try {
+            const resp = await fetch(`http://${ip}:${port}${path}`, {
+                method: "POST",
+                body: req.body ?? undefined, // con_notify carries no body
+                headers: { "Content-Type": "application/json" },
+                signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
+            })
+            dimApp.send("relay_result", { id, ok: resp.ok, status: resp.status, body: await resp.text() })
+            return
+        } catch (err) {
+            lastErr = err.message
+        }
     }
-    controlWriter = controlChild.stdin.getWriter()
-    const child = controlChild
-
-    ;(async () => {
-        const lines = child.stdout
-            .pipeThrough(new TextDecoderStream())
-            .pipeThrough(new TextLineStream())
-        for await (const line of lines) {
-            if (!line.trim()) continue
-            let event
-            try { event = JSON.parse(line) } catch { continue }
-            dimApp.send("go2ctl", event)
-        }
-    })()
-
-    child.status.then(() => {
-        // Only announce a close if this is still the active child (not a restart).
-        if (controlChild === child) {
-            controlChild = null
-            controlWriter = null
-            controlIp = null
-            dimApp.send("go2ctl", { type: "closed" })
-        }
-    })
-}
-
-function sendToControl(obj) {
-    if (!controlWriter) return
-    controlWriter.write(new TextEncoder().encode(JSON.stringify(obj) + "\n"))
-        .catch(() => { /* helper gone — "closed" fires on exit */ })
+    dimApp.send("relay_result", { id, ok: false, status: 502, error: `robot ${ip} unreachable: ${lastErr}` })
 }
 
 dimApp.onReceive((kind, payload) => {
@@ -333,8 +303,8 @@ dimApp.onReceive((kind, payload) => {
     } else if (kind === "launch") {
         // Launch a dimos blueprint via the dashboard's own API (we run inside
         // that same Deno process). Assumes the python bridge is already up. The
-        // robot ip is forwarded for the eventual per-robot launch API — the
-        // current /api/launch ignores it, which is harmless.
+        // robot ip is forwarded so the dashboard runs
+        // `dimos --dtop --robot-ip <ip> run <name>` (global flags before `run`).
         const name = payload && payload.name
         if (!name) return
         const ip = payload && payload.ip
@@ -361,14 +331,8 @@ dimApp.onReceive((kind, payload) => {
         else delete names[key]
         saveNames()
         dimApp.send("go2", { type: "renamed", key, customName: name || null })
-    } else if (kind === "open_control") {
-        startControl(payload && payload.ip, payload && payload.aesKey)
-    } else if (kind === "close_control") {
-        stopControl()
-    } else if (kind === "move") {
-        sendToControl({ type: "move", ...(payload || {}) })
-    } else if (kind === "action") {
-        sendToControl({ type: "action", name: payload && payload.name })
+    } else if (kind === "relay") {
+        doRelay(payload || {})
     } else if (kind === "hello") {
         refreshSsid().then(snapshot) // bring a freshly-opened panel up to date
     }
