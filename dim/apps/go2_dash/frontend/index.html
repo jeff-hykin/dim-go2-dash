@@ -28,77 +28,125 @@
   .stage.connected .glyph { opacity: 1; }
 
   /* ── live control dashboard (fills the stage when driving a dog) ── */
-  .ctl { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 16px 16px 16px 344px;
-    gap: 14px; box-sizing: border-box; }
-  .panel.slid ~ .ctl { padding-left: 16px; } /* reclaim space when the panel slides away */
-  .ctl-head { display: flex; align-items: center; gap: 12px; flex: none; }
-  .ctl-head .nm { font-size: 16px; font-weight: 600; letter-spacing: .01em; }
-  .ctl-head .ip { font-family: var(--mono); font-size: 11px; }
-  .ctl-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
-    letter-spacing: .04em; text-transform: uppercase; color: var(--muted-fg);
-    border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
-  .ctl-pill .d { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-fg); }
-  .ctl-pill.connecting { color: var(--primary); } .ctl-pill.connecting .d { background: var(--primary); animation: pulse 1s ease-in-out infinite; }
-  .ctl-pill.ready { color: var(--ok); } .ctl-pill.ready .d { background: var(--ok); }
-  .ctl-pill.error { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); } .ctl-pill.error .d { background: var(--danger); }
-  .ctl-head .spacer { flex: 1; }
+  /* Live-control stage. It sits to the RIGHT of the setup panel (left:344px) so it
+     never overlaps — an inset:0 box would cover the panel's transparent area and
+     swallow its clicks. When the panel slides away it reclaims that space. */
+  /* the camera fills the whole iframe; tabs, controls & readouts float over it */
+  .ctl { position: fixed; inset: 0; box-sizing: border-box; z-index: 1; }
 
-  /* camera viewport */
-  .cam-wrap { flex: 1; position: relative; min-height: 0; border-radius: calc(var(--radius) * 1.4);
-    overflow: hidden; background: #000; border: 1px solid var(--border);
+  .cam-wrap { position: absolute; inset: 0; overflow: hidden; background: #000;
     display: flex; align-items: center; justify-content: center; }
-  .cam-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: none; }
+
+  /* top overlay bar: name / ip / status on the left, Disconnect on the right */
+  .ctl-top { position: absolute; top: 0; left: 0; right: 0; z-index: 5; display: flex;
+    align-items: center; gap: 12px; padding: 12px 14px; pointer-events: none;
+    background: linear-gradient(to bottom, color-mix(in oklch, black 62%, transparent), transparent); }
+  .ctl-top > * { pointer-events: auto; }
+  .ctl-top .nm { font-size: 16px; font-weight: 600; letter-spacing: .01em; color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  .ctl-top .ctl-ip { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,.82);
+    text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  .ctl-top .spacer { flex: 1; }
+  .ctl-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.85);
+    background: color-mix(in oklch, black 45%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in oklch, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
+  .ctl-pill .d { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .ctl-pill.connecting, .ctl-pill.reconnecting { color: color-mix(in oklch, var(--primary) 55%, white); }
+  .ctl-pill.connecting .d, .ctl-pill.reconnecting .d { animation: pulse 1s ease-in-out infinite; }
+  .ctl-pill.ready { color: color-mix(in oklch, var(--ok) 60%, white); }
+  .ctl-pill.error { color: color-mix(in oklch, var(--danger) 55%, white); }
+  .cam-wrap img { width: 100%; height: 100%; object-fit: contain; display: none; }
   .cam-wrap.live img { display: block; }
   .cam-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 10px; color: var(--muted-fg); font-size: 13px; text-align: center; padding: 24px; }
   .cam-wrap.live .cam-ph { display: none; }
   .cam-ph .glyph { font-size: 40px; opacity: .5; }
-  /* keyboard hint overlaid on the camera */
-  .drive-hint { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; align-items: center;
-    font-size: 11px; color: var(--fg); background: color-mix(in oklch, black 55%, transparent);
-    border: 1px solid color-mix(in oklch, white 14%, transparent); border-radius: var(--radius);
-    padding: 7px 11px; backdrop-filter: blur(3px); }
-  .drive-hint b { font-family: var(--mono); font-weight: 600; }
-  .vel { position: absolute; right: 12px; bottom: 12px; font-family: var(--mono); font-size: 10.5px;
+  .vel { position: absolute; left: 12px; bottom: 12px; font-family: var(--mono); font-size: 10.5px;
     color: var(--fg); background: color-mix(in oklch, black 55%, transparent);
     border: 1px solid color-mix(in oklch, white 14%, transparent); border-radius: var(--radius);
     padding: 6px 9px; min-width: 118px; backdrop-filter: blur(3px); }
   .vel.on { border-color: color-mix(in oklch, var(--primary) 60%, transparent); }
 
-  /* action bar */
-  .ctl-actions { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  /* Disconnect: overlay button, top-right of the camera */
+  .ctl-close { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+    letter-spacing: .02em; color: #fff; background: color-mix(in oklch, black 42%, transparent);
+    backdrop-filter: blur(3px); border: 1px solid color-mix(in oklch, white 20%, transparent);
+    border-radius: var(--radius); padding: 7px 13px; transition: background .14s, border-color .14s; }
+  .ctl-close:hover { background: color-mix(in oklch, var(--danger) 60%, transparent); border-color: transparent; }
+
+  /* commands: opened from the left-edge COMMANDS tab, floats over the camera */
+  .ctl-side { position: absolute; left: 34px; top: 50%; transform: translateY(-50%);
+    width: 176px; max-height: min(560px, 84%); z-index: 20;
+    display: flex; flex-direction: column; gap: 8px;
+    background: color-mix(in oklch, var(--card) 88%, transparent); backdrop-filter: blur(8px);
+    border: 1px solid color-mix(in oklch, white 12%, transparent); border-radius: calc(var(--radius) * 1.4);
+    padding: 12px; overflow: auto; box-shadow: 0 12px 34px -12px rgba(0,0,0,.55); }
+  .ctl-side.closed { display: none; }
+  .cs-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .cs-head .t { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-fg); }
+  .cs-head .spacer { flex: 1; }
   .act { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
     letter-spacing: .03em; color: var(--fg); background: var(--card); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 8px 14px; transition: background .14s, border-color .14s; }
   .act:hover { background: var(--accent); border-color: var(--ring); }
   .act:active { transform: translateY(1px); }
+  .ctl-side .act { width: 100%; text-align: left; }
   .act.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
   .act.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
   .act.ok { border-color: var(--ok); color: var(--ok); }
   .act.err { border-color: var(--danger); color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
-  .ctl-actions .gap { flex: 1; }
+  /* small round toggle for closing the commands panel */
+  .cs-close { appearance: none; cursor: pointer; font: inherit; color: var(--muted-fg);
+    background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
+    width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+    transition: color .14s, border-color .14s; }
+  .cs-close:hover { color: var(--fg); border-color: var(--ring); }
+  /* left-edge tab stack (GO2 SETUP + COMMANDS), overlaid on the camera */
+  .edge-tabs { position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 30;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .edge-cmd { writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px;
+    font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #fff;
+    background: color-mix(in oklch, black 46%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in oklch, white 18%, transparent);
+    border-radius: var(--radius) 0 0 var(--radius); box-shadow: 4px 0 14px -8px rgba(0,0,0,.5);
+    display: none; }
+  .edge-cmd:hover { background: color-mix(in oklch, black 34%, transparent); }
+  .edge-cmd.show { display: block; }
+  .edge-cmd.active { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 
-  /* on-screen d-pad (click-and-hold, mirrors the keyboard) */
-  .dpad { flex: none; display: grid; grid-template-columns: repeat(5, 44px); grid-template-rows: 44px 44px;
-    gap: 6px; justify-content: start; }
+  /* transient warning toast (e.g. driving before the robot is in walking mode) */
+  .toast { position: fixed; left: 50%; top: 22px; transform: translate(-50%, -14px); z-index: 60;
+    max-width: min(440px, 88vw); padding: 11px 16px; font-size: 13px; font-weight: 600; line-height: 1.35;
+    color: #fff; text-align: center; background: color-mix(in oklch, #b4460b 82%, black); backdrop-filter: blur(4px);
+    border: 1px solid color-mix(in oklch, white 24%, transparent); border-radius: var(--radius);
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,.6); opacity: 0; pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* on-screen d-pad (click-and-hold, mirrors the keyboard) — overlaid on the camera */
+  .dpad { position: absolute; right: 12px; bottom: 12px; z-index: 3;
+    display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 6px; }
   .dbtn { appearance: none; cursor: pointer; user-select: none; touch-action: none; font: inherit; font-size: 17px;
-    color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    display: flex; align-items: center; justify-content: center; }
-  .dbtn:hover { background: var(--accent); }
+    color: var(--fg); background: color-mix(in oklch, black 52%, transparent);
+    border: 1px solid color-mix(in oklch, white 16%, transparent); border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+  .dbtn:hover { background: color-mix(in oklch, black 40%, transparent); }
   .dbtn.held { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
-  .dbtn.fwd { grid-column: 3; grid-row: 1; }
-  .dbtn.left { grid-column: 2; grid-row: 2; }
-  .dbtn.back { grid-column: 3; grid-row: 2; }
-  .dbtn.right { grid-column: 4; grid-row: 2; }
-  .dbtn.sl { grid-column: 1; grid-row: 2; } .dbtn.sr { grid-column: 5; grid-row: 2; }
+  .dbtn.fwd { grid-column: 2; grid-row: 1; }
+  .dbtn.sl { grid-column: 1; grid-row: 2; } .dbtn.sr { grid-column: 3; grid-row: 2; }
+  .dbtn.back { grid-column: 2; grid-row: 2; }
+  .dbtn.left { grid-column: 1; grid-row: 3; }
+  .dbtn.right { grid-column: 3; grid-row: 3; }
 
-  .ctl-err { flex: none; font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  .ctl-err { position: absolute; left: 14px; right: 14px; top: 52px; z-index: 6;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5;
     color: color-mix(in oklch, var(--danger) 82%, var(--fg)); padding: 10px 12px; border-radius: var(--radius);
-    background: color-mix(in oklch, var(--danger) 10%, var(--card));
-    border: 1px solid color-mix(in oklch, var(--danger) 32%, var(--border)); }
+    background: color-mix(in oklch, var(--danger) 18%, rgba(0,0,0,.72)); backdrop-filter: blur(4px);
+    border: 1px solid color-mix(in oklch, var(--danger) 45%, transparent); }
 
   /* ── floating panel (left) ── */
-  .panel { position: fixed; left: 16px; top: 16px; bottom: 16px; width: 312px;
+  .panel { position: fixed; left: 16px; top: 16px; bottom: 16px; width: 312px; z-index: 40;
     display: flex; flex-direction: column; background: var(--card);
     border: 1px solid var(--border); border-radius: calc(var(--radius) * 1.6);
     box-shadow: 0 18px 50px -20px rgba(0,0,0,.55), 0 2px 8px -4px rgba(0,0,0,.3);
@@ -211,6 +259,13 @@
   .connect:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
   .dog.launch-open .connect { color: var(--fg); background: var(--card); border-color: var(--border); }
 
+  /* action row (Drive + Connect) — its own line under the identity row so the
+     312px panel never has to cram name + IP + both buttons onto one line (the
+     IP chip used to overflow and hide behind these buttons). Indented to align
+     under the name (past the avatar). */
+  .acts { display: flex; gap: 8px; margin: 9px 0 1px 37px; }
+  .acts .drive, .acts .connect { flex: 1 1 0; }
+
   /* "Drive" button — opens the live control dashboard for this dog */
   .drive { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
     letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; flex: none;
@@ -289,10 +344,9 @@
   .menu button .ic { width: 12px; height: 12px; margin-right: 6px; }
 
   /* reopen tab (left edge, visible when panel is slid away) */
-  .reopen { position: fixed; top: 50%; left: 0; transform: translateY(-50%);
-    writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px; font-size: 11px;
+  .reopen { writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px; font-size: 11px;
     font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--primary-fg);
-    background: var(--primary); border-radius: 0 var(--radius) var(--radius) 0;
+    background: var(--primary); border-radius: var(--radius) 0 0 var(--radius);
     box-shadow: 4px 0 14px -8px rgba(0,0,0,.5); display: none; }
   .reopen.show { display: block; }
 
@@ -356,9 +410,14 @@
     </div>
   </div>
 
-  <div class="reopen" id="reopen">Go2 Setup</div>
+  <div class="edge-tabs" id="edge-tabs">
+    <div class="reopen" id="reopen">Go2 Setup</div>
+    <div class="edge-cmd" id="edge-cmd">Commands</div>
+  </div>
 
   <div class="ctl" id="ctl" style="display:none"></div>
+
+  <div class="toast" id="toast"></div>
 
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/frontend.js"
@@ -375,6 +434,8 @@ const els = {
   scan: document.getElementById("scan"),
   panel: document.getElementById("panel"),
   reopen: document.getElementById("reopen"),
+  edgeCmd: document.getElementById("edge-cmd"),
+  toast: document.getElementById("toast"),
   slide: document.getElementById("slide"),
   stage: document.getElementById("stage"),
   ctl: document.getElementById("ctl"),
@@ -403,8 +464,11 @@ let controlKey = null          // dog key currently being driven (null = not dri
 let controlStatus = "idle"     // idle | connecting | ready | error | closed
 let controlError = ""          // last error string when status === "error"
 let sawVideo = false           // first camera frame seen yet
+let cmdOpen = false            // commands overlay panel open (via the COMMANDS tab)
+let lastFrameSrc = null        // last camera frame kept across re-renders / reconnects
 const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
 let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
+let driveMode = false          // robot is in BalanceStand — the mode that accepts drive-key velocity
 
 // Two different "connects" live in this panel, so each gets its own glyph:
 //   • dog → wifi  (provision the robot onto a network)  → wifi waves
@@ -497,12 +561,14 @@ function dogHtml(d) {
     <div class="row">
       <span class="av" style="background:${colorFor(btId(d))}"></span>
       <div class="meta">${nameCell}<div class="sub">${ip}${waiting}${serial}${(!ip && !waiting && !serial) ? "—" : ""}</div></div>
-      ${d.ip ? `<button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Stop" : ICON_DRIVE + "Drive"}</button>` : ""}
-      ${d.ip ? `<button class="connect" title="Connect this computer to the robot (launch a Go2 blueprint)">${launchKey === key ? "Close" : ICON_LINK + "Connect"}</button>` : ""}
       <button class="rowbtn info" title="Details">ⓘ</button>
       <button class="rowbtn edit" title="Rename">✎</button>
       <button class="rowbtn kebab" title="More">⋯</button>
     </div>
+    ${d.ip ? `<div class="acts">
+      <button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>
+      <button class="connect" title="Connect this computer to the robot (launch a Go2 blueprint)">${launchKey === key ? "Close" : ICON_LINK + "Connect"}</button>
+    </div>` : ""}
     ${detailsKey === key ? detailsHtml(d) : ""}
     <div class="menu">
       <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>${ICON_WIFI}Connect to Wi-Fi…</button>
@@ -595,20 +661,26 @@ dimApp.receiveRequest((tag, msg) => {
   switch (msg.type) {
     case "connecting": controlStatus = "connecting"; renderControl(); break
     case "ready": controlStatus = "ready"; renderControl(); break
+    case "reconnecting": controlStatus = "reconnecting"; driveMode = false; renderControl(); break
     case "error":
       controlStatus = "error"; controlError = msg.error || "connection failed"; renderControl(); break
     case "video": sawVideo = true; renderControl(); break
     case "frame": {
+      lastFrameSrc = "data:image/jpeg;base64," + msg.data
       const img = document.getElementById("cam")
-      if (img) img.src = "data:image/jpeg;base64," + msg.data
+      if (img) img.src = lastFrameSrc
       const wrap = document.getElementById("cam-wrap")
       if (wrap && !wrap.classList.contains("live")) wrap.classList.add("live")
       break
     }
-    case "action_result": flashAction(msg.name, msg.ok); break
+    case "action_result":
+      // a successful action changes the sport mode; only FreeWalk leaves the dog drivable
+      if (msg.ok) driveMode = DRIVE_MODES.has(msg.name)
+      flashAction(msg.name, msg.ok)
+      break
     case "closed":
       // backend lost / closed the control process — drop back to the idle stage
-      if (controlKey) { controlKey = null; controlStatus = "idle"; pressed.clear(); moving = false; render() }
+      if (controlKey) { controlKey = null; controlStatus = "idle"; lastFrameSrc = null; pressed.clear(); moving = false; driveMode = false; setSlid(false); renderControl(); render() }
       break
     case "warn": break // non-fatal (bad frame, transient video hiccup)
   }
@@ -724,17 +796,23 @@ function onConnected() {
 }
 
 // ── live control: drive one dog over WebRTC (camera + keyboard) ──
-// Sport-mode buttons. "stand" is special-cased in go2_control.py (stand up AND enter
-// BalanceStand so driving works); the rest are SPORT_CMD names.
+// Sport-mode buttons. "stand" and "walk" are special-cased in go2_control.py; the
+// rest are SPORT_CMD names. "Stand" just gets the dog upright. "Walk" enters
+// BalanceStand (the mode that actually latches WIRELESS_CONTROLLER joystick
+// commands, so the drive keys move the dog). DRIVE_MODES lists the action names
+// that enable driving; any other action drops back out of drive mode.
 const CTL_ACTIONS = [
-  { name: "stand", label: "Stand", primary: true },
+  { name: "stand", label: "Stand" },
+  { name: "walk", label: "Walk", primary: true },
   { name: "Sit", label: "Sit" },
   { name: "StandDown", label: "Lie Down" },
+  { name: "FrontJump", label: "Jump" },
   { name: "Hello", label: "Hello" },
   { name: "Stretch", label: "Stretch" },
   { name: "RecoveryStand", label: "Recover" },
   { name: "Damp", label: "Relax" },
 ]
+const DRIVE_MODES = new Set(["walk"])
 // keyboard → logical axis key (w/s fwd-back, a/d turn, q/e strafe)
 const KEYMAP = {
   keyw: "w", arrowup: "w", keys: "s", arrowdown: "s",
@@ -750,10 +828,13 @@ function startControl(key) {
   controlStatus = "connecting"
   controlError = ""
   sawVideo = false
-  pressed.clear(); moving = false
+  lastFrameSrc = null
+  cmdOpen = false
+  pressed.clear(); moving = false; driveMode = false
   launchKey = null // don't keep the blueprint launcher open for the same dog
+  setSlid(true)    // auto-minimize the Go2 Setup panel while driving
   dimApp.send("open_control", { ip: d.ip })
-  render()        // list row: Drive → Stop
+  render()        // list row: Drive → Disconnect
   renderControl() // build the stage UI
 }
 
@@ -764,46 +845,57 @@ function stopControl() {
   controlStatus = "idle"
   controlError = ""
   sawVideo = false
-  pressed.clear(); moving = false
+  lastFrameSrc = null
+  pressed.clear(); moving = false; driveMode = false
+  hideToast()
+  setSlid(false)   // bring the Go2 Setup panel back
   render()
   renderControl()
 }
 
 function renderControl() {
   const host = els.ctl
-  if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; return }
+  if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; els.edgeCmd.classList.remove("show", "active"); return }
   const d = devices.find(x => keyOf(x) === controlKey)
   const nm = d ? nameOf(d) : "Go2"
   const ip = d ? (d.ip || "") : ""
   els.stage.style.display = "none"
-  host.style.display = "flex"
-  const label = { connecting: "Connecting", ready: "Live", error: "Error", closed: "Closed", idle: "…" }[controlStatus] || controlStatus
-  const phMsg = controlStatus === "ready" ? "Waiting for video…" : ("Connecting to " + esc(nm) + "…")
+  host.style.display = "block"
+  const label = { connecting: "Connecting", ready: "Live", reconnecting: "Reconnecting", error: "Error", closed: "Closed", idle: "…" }[controlStatus] || controlStatus
+  const phMsg = controlStatus === "ready" ? "Waiting for video…"
+    : controlStatus === "reconnecting" ? ("Reconnecting to " + esc(nm) + "…")
+    : ("Connecting to " + esc(nm) + "…")
   const actions = CTL_ACTIONS.map(a => `<button class="act${a.primary ? " primary" : ""}" data-name="${esc(a.name)}">${esc(a.label)}</button>`).join("")
   host.innerHTML = `
-    <div class="ctl-head">
-      <span class="nm">${esc(nm)}</span>
-      <span style="font-family:var(--mono);font-size:11px;color:var(--muted-fg)">${esc(ip)}</span>
-      <span class="ctl-pill ${controlStatus}"><span class="d"></span>${label}</span>
-      <span class="spacer"></span>
-      <button class="act ctl-close" title="Stop driving">✕ Stop</button>
-    </div>
-    ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}</div>` : ""}
     <div class="cam-wrap" id="cam-wrap">
       <img id="cam" alt="" />
       <div class="cam-ph"><div class="glyph">📷</div><div>${phMsg}</div></div>
-      <div class="drive-hint"><span><b>WASD</b> / <b>↑↓←→</b> drive</span><span><b>Q</b>/<b>E</b> strafe</span></div>
+      <div class="ctl-top">
+        <span class="nm">${esc(nm)}</span>
+        <span class="ctl-ip">${esc(ip)}</span>
+        <span class="ctl-pill ${controlStatus}"><span class="d"></span>${label}</span>
+        <span class="spacer"></span>
+        <button class="ctl-close" title="Disconnect">✕ Disconnect</button>
+      </div>
+      ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}</div>` : ""}
       <div class="vel" id="vel">fwd 0.00 · str 0.00 · yaw 0.00</div>
-    </div>
-    <div class="ctl-actions">${actions}</div>
-    <div class="dpad">
-      <button class="dbtn sl" data-k="q" title="Strafe left">⟲</button>
-      <button class="dbtn fwd" data-k="w" title="Forward">▲</button>
-      <button class="dbtn left" data-k="a" title="Turn left">◀</button>
-      <button class="dbtn back" data-k="s" title="Backward">▼</button>
-      <button class="dbtn right" data-k="d" title="Turn right">▶</button>
-      <button class="dbtn sr" data-k="e" title="Strafe right">⟳</button>
+      <div class="dpad">
+        <button class="dbtn sl" data-k="q" title="Strafe left">⟲</button>
+        <button class="dbtn fwd" data-k="w" title="Forward">▲</button>
+        <button class="dbtn left" data-k="a" title="Turn left">◀</button>
+        <button class="dbtn back" data-k="s" title="Backward">▼</button>
+        <button class="dbtn right" data-k="d" title="Turn right">▶</button>
+        <button class="dbtn sr" data-k="e" title="Strafe right">⟳</button>
+      </div>
+      <div class="ctl-side${cmdOpen ? "" : " closed"}" id="ctl-side">
+        <div class="cs-head"><span class="t">Commands</span><span class="spacer"></span><button class="cs-close" id="cmd-close" title="Close commands">✕</button></div>
+        ${actions}
+      </div>
     </div>`
+  els.edgeCmd.classList.add("show")            // COMMANDS tab visible while driving
+  els.edgeCmd.classList.toggle("active", cmdOpen)
+  const cam = document.getElementById("cam")
+  if (lastFrameSrc && cam) { cam.src = lastFrameSrc; const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
   if (sawVideo) { const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
   reflectKeys()
 }
@@ -815,6 +907,29 @@ function flashAction(name, ok) {
   void el.offsetWidth // restart the flash if the same button fires twice
   el.classList.add(ok ? "ok" : "err")
   setTimeout(() => el.classList.remove("ok", "err"), 900)
+}
+
+// Transient warning toast. Throttled so a held key doesn't retrigger it every frame.
+let toastTimer = null
+let lastToastAt = 0
+const TOAST_MS = 2600
+const TOAST_THROTTLE_MS = 1200
+function showToast(text) {
+  const now = Date.now()
+  if (now - lastToastAt < TOAST_THROTTLE_MS && els.toast.classList.contains("show")) return
+  lastToastAt = now
+  els.toast.textContent = text
+  els.toast.classList.add("show")
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(hideToast, TOAST_MS)
+}
+function hideToast() { clearTimeout(toastTimer); els.toast.classList.remove("show") }
+
+// Block a drive input unless the dog is in walking mode; warn the user if not.
+function driveAllowed() {
+  if (driveMode) return true
+  showToast('Robot isn’t in walking mode — press "Walk" to drive.')
+  return false
 }
 
 // Held keys → a normalized -1..1 velocity vector.
@@ -858,6 +973,7 @@ window.addEventListener("keydown", (e) => {
   const k = codeKey(e)
   if (!k) return
   e.preventDefault()
+  if (!driveAllowed()) return
   if (!pressed.has(k)) { pressed.add(k); reflectKeys() }
 })
 window.addEventListener("keyup", (e) => {
@@ -874,6 +990,7 @@ els.ctl.addEventListener("pointerdown", (e) => {
   const db = e.target.closest(".dbtn")
   if (!db) return
   e.preventDefault()
+  if (!driveAllowed()) return
   db.setPointerCapture && db.setPointerCapture(e.pointerId)
   if (!pressed.has(db.dataset.k)) { pressed.add(db.dataset.k); reflectKeys() }
 })
@@ -888,6 +1005,7 @@ els.ctl.addEventListener("pointercancel", releasePad)
 // action buttons + stop
 els.ctl.addEventListener("click", (e) => {
   if (e.target.closest(".ctl-close")) { stopControl(); return }
+  if (e.target.closest(".cs-close")) { cmdOpen = false; renderControl(); return }
   const act = e.target.closest(".act:not(.ctl-close)")
   if (act && act.dataset.name) dimApp.send("action", { name: act.dataset.name })
 })
@@ -1001,6 +1119,7 @@ function setSlid(slid) {
 }
 els.slide.addEventListener("click", () => setSlid(true))
 els.reopen.addEventListener("click", () => setSlid(false))
+els.edgeCmd.addEventListener("click", () => { cmdOpen = !cmdOpen; renderControl() })
 
 // "not connecting?" help: expand/collapse + click-to-copy the route command
 document.getElementById("help-toggle").addEventListener("click", () => {
