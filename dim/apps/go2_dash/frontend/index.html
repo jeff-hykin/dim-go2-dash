@@ -56,6 +56,14 @@
   .ctl-pill.connecting .d, .ctl-pill.reconnecting .d { animation: pulse 1s ease-in-out infinite; }
   .ctl-pill.ready { color: color-mix(in oklch, var(--ok) 60%, white); }
   .ctl-pill.error { color: color-mix(in oklch, var(--danger) 55%, white); }
+  /* current-mode badge, next to the status pill */
+  .mode-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.75);
+    background: color-mix(in oklch, black 45%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in oklch, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
+  .mode-badge.stand, .mode-badge.pose { color: color-mix(in oklch, var(--ok) 62%, white);
+    border-color: color-mix(in oklch, var(--ok) 42%, transparent); }
+  .mode-badge.rising { color: color-mix(in oklch, var(--primary) 60%, white); }
   .cam-wrap img { width: 100%; height: 100%; object-fit: contain; display: none; }
   .cam-wrap.live img { display: block; }
   .cam-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
@@ -75,45 +83,40 @@
     border-radius: var(--radius); padding: 7px 13px; transition: background .14s, border-color .14s; }
   .ctl-close:hover { background: color-mix(in oklch, var(--danger) 60%, transparent); border-color: transparent; }
 
-  /* commands: opened from the left-edge COMMANDS tab, floats over the camera */
-  .ctl-side { position: absolute; left: 34px; top: 50%; transform: translateY(-50%);
-    width: 176px; max-height: min(560px, 84%); z-index: 20;
-    display: flex; flex-direction: column; gap: 8px;
-    background: color-mix(in oklch, var(--card) 88%, transparent); backdrop-filter: blur(8px);
-    border: 1px solid color-mix(in oklch, white 12%, transparent); border-radius: calc(var(--radius) * 1.4);
-    padding: 12px; overflow: auto; box-shadow: 0 12px 34px -12px rgba(0,0,0,.55); }
-  .ctl-side.closed { display: none; }
-  .cs-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-  .cs-head .t { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-fg); }
-  .cs-head .spacer { flex: 1; }
+  /* commands: horizontally-scrollable bar centered along the bottom of the camera */
+  .cmd-dock { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 4;
+    display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: min(56%, 760px); }
+  .cmd-bar { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+  .cmd-scroll { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px;
+    scrollbar-width: thin; scroll-behavior: smooth;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+    mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent); }
+  .cmd-scroll::-webkit-scrollbar { height: 6px; }
+  .cmd-scroll::-webkit-scrollbar-thumb { background: color-mix(in oklch, white 22%, transparent); border-radius: 3px; }
+  /* slash-search field, revealed on "/" — filters the command list */
+  .cmd-search { display: none; align-items: center; gap: 6px; flex: 0 0 auto;
+    background: color-mix(in oklch, black 52%, transparent); backdrop-filter: blur(4px);
+    border: 1px solid color-mix(in oklch, var(--primary) 55%, white 16%); border-radius: var(--radius); padding: 5px 9px; }
+  .cmd-bar.searching .cmd-search { display: flex; }
+  .cmd-search .ico { font-size: 13px; color: var(--muted-fg); }
+  .cmd-search input { appearance: none; border: none; outline: none; background: transparent; color: var(--fg);
+    font: inherit; font-size: 12px; width: 120px; }
+  .cmd-search input::placeholder { color: var(--muted-fg); }
   .act { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
-    letter-spacing: .03em; color: var(--fg); background: var(--card); border: 1px solid var(--border);
+    letter-spacing: .03em; white-space: nowrap; flex: 0 0 auto;
+    color: var(--fg); background: color-mix(in oklch, black 44%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in oklch, white 16%, transparent);
     border-radius: var(--radius); padding: 8px 14px; transition: background .14s, border-color .14s; }
-  .act:hover { background: var(--accent); border-color: var(--ring); }
+  .act:hover { background: color-mix(in oklch, black 30%, transparent); border-color: var(--ring); }
   .act:active { transform: translateY(1px); }
-  .ctl-side .act { width: 100%; text-align: left; }
   .act.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
   .act.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
   .act.ok { border-color: var(--ok); color: var(--ok); }
   .act.err { border-color: var(--danger); color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
-  /* small round toggle for closing the commands panel */
-  .cs-close { appearance: none; cursor: pointer; font: inherit; color: var(--muted-fg);
-    background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
-    width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-    transition: color .14s, border-color .14s; }
-  .cs-close:hover { color: var(--fg); border-color: var(--ring); }
-  /* left-edge tab stack (GO2 SETUP + COMMANDS), overlaid on the camera */
+  .act.nomatch { display: none; }
+  /* left-edge tab (GO2 SETUP), overlaid on the camera */
   .edge-tabs { position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 30;
     display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-  .edge-cmd { writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px;
-    font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #fff;
-    background: color-mix(in oklch, black 46%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in oklch, white 18%, transparent);
-    border-radius: var(--radius) 0 0 var(--radius); box-shadow: 4px 0 14px -8px rgba(0,0,0,.5);
-    display: none; }
-  .edge-cmd:hover { background: color-mix(in oklch, black 34%, transparent); }
-  .edge-cmd.show { display: block; }
-  .edge-cmd.active { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 
   /* transient warning toast (e.g. driving before the robot is in walking mode) */
   .toast { position: fixed; left: 50%; top: 22px; transform: translate(-50%, -14px); z-index: 60;
@@ -126,18 +129,15 @@
 
   /* on-screen d-pad (click-and-hold, mirrors the keyboard) — overlaid on the camera */
   .dpad { position: absolute; right: 12px; bottom: 12px; z-index: 3;
-    display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 6px; }
+    display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); gap: 6px; }
   .dbtn { appearance: none; cursor: pointer; user-select: none; touch-action: none; font: inherit; font-size: 17px;
     color: var(--fg); background: color-mix(in oklch, black 52%, transparent);
     border: 1px solid color-mix(in oklch, white 16%, transparent); border-radius: var(--radius);
     display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
   .dbtn:hover { background: color-mix(in oklch, black 40%, transparent); }
   .dbtn.held { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
-  .dbtn.fwd { grid-column: 2; grid-row: 1; }
-  .dbtn.sl { grid-column: 1; grid-row: 2; } .dbtn.sr { grid-column: 3; grid-row: 2; }
-  .dbtn.back { grid-column: 2; grid-row: 2; }
-  .dbtn.left { grid-column: 1; grid-row: 3; }
-  .dbtn.right { grid-column: 3; grid-row: 3; }
+  .dbtn.sl { grid-column: 1; grid-row: 1; } .dbtn.fwd { grid-column: 2; grid-row: 1; } .dbtn.sr { grid-column: 3; grid-row: 1; }
+  .dbtn.left { grid-column: 1; grid-row: 2; } .dbtn.back { grid-column: 2; grid-row: 2; } .dbtn.right { grid-column: 3; grid-row: 2; }
 
   .ctl-err { position: absolute; left: 14px; right: 14px; top: 52px; z-index: 6;
     font-family: var(--mono); font-size: 12px; line-height: 1.5;
@@ -412,7 +412,6 @@
 
   <div class="edge-tabs" id="edge-tabs">
     <div class="reopen" id="reopen">Go2 Setup</div>
-    <div class="edge-cmd" id="edge-cmd">Commands</div>
   </div>
 
   <div class="ctl" id="ctl" style="display:none"></div>
@@ -434,7 +433,6 @@ const els = {
   scan: document.getElementById("scan"),
   panel: document.getElementById("panel"),
   reopen: document.getElementById("reopen"),
-  edgeCmd: document.getElementById("edge-cmd"),
   toast: document.getElementById("toast"),
   slide: document.getElementById("slide"),
   stage: document.getElementById("stage"),
@@ -464,11 +462,11 @@ let controlKey = null          // dog key currently being driven (null = not dri
 let controlStatus = "idle"     // idle | connecting | ready | error | closed
 let controlError = ""          // last error string when status === "error"
 let sawVideo = false           // first camera frame seen yet
-let cmdOpen = false            // commands overlay panel open (via the COMMANDS tab)
+let cmdSearching = false       // slash-search over the command bar is open
 let lastFrameSrc = null        // last camera frame kept across re-renders / reconnects
 const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
 let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
-let driveMode = false          // robot is in BalanceStand — the mode that accepts drive-key velocity
+let dogMode = ""               // backend-reported mode: resting | rising | stand | pose (stand/pose drive)
 
 // Two different "connects" live in this panel, so each gets its own glyph:
 //   • dog → wifi  (provision the robot onto a network)  → wifi waves
@@ -661,7 +659,8 @@ dimApp.receiveRequest((tag, msg) => {
   switch (msg.type) {
     case "connecting": controlStatus = "connecting"; renderControl(); break
     case "ready": controlStatus = "ready"; renderControl(); break
-    case "reconnecting": controlStatus = "reconnecting"; driveMode = false; renderControl(); break
+    case "reconnecting": controlStatus = "reconnecting"; dogMode = ""; renderControl(); break
+    case "mode": dogMode = msg.mode || ""; renderControl(); break
     case "error":
       controlStatus = "error"; controlError = msg.error || "connection failed"; renderControl(); break
     case "video": sawVideo = true; renderControl(); break
@@ -674,13 +673,12 @@ dimApp.receiveRequest((tag, msg) => {
       break
     }
     case "action_result":
-      // a successful action changes the sport mode; only FreeWalk leaves the dog drivable
-      if (msg.ok) driveMode = DRIVE_MODES.has(msg.name)
+      // driveability follows the backend "mode" event, not this result
       flashAction(msg.name, msg.ok)
       break
     case "closed":
       // backend lost / closed the control process — drop back to the idle stage
-      if (controlKey) { controlKey = null; controlStatus = "idle"; lastFrameSrc = null; pressed.clear(); moving = false; driveMode = false; setSlid(false); renderControl(); render() }
+      if (controlKey) { controlKey = null; controlStatus = "idle"; lastFrameSrc = null; pressed.clear(); moving = false; dogMode = ""; setSlid(false); renderControl(); render() }
       break
     case "warn": break // non-fatal (bad frame, transient video hiccup)
   }
@@ -796,14 +794,14 @@ function onConnected() {
 }
 
 // ── live control: drive one dog over WebRTC (camera + keyboard) ──
-// Sport-mode buttons. "stand" and "walk" are special-cased in go2_control.py; the
-// rest are SPORT_CMD names. "Stand" just gets the dog upright. "Walk" enters
-// BalanceStand (the mode that actually latches WIRELESS_CONTROLLER joystick
-// commands, so the drive keys move the dog). DRIVE_MODES lists the action names
-// that enable driving; any other action drops back out of drive mode.
+// Sport-mode buttons. "stand" and "pose" are special-cased in go2_control.py; the
+// rest are SPORT_CMD names. "Stand" gets the dog upright AND into drivable
+// BalanceStand in one press (drive keys walk it). "Pose" builds on that stand so
+// the drive keys twist the body in place. The backend reports the live mode via
+// {type:"mode"}, and dogMode gates driving — see driveAllowed().
 const CTL_ACTIONS = [
-  { name: "stand", label: "Stand" },
-  { name: "walk", label: "Walk", primary: true },
+  { name: "stand", label: "Stand", primary: true },
+  { name: "pose", label: "Pose" },
   { name: "Sit", label: "Sit" },
   { name: "StandDown", label: "Lie Down" },
   { name: "FrontJump", label: "Jump" },
@@ -812,7 +810,6 @@ const CTL_ACTIONS = [
   { name: "RecoveryStand", label: "Recover" },
   { name: "Damp", label: "Relax" },
 ]
-const DRIVE_MODES = new Set(["walk"])
 // keyboard → logical axis key (w/s fwd-back, a/d turn, q/e strafe)
 const KEYMAP = {
   keyw: "w", arrowup: "w", keys: "s", arrowdown: "s",
@@ -829,8 +826,8 @@ function startControl(key) {
   controlError = ""
   sawVideo = false
   lastFrameSrc = null
-  cmdOpen = false
-  pressed.clear(); moving = false; driveMode = false
+  cmdSearching = false
+  pressed.clear(); moving = false; dogMode = ""
   launchKey = null // don't keep the blueprint launcher open for the same dog
   setSlid(true)    // auto-minimize the Go2 Setup panel while driving
   dimApp.send("open_control", { ip: d.ip })
@@ -846,7 +843,7 @@ function stopControl() {
   controlError = ""
   sawVideo = false
   lastFrameSrc = null
-  pressed.clear(); moving = false; driveMode = false
+  pressed.clear(); moving = false; dogMode = ""
   hideToast()
   setSlid(false)   // bring the Go2 Setup panel back
   render()
@@ -855,13 +852,14 @@ function stopControl() {
 
 function renderControl() {
   const host = els.ctl
-  if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; els.edgeCmd.classList.remove("show", "active"); return }
+  if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; return }
   const d = devices.find(x => keyOf(x) === controlKey)
   const nm = d ? nameOf(d) : "Go2"
   const ip = d ? (d.ip || "") : ""
   els.stage.style.display = "none"
   host.style.display = "block"
   const label = { connecting: "Connecting", ready: "Live", reconnecting: "Reconnecting", error: "Error", closed: "Closed", idle: "…" }[controlStatus] || controlStatus
+  const modeLabel = { rising: "Standing up…", stand: "Standing", pose: "Pose", resting: "Resting" }[dogMode] || "—"
   const phMsg = controlStatus === "ready" ? "Waiting for video…"
     : controlStatus === "reconnecting" ? ("Reconnecting to " + esc(nm) + "…")
     : ("Connecting to " + esc(nm) + "…")
@@ -887,13 +885,14 @@ function renderControl() {
         <button class="dbtn right" data-k="d" title="Turn right">▶</button>
         <button class="dbtn sr" data-k="e" title="Strafe right">⟳</button>
       </div>
-      <div class="ctl-side${cmdOpen ? "" : " closed"}" id="ctl-side">
-        <div class="cs-head"><span class="t">Commands</span><span class="spacer"></span><button class="cs-close" id="cmd-close" title="Close commands">✕</button></div>
-        ${actions}
+      <div class="cmd-dock">
+        <span class="mode-badge ${esc(dogMode)}" title="Current dog mode">Mode: ${esc(modeLabel)}</span>
+        <div class="cmd-bar${cmdSearching ? " searching" : ""}" id="cmd-bar">
+          <div class="cmd-search"><span class="ico">⌕</span><input id="cmd-search-input" type="text" placeholder="Search commands…" autocomplete="off" spellcheck="false" /></div>
+          <div class="cmd-scroll" id="cmd-scroll">${actions}</div>
+        </div>
       </div>
     </div>`
-  els.edgeCmd.classList.add("show")            // COMMANDS tab visible while driving
-  els.edgeCmd.classList.toggle("active", cmdOpen)
   const cam = document.getElementById("cam")
   if (lastFrameSrc && cam) { cam.src = lastFrameSrc; const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
   if (sawVideo) { const w = document.getElementById("cam-wrap"); if (w) w.classList.add("live") }
@@ -927,8 +926,8 @@ function hideToast() { clearTimeout(toastTimer); els.toast.classList.remove("sho
 
 // Block a drive input unless the dog is in walking mode; warn the user if not.
 function driveAllowed() {
-  if (driveMode) return true
-  showToast('Robot isn’t in walking mode — press "Walk" to drive.')
+  if (dogMode === "stand" || dogMode === "pose") return true
+  showToast('Robot isn’t standing — press "Stand" to drive.')
   return false
 }
 
@@ -970,6 +969,7 @@ window.addEventListener("keydown", (e) => {
   if (controlKey === null) return
   const t = e.target
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return // don't drive while typing
+  if (e.key === "/" && !e.repeat) { e.preventDefault(); openCmdSearch(); return }
   const k = codeKey(e)
   if (!k) return
   e.preventDefault()
@@ -1005,9 +1005,44 @@ els.ctl.addEventListener("pointercancel", releasePad)
 // action buttons + stop
 els.ctl.addEventListener("click", (e) => {
   if (e.target.closest(".ctl-close")) { stopControl(); return }
-  if (e.target.closest(".cs-close")) { cmdOpen = false; renderControl(); return }
   const act = e.target.closest(".act:not(.ctl-close)")
   if (act && act.dataset.name) dimApp.send("action", { name: act.dataset.name })
+})
+
+// ── command bar slash-search ──
+function filterCmds() {
+  const bar = document.getElementById("cmd-bar")
+  if (!bar) return
+  const query = (document.getElementById("cmd-search-input")?.value || "").trim().toLowerCase()
+  bar.querySelectorAll(".cmd-scroll .act").forEach(button => {
+    const haystack = (button.textContent + " " + (button.dataset.name || "")).toLowerCase()
+    button.classList.toggle("nomatch", query !== "" && !haystack.includes(query))
+  })
+}
+function openCmdSearch() {
+  cmdSearching = true
+  document.getElementById("cmd-bar")?.classList.add("searching")
+  const input = document.getElementById("cmd-search-input")
+  if (input) { input.focus(); input.select() }
+}
+function closeCmdSearch() {
+  cmdSearching = false
+  const input = document.getElementById("cmd-search-input")
+  if (input) { input.value = ""; input.blur() }
+  filterCmds()
+  document.getElementById("cmd-bar")?.classList.remove("searching")
+}
+function runFirstCmd() {
+  const first = document.getElementById("cmd-bar")?.querySelector(".cmd-scroll .act:not(.nomatch)")
+  if (first && first.dataset.name) dimApp.send("action", { name: first.dataset.name })
+}
+els.ctl.addEventListener("input", (e) => {
+  if (e.target.id === "cmd-search-input") filterCmds()
+})
+els.ctl.addEventListener("keydown", (e) => {
+  if (e.target.id !== "cmd-search-input") return
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeCmdSearch() }
+  else if (e.key === "Enter") { e.preventDefault(); runFirstCmd(); closeCmdSearch() }
 })
 
 // ── interactions (event delegation) ──
@@ -1119,7 +1154,6 @@ function setSlid(slid) {
 }
 els.slide.addEventListener("click", () => setSlid(true))
 els.reopen.addEventListener("click", () => setSlid(false))
-els.edgeCmd.addEventListener("click", () => { cmdOpen = !cmdOpen; renderControl() })
 
 // "not connecting?" help: expand/collapse + click-to-copy the route command
 document.getElementById("help-toggle").addEventListener("click", () => {

@@ -205,6 +205,36 @@ def arp_scan() -> "list[tuple[str, str]]":
     return hits
 
 
+# ARP only knows an IP↔MAC the kernel once overheard — the entry can be stale (dog
+# powered off / left the network) or the IP may have been reused by some other
+# device. Before surfacing an unverified ARP card we TCP-connect to a Go2 LAN
+# signaling port: it proves the host is alive AND actually a Go2, and because we
+# never send an SDP offer it can't disturb an existing control session the way a
+# real WebRTC connect (which the robot answers with "reject"/RobotBusyError) would.
+GO2_SIGNALING_PORTS = (9991, 8081)
+PROBE_TIMEOUT_SECONDS = 1.5
+
+
+async def _probe_port(ip: str, port: int) -> bool:
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, port), timeout=PROBE_TIMEOUT_SECONDS
+        )
+    except (OSError, asyncio.TimeoutError):
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except (OSError, asyncio.TimeoutError):
+        pass
+    return True
+
+
+async def _go2_alive(ip: str) -> bool:
+    """Non-disruptive liveness + identity check: is a Go2 signaling port answering?"""
+    return any(await asyncio.gather(*(_probe_port(ip, port) for port in GO2_SIGNALING_PORTS)))
+
+
 async def stdin_lines():
     """Async iterator over stdin lines (POSIX read-pipe, non-blocking)."""
     loop = asyncio.get_event_loop()
@@ -307,14 +337,36 @@ async def do_scan(timeout: float) -> None:
         except Exception as exc:  # noqa: BLE001
             emit({"type": "warn", "msg": f"lan: {exc}"})
 
+    def arp_drop(ip) -> None:
+        # A previously-shown unverified card stopped answering — remove it.
+        key = "a:" + ip
+        if key in merged:
+            merged.pop(key)
+            emit({"type": "drop", "key": ip})
+
     async def arp_task() -> None:
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(None, _arp_sweep)  # repopulate aged-out entries
             await asyncio.sleep(1.0)
             while True:
-                for ip, mac in await loop.run_in_executor(None, arp_scan):
-                    arp_upsert(ip, mac)
+                hits = await loop.run_in_executor(None, arp_scan)
+                # An IP already confirmed by BLE/LAN needs no probe — just attach its mac.
+                # For the rest (unverified), probe concurrently and only show responders.
+                unverified = [(ip, mac) for ip, mac in hits if ip not in ip_key]
+                alive = dict(
+                    zip(
+                        (ip for ip, _ in unverified),
+                        await asyncio.gather(*(_go2_alive(ip) for ip, _ in unverified)),
+                    )
+                )
+                for ip, mac in hits:
+                    if ip in ip_key:
+                        arp_upsert(ip, mac)
+                    elif alive.get(ip):
+                        arp_upsert(ip, mac)
+                    else:
+                        arp_drop(ip)
                 await asyncio.sleep(2.0)
         except asyncio.CancelledError:
             raise

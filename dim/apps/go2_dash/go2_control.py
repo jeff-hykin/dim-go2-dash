@@ -21,6 +21,7 @@ Protocol (newline-delimited JSON):
                     {"type":"frame","data":"<base64 jpeg>","w":..,"h":..}
                     {"type":"reconnecting"}                                # link stalled, retrying
                     {"type":"action_result","name":..,"ok":bool}
+                    {"type":"mode","mode":"resting"/"rising"/"stand"/"pose"}  # current dog mode
 
 If the video link stalls (the dog drops off Wi-Fi or the WebRTC track dies), a
 watchdog tears the connection down and rebuilds it in place — emitting
@@ -72,6 +73,8 @@ RECONNECT_BACKOFF = 2.0  # s between failed rebuild attempts
 # After standing up, wait this long before BalanceStand so joystick control latches
 # (BalanceStand issued while the dog is still rising doesn't stick). Matches dimos' startup.
 STAND_SETTLE_SECONDS = 3.0
+# Sport actions that leave the dog in a non-drivable posture — mode drops to "resting".
+RESTING_ACTIONS = {"Sit", "StandDown", "Damp"}
 
 
 class Go2Controller:
@@ -79,9 +82,10 @@ class Go2Controller:
         self.ip = ip
         self.aes_128_key = aes_128_key
         self.connection = self._build_connection()
-        # WIRELESS_CONTROLLER (the move channel) only listens once the robot is in
-        # BalanceStand; track whether we've enabled it so the first drive works.
-        self._balanced = False
+        # Current dog mode, mirrored to the browser so the UI can show it and gate
+        # driving. "stand" and "pose" both accept drive-key velocity (stand walks,
+        # pose twists the body in place); "resting"/"rising" do not.
+        self._mode = "resting"
         self._video_subscription = None
         self._last_frame_at = 0.0   # throttles emitted frames
         self._last_rx = 0.0         # last frame actually received (liveness)
@@ -161,11 +165,11 @@ class Go2Controller:
                 with self._conn_lock:
                     old = self.connection
                     self.connection = self._build_connection()
-                    self._balanced = False
                 self._teardown(old)
                 self.start_camera()
                 self._last_rx = time.monotonic()
                 emit({"type": "ready"})
+                self._set_mode("resting")  # fresh link — balance state is lost
                 self._reconnecting = False
                 return
             except Exception as exc:  # noqa: BLE001 — keep retrying until closed
@@ -192,25 +196,40 @@ class Go2Controller:
         with self._conn_lock:
             self.connection.move(twist)
 
+    def _set_mode(self, mode: str) -> None:
+        self._mode = mode
+        emit({"type": "mode", "mode": mode})
+
     def action(self, name: str) -> bool:
         from unitree_webrtc_connect.constants import RTC_TOPIC, SPORT_CMD
 
         if self._reconnecting:
             return False
         with self._conn_lock:
-            # "stand" just gets the dog upright and holding posture — not drivable.
+            # "stand" gets the dog upright AND into drivable BalanceStand in one press.
+            # BalanceStand issued mid-rise doesn't latch joystick control, so we stand
+            # up first and let it settle (mirrors dimos' own GO2 startup). If we're
+            # already up in pose mode, just drop pose back to a plain balance stand —
+            # no need to re-rise and eat the settle delay again.
             if name == "stand":
-                self.connection.standup()
-                self._balanced = False
+                if self._mode == "pose":
+                    self.connection.balance_stand()
+                else:
+                    self._set_mode("rising")
+                    self.connection.standup()
+                    time.sleep(STAND_SETTLE_SECONDS)
+                    self.connection.balance_stand()
+                self._set_mode("stand")
                 return True
-            # "walk" enters the drivable BalanceStand mode. Stand up first and let the
-            # robot settle: BalanceStand issued mid-rise doesn't latch joystick control,
-            # so the drive keys would do nothing (this mirrors dimos' own GO2 startup).
-            if name == "walk":
-                self.connection.standup()
-                time.sleep(STAND_SETTLE_SECONDS)
+            # "pose" builds on the current stand: hold BalanceStand, then enter Pose so
+            # the joystick tilts/twists the body in place instead of walking.
+            if name == "pose":
                 self.connection.balance_stand()
-                self._balanced = True
+                self.connection.publish_request(
+                    RTC_TOPIC["SPORT_MOD"],
+                    {"api_id": SPORT_CMD["Pose"], "parameter": {"data": True}},
+                )
+                self._set_mode("pose")
                 return True
             api_id = SPORT_CMD.get(name)
             if api_id is None:
@@ -218,8 +237,8 @@ class Go2Controller:
             ok = bool(
                 self.connection.publish_request(RTC_TOPIC["SPORT_MOD"], {"api_id": api_id})
             )
-        if name == "BalanceStand":
-            self._balanced = True
+        if ok and name in RESTING_ACTIONS:
+            self._set_mode("resting")
         return ok
 
     def stop(self) -> None:
@@ -255,6 +274,7 @@ def main() -> None:
         emit({"type": "error", "error": str(exc)})
         return
     emit({"type": "ready"})
+    controller._set_mode("resting")  # unknown posture until the user presses Stand
     controller.start_camera()
     controller.start_watchdog()
 
