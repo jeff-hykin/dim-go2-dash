@@ -324,12 +324,7 @@
   .f-warn.show { display: block; }
   .f-hint { margin: -3px 0 9px; font-size: 10.5px; line-height: 1.45; color: var(--muted-fg); }
 
-  /* ARP fallback: warning banner + unverified dog card */
-  .arp-warn { font-size: 11px; line-height: 1.5; margin: 2px 2px 9px; padding: 8px 10px; border-radius: var(--radius);
-    color: color-mix(in oklch, var(--warn, #e2a23b) 82%, var(--fg));
-    background: color-mix(in oklch, var(--warn, #e2a23b) 13%, var(--card));
-    border: 1px solid color-mix(in oklch, var(--warn, #e2a23b) 38%, var(--border)); }
-  .arp-warn b { color: color-mix(in oklch, var(--warn, #e2a23b) 90%, var(--fg)); }
+  /* ARP fallback: unverified dog card */
   .dog.arp { border: 1px dashed color-mix(in oklch, var(--warn, #e2a23b) 45%, var(--border)); }
   .av.arp-av { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; box-shadow: none;
     color: color-mix(in oklch, var(--warn, #e2a23b) 88%, var(--fg));
@@ -648,11 +643,7 @@ function render() {
       : '<div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>'
     return
   }
-  const arpCount = devices.filter(d => d.arp_only).length
-  const banner = arpCount
-    ? `<div class="arp-warn"><b>⚠ ${arpCount} found only via ARP fallback.</b> An IP is live on your network but the normal Go2 discovery couldn't confirm it — likely a VPN blocking discovery. The IP is real, but it can't be matched to a specific dog's name/serial, so treat it as unverified.</div>`
-    : ""
-  els.list.innerHTML = banner + devices.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
+  els.list.innerHTML = devices.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
   if (editKey) {
     const inp = els.list.querySelector(`.dog[data-key="${cssEsc(editKey)}"] .rename`)
     if (inp) { inp.focus(); inp.select() }
