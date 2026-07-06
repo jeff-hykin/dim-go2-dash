@@ -165,6 +165,15 @@
 
   .p-scan { display: flex; align-items: center; gap: 10px; padding: 11px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
+  /* drive-a-known-IP-directly row (Drive button appears only once a valid IP is typed) */
+  .p-manual { display: flex; align-items: center; gap: 8px; padding: 10px 15px;
+    border-bottom: 1px solid var(--border); flex: none; }
+  .p-manual input { flex: 1; min-width: 0; box-sizing: border-box; appearance: none; font: inherit;
+    font-size: 12px; color: var(--fg); background: var(--bg); border: 1px solid var(--input, var(--border));
+    border-radius: var(--radius); padding: 7px 9px; outline: none; }
+  .p-manual input:focus { border-color: var(--ring); }
+  .p-manual .btn { display: none; }
+  .p-manual.ready .btn { display: inline-block; }
   .status { font-size: 12px; color: var(--muted-fg); display: flex; align-items: center; gap: 7px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-fg); flex: none; }
   .dot.scanning { background: var(--primary); animation: pulse 1s ease-in-out infinite; }
@@ -385,12 +394,17 @@
       <button class="btn primary" id="scan">Scan</button>
       <span class="status"><span class="dot" id="dot"></span><span id="status">Ready</span></span>
     </div>
+    <div class="p-manual" id="p-manual">
+      <input id="manual-ip" placeholder="Know the IP? Drive it directly…" autocomplete="off" spellcheck="false" inputmode="decimal" />
+      <button class="btn primary" id="manual-drive" title="Drive this IP live">Drive</button>
+    </div>
     <div class="list" id="list">
       <div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>
     </div>
     <div class="p-help" id="p-help">
       <button class="help-toggle" id="help-toggle"><span class="hc">▸</span>A dog shows but never gets an IP?</button>
       <div class="help-body">
+        <p><b>Try disabling your VPN (including tailscale) if you have one.</b> Note: once you know the IP you can connect manually without disabling your VPN, its just needed for scanning.</p>
         <p>A Go2 is found over <b>Bluetooth</b>, but its IP only appears once it's discovered on your <b>network</b>. If the IP never shows:</p>
         <ul>
           <li>Make sure the dog joined the <b>same Wi-Fi</b> as this computer.</li>
@@ -429,6 +443,9 @@ const els = {
   dot: document.getElementById("dot"),
   status: document.getElementById("status"),
   scan: document.getElementById("scan"),
+  manualRow: document.getElementById("p-manual"),
+  manualIp: document.getElementById("manual-ip"),
+  manualDrive: document.getElementById("manual-drive"),
   panel: document.getElementById("panel"),
   reopen: document.getElementById("reopen"),
   toast: document.getElementById("toast"),
@@ -468,6 +485,7 @@ let connAes = ""               // per-device AES key, if any (data2=3 firmware)
 let reconnectTimer = null      // pending auto-reconnect after a dropped peer link
 const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
 let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
+let boost = false              // Shift held → run (faster translation)
 let dogMode = ""               // local mode: resting | rising | stand | pose (stand/pose drive)
 
 // Two different "connects" live in this panel, so each gets its own glyph:
@@ -637,13 +655,14 @@ function render() {
     els.list.innerHTML = '<div class="none">The dimos venv isn\'t available, so BLE discovery can\'t run.<br />Open this from a dashboard with dimos installed.</div>'
     return
   }
-  if (!devices.length) {
+  const visible = devices.filter(d => !d.manual) // manual drive targets aren't scan results
+  if (!visible.length) {
     els.list.innerHTML = scanning
       ? '<div class="none">Scanning for nearby Go2s…</div>'
       : '<div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>'
     return
   }
-  els.list.innerHTML = devices.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
+  els.list.innerHTML = visible.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
   if (editKey) {
     const inp = els.list.querySelector(`.dog[data-key="${cssEsc(editKey)}"] .rename`)
     if (inp) { inp.focus(); inp.select() }
@@ -687,7 +706,8 @@ dimApp.receiveRequest((tag, msg) => {
       hasPython = msg.hasPython
       hostSsid = msg.hostSsid || ""
       hostSsidStatus = msg.hostSsidStatus || "unknown"
-      devices = msg.devices || []
+      // keep any manually-entered drive targets alive across a full refresh
+      devices = [...(msg.devices || []), ...devices.filter(d => d.manual)]
       render(); break
     case "scan_start":
       scanning = true; setStatus("Scanning…", "scanning"); els.scan.disabled = true; render(); break
@@ -811,6 +831,8 @@ const EXTRA_SPORT = { Pose: 1028, FrontJump: 1031 }
 const RESTING_ACTIONS = new Set(["Sit", "StandDown", "Damp"])
 // Velocity envelope: a normalized -1..1 axis from the UI maps to these maxima.
 const MAX_FORWARD = 0.6, MAX_LATERAL = 0.4, MAX_YAW = 0.8
+// Hold Shift to run: scales translation (not turn, which stays controllable).
+const RUN_MULT = 2.2
 // After standing up, wait before BalanceStand so joystick control latches (issued
 // mid-rise it doesn't stick) — mirrors dimos' Go2 startup.
 const STAND_SETTLE_MS = 3000
@@ -972,7 +994,7 @@ function renderControl() {
         <button class="ctl-close" title="Disconnect">✕ Disconnect</button>
       </div>
       ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}</div>` : ""}
-      <div class="vel" id="vel">fwd 0.00 · str 0.00 · yaw 0.00</div>
+      <div class="vel" id="vel">fwd 0.00 · str 0.00 · yaw 0.00  ·  shift = run</div>
       <div class="dpad">
         <button class="dbtn sl" data-k="q" title="Strafe left">⟲</button>
         <button class="dbtn fwd" data-k="w" title="Forward">▲</button>
@@ -1038,7 +1060,7 @@ function velFromKeys() {
 function updateVel(v) {
   const el = document.getElementById("vel")
   if (!el) return
-  el.textContent = `fwd ${v.forward.toFixed(2)} · str ${v.strafe.toFixed(2)} · yaw ${v.turn.toFixed(2)}`
+  el.textContent = `fwd ${v.forward.toFixed(2)} · str ${v.strafe.toFixed(2)} · yaw ${v.turn.toFixed(2)}` + (boost ? "  ·  ⚡ run" : "  ·  shift = run")
   el.classList.toggle("on", !!(v.forward || v.strafe || v.turn))
 }
 function reflectKeys() {
@@ -1052,7 +1074,8 @@ setInterval(() => {
   if (controlKey === null || controlStatus !== "ready" || !conn) return
   const v = velFromKeys()
   if (v.forward || v.strafe || v.turn) {
-    conn.move(v.forward * MAX_FORWARD, v.strafe * MAX_LATERAL, v.turn * MAX_YAW)
+    const mult = boost ? RUN_MULT : 1
+    conn.move(v.forward * MAX_FORWARD * mult, v.strafe * MAX_LATERAL * mult, v.turn * MAX_YAW)
     moving = true
   } else if (moving) {
     conn.stopMove()
@@ -1068,6 +1091,7 @@ window.addEventListener("keydown", (e) => {
   // Let modified combos (e.g. alt+arrows = switch apps) fall through to the shell.
   if (e.altKey || e.ctrlKey || e.metaKey) return
   if (e.key === "/" && !e.repeat) { e.preventDefault(); openCmdSearch(); return }
+  if (e.key === "Shift") { if (!boost) { boost = true; reflectKeys() } return }
   const k = codeKey(e)
   if (!k) return
   e.preventDefault()
@@ -1076,12 +1100,17 @@ window.addEventListener("keydown", (e) => {
 })
 window.addEventListener("keyup", (e) => {
   if (controlKey === null) return
+  if (e.key === "Shift") { if (boost) { boost = false; reflectKeys() } return }
   const k = codeKey(e)
   if (!k) return
   if (pressed.delete(k)) reflectKeys()
 })
-// drop all held keys if focus leaves the window (avoid a stuck throttle)
-window.addEventListener("blur", () => { if (pressed.size) { pressed.clear(); reflectKeys() } })
+// drop all held keys/boost if focus leaves the window (avoid a stuck throttle)
+window.addEventListener("blur", () => {
+  const had = pressed.size || boost
+  pressed.clear(); boost = false
+  if (had) reflectKeys()
+})
 
 // on-screen d-pad: press-and-hold, mirrors the keyboard
 els.ctl.addEventListener("pointerdown", (e) => {
@@ -1242,9 +1271,34 @@ function startConnect(key) {
 
 els.scan.addEventListener("click", () => {
   if (controlKey !== null) stopControl() // re-scan wipes the list; drop the drive session
-  devices = []; menuKey = formKey = editKey = launchKey = null
+  devices = devices.filter(d => d.manual); menuKey = formKey = editKey = launchKey = null
   dimApp.send("scan", { timeout: 7 })
 })
+
+// ── drive a manually-entered IP (no scan/BLE needed) ──
+const IPV4 = /^(\d{1,3})(\.\d{1,3}){3}$/
+function validIp(text) {
+  const t = text.trim()
+  return IPV4.test(t) && t.split(".").every(n => Number(n) <= 255)
+}
+function syncManual() {
+  els.manualRow.classList.toggle("ready", validIp(els.manualIp.value))
+}
+function driveManual() {
+  const ip = els.manualIp.value.trim()
+  if (!validIp(ip)) return
+  const key = "manual:" + ip
+  let d = devices.find(x => keyOf(x) === key)
+  if (!d) { d = { serial: key, name: "Manual · " + ip, ip, manual: true }; devices.push(d) }
+  else { d.ip = ip }
+  if (controlKey !== null && controlKey !== key) stopControl()
+  startControl(key)
+}
+els.manualIp.addEventListener("input", syncManual)
+els.manualIp.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); driveManual() }
+})
+els.manualDrive.addEventListener("click", driveManual)
 
 function setSlid(slid) {
   els.panel.classList.toggle("slid", slid)
