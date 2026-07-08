@@ -178,6 +178,7 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-fg); flex: none; }
   .dot.scanning { background: var(--primary); animation: pulse 1s ease-in-out infinite; }
   .dot.ok { background: var(--ok); }
+  .dot.err { background: var(--danger); }
   @keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
 
   .btn { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
@@ -191,6 +192,7 @@
 
   .list { flex: 1; overflow: auto; padding: 7px; }
   .list .none { text-align: center; color: var(--muted-fg); font-size: 12px; line-height: 1.6; padding: 32px 18px; }
+  .list .none.err { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
 
   .dog { position: relative; border-radius: var(--radius); margin: 3px 2px; padding: 9px 10px;
     transition: background .14s; }
@@ -710,8 +712,10 @@ dimApp.receiveRequest((tag, msg) => {
       devices = [...(msg.devices || []), ...devices.filter(d => d.manual)]
       render(); break
     case "scan_start":
+      clearScanWait() // backend answered — cancel the no-response error
       scanning = true; setStatus("Scanning…", "scanning"); els.scan.disabled = true; render(); break
     case "scan_done":
+      clearScanWait()
       scanning = false; els.scan.disabled = false
       setStatus(msg.count ? `${msg.count} found` : "None found", msg.count ? "ok" : null)
       render(); break
@@ -1269,10 +1273,41 @@ function startConnect(key) {
   dimApp.send("connect", { mac: d.ble_mac, ssid, password, country })
 }
 
+// A scan needs the app's backend (BLE discovery lives there). If the socket is
+// down, or the backend never answers, `dimApp.send` would silently queue the
+// request forever — so fail loudly with a clear message instead.
+let scanWaitTimer = null
+function clearScanWait() {
+  if (scanWaitTimer) { clearTimeout(scanWaitTimer); scanWaitTimer = null }
+}
+function showScanError(text, detailHtml) {
+  scanning = false
+  els.scan.disabled = false
+  setStatus(text, "err")
+  els.list.innerHTML = `<div class="none err">${detailHtml}</div>`
+}
 els.scan.addEventListener("click", () => {
   if (controlKey !== null) stopControl() // re-scan wipes the list; drop the drive session
   devices = devices.filter(d => d.manual); menuKey = formKey = editKey = launchKey = null
+  clearScanWait()
+  // Socket is down → no backend to reach. Don't silently queue the scan.
+  if (!dimApp.connected) {
+    showScanError("No backend — can't scan",
+      "Can't scan: not connected to the Go2 backend.<br />Make sure the desktop is running with the Go2 app backend loaded, then press <b>Scan</b> again.")
+    return
+  }
+  setStatus("Scanning…", "scanning"); els.scan.disabled = true
+  els.list.innerHTML = '<div class="none">Scanning for nearby Go2s…</div>'
   dimApp.send("scan", { timeout: 7 })
+  // Backend alive at the socket level but not answering (crashed / not loaded):
+  // if no scan_start/scan_done comes back shortly, surface a clear error.
+  scanWaitTimer = setTimeout(() => {
+    scanWaitTimer = null
+    if (!scanning) {
+      showScanError("No response from backend",
+        "The Go2 backend didn't respond to the scan.<br />It may not be running — restart the desktop and press <b>Scan</b> again.")
+    }
+  }, 4000)
 })
 
 // ── drive a manually-entered IP (no scan/BLE needed) ──
