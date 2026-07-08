@@ -33,12 +33,12 @@ def emit(obj: dict) -> None:
     sys.stdout.flush()
 
 
-# macOS LAN discovery. dimos' discover_lan sends the Go2 probe to the multicast
-# group 231.1.1.1 — but on macOS that group routes to lo0 (and the VPN owns the
-# default route), so the send dies with "No route to host" and nothing is found.
-# Directed/limited broadcast goes out the real interface fine, and the Go2 answers
-# it, so on darwin we probe via broadcast (pinned to each NIC with IP_BOUND_IF)
-# instead. (Linux multicast works, so we keep dimos' path there.)
+# macOS broadcast LAN discovery. dimos' multicast discover_lan works on many
+# networks, but when a full-tunnel VPN owns the default route the group 231.1.1.1
+# routes to lo0 and the send dies with "No route to host". Directed/limited
+# broadcast goes out the real interface fine and the Go2 answers it, so on darwin
+# we run this alongside multicast (pinned to each NIC with IP_BOUND_IF) to cover
+# the VPN case too.
 IP_BOUND_IF = 25  # <netinet/in.h> on macOS
 
 
@@ -46,7 +46,20 @@ def _wifi_ifaces():
     """(name, ipv4, broadcast) for real, non-tunnel IPv4 interfaces."""
     import psutil
 
-    skip = ("lo", "tailscale", "wg", "tun", "utun", "docker", "br-", "veth", "awdl", "llw", "bridge", "Meta")
+    skip = (
+        "lo",
+        "tailscale",
+        "wg",
+        "tun",
+        "utun",
+        "docker",
+        "br-",
+        "veth",
+        "awdl",
+        "llw",
+        "bridge",
+        "Meta",
+    )
     for name, addrs in psutil.net_if_addrs().items():
         if name.startswith(skip):
             continue
@@ -56,7 +69,9 @@ def _wifi_ifaces():
                 break
 
 
-def _probe_broadcast(name, ipv4, broadcast, group, query_port, reply_port, payload, timeout):
+def _probe_broadcast(
+    name, ipv4, broadcast, group, query_port, reply_port, payload, timeout
+):
     """Send the probe out one NIC via broadcast (+ multicast best-effort); collect {serial: ip}."""
     found: dict[str, str] = {}
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -68,11 +83,17 @@ def _probe_broadcast(name, ipv4, broadcast, group, query_port, reply_port, paylo
         sock.close()
         return found
     try:
-        sock.setsockopt(socket.IPPROTO_IP, IP_BOUND_IF, struct.pack("I", socket.if_nametoindex(name)))
+        sock.setsockopt(
+            socket.IPPROTO_IP,
+            IP_BOUND_IF,
+            struct.pack("I", socket.if_nametoindex(name)),
+        )
     except OSError:
         pass
     try:
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ipv4))
+        sock.setsockopt(
+            socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ipv4)
+        )
         sock.setsockopt(
             socket.IPPROTO_IP,
             socket.IP_ADD_MEMBERSHIP,
@@ -126,7 +147,14 @@ async def discover_lan_macos(tick: float, timeout: float):
             out: dict[str, Go2Device] = {}
             for name, ipv4, broadcast in ifaces:
                 hits = _probe_broadcast(
-                    name, ipv4, broadcast, MULTICAST_GROUP, QUERY_PORT, REPLY_PORT, QUERY_PAYLOAD, timeout
+                    name,
+                    ipv4,
+                    broadcast,
+                    MULTICAST_GROUP,
+                    QUERY_PORT,
+                    REPLY_PORT,
+                    QUERY_PAYLOAD,
+                    timeout,
                 )
                 for serial, ip in hits.items():
                     out.setdefault(serial, Go2Device(serial=serial, ip=ip, iface=name))
@@ -165,7 +193,11 @@ def _arp_sweep() -> None:
             continue
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            sock.setsockopt(socket.IPPROTO_IP, IP_BOUND_IF, struct.pack("I", socket.if_nametoindex(name)))
+            sock.setsockopt(
+                socket.IPPROTO_IP,
+                IP_BOUND_IF,
+                struct.pack("I", socket.if_nametoindex(name)),
+            )
         except OSError:
             pass
         sock.setblocking(False)
@@ -184,18 +216,25 @@ def arp_scan() -> "list[tuple[str, str]]":
     text = ""
     try:
         if sys.platform == "darwin":
-            text = subprocess.run(["arp", "-an"], capture_output=True, text=True, timeout=4).stdout
+            text = subprocess.run(
+                ["arp", "-an"], capture_output=True, text=True, timeout=4
+            ).stdout
         else:
             try:
                 with open("/proc/net/arp") as fh:
                     text = fh.read()
             except OSError:
-                text = subprocess.run(["ip", "neigh"], capture_output=True, text=True, timeout=4).stdout
+                text = subprocess.run(
+                    ["ip", "neigh"], capture_output=True, text=True, timeout=4
+                ).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     hits, seen = [], set()
     for line in text.splitlines():
-        m = re.search(r"(\d{1,3}(?:\.\d{1,3}){3}).*?(([0-9a-fA-F]{1,2}:){5}[0-9a-fA-F]{1,2})", line)
+        m = re.search(
+            r"(\d{1,3}(?:\.\d{1,3}){3}).*?(([0-9a-fA-F]{1,2}:){5}[0-9a-fA-F]{1,2})",
+            line,
+        )
         if not m:
             continue
         ip, mac = m.group(1), _norm_mac(m.group(2))
@@ -232,14 +271,18 @@ async def _probe_port(ip: str, port: int) -> bool:
 
 async def _go2_alive(ip: str) -> bool:
     """Non-disruptive liveness + identity check: is a Go2 signaling port answering?"""
-    return any(await asyncio.gather(*(_probe_port(ip, port) for port in GO2_SIGNALING_PORTS)))
+    return any(
+        await asyncio.gather(*(_probe_port(ip, port) for port in GO2_SIGNALING_PORTS))
+    )
 
 
 async def stdin_lines():
     """Async iterator over stdin lines (POSIX read-pipe, non-blocking)."""
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader()
-    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+    await loop.connect_read_pipe(
+        lambda: asyncio.StreamReaderProtocol(reader), sys.stdin
+    )
     while True:
         raw = await reader.readline()
         if not raw:
@@ -255,10 +298,17 @@ async def do_scan(timeout: float) -> None:
     emit({"type": "scan_start"})
     merged: dict[str, dict] = {}
     mac_key: dict[str, str] = {}  # ble_mac → the key currently holding that robot
-    ip_key: dict[str, str] = {}   # ip → key (for an ip confirmed by BLE/LAN)
+    ip_key: dict[str, str] = {}  # ip → key (for an ip confirmed by BLE/LAN)
 
     def _blank(serial):
-        return {"serial": serial, "name": None, "ble_mac": None, "ip": None, "lan_mac": None, "arp_only": False}
+        return {
+            "serial": serial,
+            "name": None,
+            "ble_mac": None,
+            "ip": None,
+            "lan_mac": None,
+            "arp_only": False,
+        }
 
     def upsert(serial=None, name=None, ble_mac=None, ip=None, lan_mac=None) -> None:
         # Key by serial when known (BLE + LAN rows for one robot collapse into one
@@ -295,7 +345,9 @@ async def do_scan(timeout: float) -> None:
             rec["ip"] = ip
             ip_key[ip] = key
             arp_k = "a:" + ip
-            if arp_k != key and arp_k in merged:  # a real sighting supersedes the ARP guess
+            if (
+                arp_k != key and arp_k in merged
+            ):  # a real sighting supersedes the ARP guess
                 merged.pop(arp_k)
                 emit({"type": "drop", "key": ip})
         if lan_mac:
@@ -305,7 +357,9 @@ async def do_scan(timeout: float) -> None:
         emit({"type": "device", **rec})
 
     def arp_upsert(ip, mac) -> None:
-        if ip in ip_key:  # already known via BLE/LAN with a real identity — just attach the mac
+        if (
+            ip in ip_key
+        ):  # already known via BLE/LAN with a real identity — just attach the mac
             rec = merged.get(ip_key[ip])
             if rec and not rec.get("lan_mac"):
                 rec["lan_mac"] = mac
@@ -315,7 +369,14 @@ async def do_scan(timeout: float) -> None:
         existing = merged.get(key)
         if existing and existing.get("lan_mac") == mac:
             return  # unchanged — don't spam the panel
-        merged[key] = {"serial": None, "name": None, "ble_mac": None, "ip": ip, "lan_mac": mac, "arp_only": True}
+        merged[key] = {
+            "serial": None,
+            "name": None,
+            "ble_mac": None,
+            "ip": ip,
+            "lan_mac": mac,
+            "arp_only": True,
+        }
         emit({"type": "device", **merged[key]})
 
     async def ble_task() -> None:
@@ -327,15 +388,26 @@ async def do_scan(timeout: float) -> None:
         except Exception as exc:  # noqa: BLE001 — surface, don't crash the process
             emit({"type": "warn", "msg": f"ble: {exc}"})
 
-    async def lan_task() -> None:
+    async def lan_task(stream) -> None:
         try:
-            stream = discover_lan_macos(tick=2.0, timeout=1.5) if sys.platform == "darwin" else discover_lan(tick=2.0)
             async for device in stream:
-                upsert(serial=device.serial, ip=device.ip, lan_mac=getattr(device, "mac", None))
+                upsert(
+                    serial=device.serial,
+                    ip=device.ip,
+                    lan_mac=getattr(device, "mac", None),
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             emit({"type": "warn", "msg": f"lan: {exc}"})
+
+    # Multicast is the same path `dimos go2tool discover` uses; it works on plenty
+    # of networks where the broadcast probe alone finds nothing. On macOS run both
+    # (multicast + broadcast) so whichever reaches the dog surfaces its IP; under a
+    # full-tunnel VPN the multicast send just fails quietly and broadcast/ARP cover it.
+    lan_streams = [discover_lan(tick=2.0)]
+    if sys.platform == "darwin":
+        lan_streams.append(discover_lan_macos(tick=2.0, timeout=1.5))
 
     def arp_drop(ip) -> None:
         # A previously-shown unverified card stopped answering — remove it.
@@ -375,7 +447,7 @@ async def do_scan(timeout: float) -> None:
 
     tasks = [
         asyncio.create_task(ble_task()),
-        asyncio.create_task(lan_task()),
+        *[asyncio.create_task(lan_task(stream)) for stream in lan_streams],
         asyncio.create_task(arp_task()),
     ]
     try:
@@ -395,7 +467,13 @@ async def do_connect(cmd: dict) -> None:
     password = cmd.get("password", "")
     country = cmd.get("country", "US")
     if not mac or not ssid:
-        emit({"type": "connect_result", "ok": False, "error": "mac and ssid are required"})
+        emit(
+            {
+                "type": "connect_result",
+                "ok": False,
+                "error": "mac and ssid are required",
+            }
+        )
         return
 
     emit({"type": "progress", "msg": f"Connecting {mac} → “{ssid}” …"})
