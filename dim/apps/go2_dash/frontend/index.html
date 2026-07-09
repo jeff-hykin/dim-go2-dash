@@ -485,6 +485,7 @@ let videoStream = null         // the robot's MediaStream, reattached across re-
 let connIp = ""                // ip of the current connection (for reconnect)
 let connAes = ""               // per-device AES key, if any (data2=3 firmware)
 let reconnectTimer = null      // pending auto-reconnect after a dropped peer link
+let connectRetriesLeft = 0     // initial WebRTC connect is flaky; auto-retry before surfacing an error
 const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
 let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
 let boost = false              // Shift held → run (faster translation)
@@ -864,6 +865,7 @@ function startControl(key) {
   connIp = d.ip
   connAes = d.aesKey || ""
   launchKey = null // don't keep the blueprint launcher open for the same dog
+  connectRetriesLeft = 1 // give the flaky first connect one automatic retry
   setSlid(true)    // auto-minimize the Go2 Setup panel while driving
   render()         // list row: Drive → Disconnect
   renderControl()  // build the stage UI
@@ -897,6 +899,16 @@ function openConn() {
   watchPeer(conn.pc) // pc exists synchronously once connect() is called
   connecting.catch((err) => {
     if (controlKey === null || conn === null) return
+    if (connectRetriesLeft > 0) {
+      connectRetriesLeft--
+      try { conn.disconnect() } catch { /* already gone */ }
+      conn = null
+      controlStatus = "connecting"
+      renderControl()
+      clearTimeout(reconnectTimer)
+      reconnectTimer = setTimeout(openConn, 400)
+      return
+    }
     controlStatus = "error"
     controlError = err.message || "connection failed"
     renderControl()
