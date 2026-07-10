@@ -213,6 +213,8 @@
   .ip .cp { font-size: 9px; opacity: .55; }
   .ip.copied { color: var(--ok); border-color: var(--ok); }
   .ip.copied .cp { opacity: 1; }
+  .dog.cached { outline: 1px dotted color-mix(in oklch, var(--ring) 80%, transparent); outline-offset: -2px; }
+  .ip.cached { border-style: dotted; color: var(--muted-fg); }
   .sub .serial { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
     opacity: 0; transition: opacity .14s; }
   .dog:hover .sub .serial { opacity: .8; }
@@ -485,10 +487,10 @@ let videoStream = null         // the robot's MediaStream, reattached across re-
 let connIp = ""                // ip of the current connection (for reconnect)
 let connAes = ""               // per-device AES key, if any (data2=3 firmware)
 let reconnectTimer = null      // pending auto-reconnect after a dropped peer link
-let connectRetriesLeft = 0     // initial WebRTC connect is flaky; auto-retry before surfacing an error
+let connectDeadline = 0        // initial WebRTC connect is flaky; keep retrying until this timestamp before surfacing an error
 const pressed = new Set()      // logical drive keys held: w/s/a/d/q/e (keyboard or d-pad)
 let moving = false             // whether the last tick sent a nonzero velocity (for clean stop)
-let boost = false              // Shift held → run (faster translation)
+let boost = false              // Shift held → run (faster translation and turn)
 let dogMode = ""               // local mode: resting | rising | stand | pose (stand/pose drive)
 
 // Two different "connects" live in this panel, so each gets its own glyph:
@@ -504,11 +506,29 @@ function savedWifi() { try { return JSON.parse(localStorage.getItem(WIFI_LS)) ||
 function saveWifi(w) { try { localStorage.setItem(WIFI_LS, JSON.stringify(w)) } catch { /* private mode */ } }
 let lastAttempt = null // creds of the in-flight connect, saved once it succeeds
 
+// Last-known IP (and AES key) per dog, kept in localStorage. BLE discovery finds a
+// dog within seconds but its IP can take much longer to resolve, and it's almost
+// always the same as last time — so we show the remembered IP (dotted = provisional)
+// so the dog is drivable immediately, then replace it when the fresh IP arrives.
+const IP_LS = "go2dash.ips"
+const ipCache = (() => { try { return JSON.parse(localStorage.getItem(IP_LS)) || {} } catch { return {} } })()
+function rememberIp(key, ip, aes) {
+  if (!key || !ip) return
+  if (ipCache[key] && ipCache[key].ip === ip && ipCache[key].aes === (aes || "")) return
+  ipCache[key] = { ip, aes: aes || "" }
+  try { localStorage.setItem(IP_LS, JSON.stringify(ipCache)) } catch { /* private mode */ }
+}
+
 function keyOf(d) { return d.serial || d.ble_mac || d.ip || "" }
 function btId(d) { return d.ble_mac || d.serial || "" }
 function nameOf(d) {
   return d.customName || d.name || (d.serial ? "Go2 " + d.serial.slice(-5) : (d.ble_mac || "Unknown Go2"))
 }
+
+// The IP to display/drive with: the live one from discovery if present, else the
+// remembered one (provisional) until fresh discovery data arrives.
+function effIp(d) { const cached = ipCache[keyOf(d)]; return d.ip || (cached && cached.ip) || "" }
+function ipIsStale(d) { const cached = ipCache[keyOf(d)]; return !d.ip && !!(cached && cached.ip) }
 
 // Deterministic pleasant colour from the Bluetooth id.
 function colorFor(id) {
@@ -553,7 +573,10 @@ function detailsHtml(d) {
 function dogHtml(d) {
   const key = keyOf(d)
   const canConnect = !!d.ble_mac
+  const eff = effIp(d)
+  const stale = ipIsStale(d)
   const classes = ["dog"]
+  if (stale) classes.push("cached")
   if (menuKey === key) classes.push("menu-open", "active")
   if (formKey === key) classes.push("form-open", "active")
   if (launchKey === key) classes.push("launch-open", "active")
@@ -562,11 +585,12 @@ function dogHtml(d) {
   const nameCell = (editKey === key)
     ? `<input class="rename" value="${esc(nameOf(d))}" />`
     : `<div class="nm">${esc(nameOf(d))}</div>`
-  // sub-line: IP as a click-to-copy chip (always fully visible); serial on hover
-  const ip = d.ip ? `<span class="ip" data-ip="${esc(d.ip)}" title="Click to copy IP">${esc(d.ip)}<span class="cp">⧉</span></span>` : ""
+  // sub-line: IP as a click-to-copy chip (always fully visible); serial on hover.
+  // A remembered IP renders dotted until the fresh scan confirms it.
+  const ip = eff ? `<span class="ip${stale ? " cached" : ""}" data-ip="${esc(eff)}" title="${stale ? "Last known IP — waiting for fresh scan" : "Click to copy IP"}">${esc(eff)}<span class="cp">⧉</span></span>` : ""
   const serial = d.serial ? `<span class="serial">${esc(d.serial)}</span>` : ""
   // after provisioning, show we're waiting for it to appear on the network
-  const waiting = (!d.ip && awaitingIp.has(key)) ? `<span class="waiting"><span class="wd"></span>waiting for IP…</span>` : ""
+  const waiting = (!eff && awaitingIp.has(key)) ? `<span class="waiting"><span class="wd"></span>waiting for IP…</span>` : ""
   // form prefill: SSID = this computer's network (so the dog lands where we can
   // reach it), else the last network we used; password reused only if it goes
   // with that same SSID.
@@ -586,7 +610,7 @@ function dogHtml(d) {
       <button class="rowbtn edit" title="Rename">✎</button>
       <button class="rowbtn kebab" title="More">⋯</button>
     </div>
-    ${d.ip ? `<div class="acts">
+    ${eff ? `<div class="acts">
       <button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>
       <button class="connect" title="Connect this computer to the robot (launch a Go2 blueprint)">${launchKey === key ? "Close" : ICON_LINK + "Connect"}</button>
     </div>` : ""}
@@ -620,7 +644,7 @@ function launcherHtml(d) {
   else body = `<input class="bp-filter" placeholder="filter blueprints…" />
     <div class="bp-list">${go2Blueprints.map(bp => `<div class="bp" data-bp="${esc(bp)}"><span class="bp-n">${esc(bp)}</span><button class="bp-go" title="Launch">▷ Launch</button></div>`).join("")}</div>`
   return `<div class="launcher">
-    <div class="lh"><span class="lh-t">Go2 Blueprints</span><span class="lh-ip">${esc(d.ip)}</span></div>
+    <div class="lh"><span class="lh-t">Go2 Blueprints</span><span class="lh-ip">${esc(effIp(d))}</span></div>
     ${body}
     <div class="launch-msg"></div>
   </div>`
@@ -711,6 +735,7 @@ dimApp.receiveRequest((tag, msg) => {
       hostSsidStatus = msg.hostSsidStatus || "unknown"
       // keep any manually-entered drive targets alive across a full refresh
       devices = [...(msg.devices || []), ...devices.filter(d => d.manual)]
+      for (const dev of (msg.devices || [])) rememberIp(keyOf(dev), dev.ip, dev.aesKey)
       render(); break
     case "scan_start":
       clearScanWait() // backend answered — cancel the no-response error
@@ -728,6 +753,7 @@ dimApp.receiveRequest((tag, msg) => {
         devices = devices.filter(d => d.serial || d.ble_mac !== msg.ble_mac)
       }
       if (msg.ip) awaitingIp.delete(key) // it showed up on the network
+      if (msg.ip) rememberIp(key, msg.ip, msg.aesKey)
       const i = devices.findIndex(d => keyOf(d) === key)
       if (i >= 0) devices[i] = { ...devices[i], ...msg }; else devices.push(msg)
       render(); break
@@ -835,8 +861,8 @@ const EXTRA_SPORT = { Pose: 1028, FrontJump: 1031 }
 // Actions that leave the dog in a non-drivable posture — mode drops to "resting".
 const RESTING_ACTIONS = new Set(["Sit", "StandDown", "Damp"])
 // Velocity envelope: a normalized -1..1 axis from the UI maps to these maxima.
-const MAX_FORWARD = 0.6, MAX_LATERAL = 0.4, MAX_YAW = 0.8
-// Hold Shift to run: scales translation (not turn, which stays controllable).
+const MAX_FORWARD = 0.6, MAX_LATERAL = 0.4, MAX_YAW = 1.1
+// Hold Shift to run: scales both translation and turn.
 const RUN_MULT = 2.2
 // After standing up, wait before BalanceStand so joystick control latches (issued
 // mid-rise it doesn't stick) — mirrors dimos' Go2 startup.
@@ -854,7 +880,8 @@ function setMode(mode) { dogMode = mode; renderControl() }
 
 function startControl(key) {
   const d = devices.find(x => keyOf(x) === key)
-  if (!d || !d.ip) return
+  const startIp = d ? effIp(d) : ""
+  if (!d || !startIp) return
   controlKey = key
   controlStatus = "connecting"
   controlError = ""
@@ -862,10 +889,10 @@ function startControl(key) {
   videoStream = null
   cmdSearching = false
   pressed.clear(); moving = false; dogMode = "resting"
-  connIp = d.ip
-  connAes = d.aesKey || ""
+  connIp = startIp
+  connAes = d.aesKey || (ipCache[key] && ipCache[key].aes) || ""
   launchKey = null // don't keep the blueprint launcher open for the same dog
-  connectRetriesLeft = 1 // give the flaky first connect one automatic retry
+  connectDeadline = Date.now() + 5000 // flaky first connect: keep retrying for ~5s while the robot frees its stale peer slot
   setSlid(true)    // auto-minimize the Go2 Setup panel while driving
   render()         // list row: Drive → Disconnect
   renderControl()  // build the stage UI
@@ -899,14 +926,13 @@ function openConn() {
   watchPeer(conn.pc) // pc exists synchronously once connect() is called
   connecting.catch((err) => {
     if (controlKey === null || conn === null) return
-    if (connectRetriesLeft > 0) {
-      connectRetriesLeft--
+    if (Date.now() < connectDeadline) {
       try { conn.disconnect() } catch { /* already gone */ }
       conn = null
       controlStatus = "connecting"
       renderControl()
       clearTimeout(reconnectTimer)
-      reconnectTimer = setTimeout(openConn, 400)
+      reconnectTimer = setTimeout(openConn, 500) // quick retries so we get several attempts inside the window
       return
     }
     controlStatus = "error"
@@ -989,7 +1015,7 @@ function renderControl() {
   if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; return }
   const d = devices.find(x => keyOf(x) === controlKey)
   const nm = d ? nameOf(d) : "Go2"
-  const ip = d ? (d.ip || "") : ""
+  const ip = d ? effIp(d) : ""
   els.stage.style.display = "none"
   host.style.display = "block"
   const label = { connecting: "Connecting", ready: "Live", reconnecting: "Reconnecting", error: "Error", closed: "Closed", idle: "…" }[controlStatus] || controlStatus
@@ -1091,7 +1117,7 @@ setInterval(() => {
   const v = velFromKeys()
   if (v.forward || v.strafe || v.turn) {
     const mult = boost ? RUN_MULT : 1
-    conn.move(v.forward * MAX_FORWARD * mult, v.strafe * MAX_LATERAL * mult, v.turn * MAX_YAW)
+    conn.move(v.forward * MAX_FORWARD * mult, v.strafe * MAX_LATERAL * mult, v.turn * MAX_YAW * mult)
     moving = true
   } else if (moving) {
     conn.stopMove()
@@ -1230,7 +1256,7 @@ els.list.addEventListener("click", (e) => {
     if (!bp || !d) return
     const el = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"] .launch-msg`)
     if (el) el.innerHTML = `Launching ${esc(bp)}…`
-    dimApp.send("launch", { name: bp, ip: d.ip })
+    dimApp.send("launch", { name: bp, ip: effIp(d) })
     return
   }
   if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
