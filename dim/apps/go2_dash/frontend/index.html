@@ -2,7 +2,7 @@
 <!--
   Go2 Dash — discover nearby Unitree Go2 robots (BLE + LAN) and provision them
   onto a wifi network over Bluetooth. The heavy lifting lives in the backend
-  (main.js → go2_helper.py, reusing dimos' go2tool). This is the panel: a small
+  (main.js → the Rust go2_helper, run via nix). This is the panel: a small
   floating list of nearby dogs on the left. Each dog shows its name (rename it —
   saved to the backend, keyed to its Bluetooth id) with a colour derived from
   that id, plus its IP when it's on the network. A ⋯ menu opens "Connect to
@@ -162,6 +162,12 @@
     width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
     transition: color .14s, border-color .14s; }
   .icon-btn:hover { color: var(--fg); border-color: var(--ring); }
+  /* keyboard hint in the header — "J toggle" */
+  .kbd-hint { display: inline-flex; align-items: center; gap: 5px; font-size: 10px;
+    letter-spacing: .04em; text-transform: uppercase; color: var(--muted-fg); }
+  .kbd-hint kbd { font-family: var(--mono); font-size: 10px; line-height: 1; text-transform: none;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; }
 
   .p-scan { display: flex; align-items: center; gap: 10px; padding: 11px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
@@ -235,10 +241,11 @@
     background: transparent; border: 0; border-radius: var(--radius); width: 24px; height: 24px; flex: none;
     display: inline-flex; align-items: center; justify-content: center;
     opacity: 0; transition: opacity .14s, color .14s; }
-  .edit { font-size: 13px; }
-  .kebab { font-size: 16px; }
-  .info { font-size: 13px; }
-  .dog.details-open .info { color: var(--primary); opacity: 1; }
+  /* the ⋯ is the card's only always-visible affordance (dimmed until hover) —
+     Details / Rename / Connect all live behind it. */
+  .kebab { font-size: 16px; opacity: .45; }
+  .dog:hover .kebab, .dog.active .kebab, .dog.nav-dog .kebab { opacity: 1; }
+  .dog.menu-open .kebab { color: var(--primary); opacity: 1; }
   .dog:hover .rowbtn, .dog.active .rowbtn { opacity: 1; }
   .rowbtn:hover { color: var(--fg); }
 
@@ -265,6 +272,8 @@
     font: inherit; font-size: 12.5px; color: var(--fg); background: transparent; border: 0;
     border-radius: calc(var(--radius) - 2px); padding: 7px 9px; }
   .menu button:hover { background: var(--accent); }
+  .menu button .mi-ic { display: inline-flex; width: 15px; margin-right: 7px; font-size: 12px;
+    color: var(--muted-fg); justify-content: center; }
 
   /* rename input (replaces the name in place) */
   .rename { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 13.5px;
@@ -272,53 +281,16 @@
     border-radius: var(--radius); padding: 3px 7px; }
   .rename:focus { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); }
 
-  /* compact "Connect" button on the row (dogs that are on the network) */
-  .connect { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
-    letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; flex: none;
-    color: var(--primary-fg); background: var(--primary); border: 1px solid var(--primary);
-    border-radius: var(--radius); padding: 4px 10px; transition: background .14s; }
-  .connect:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
-  .dog.launch-open .connect { color: var(--fg); background: var(--card); border-color: var(--border); }
-
-  /* action row (Drive + Connect) — its own line under the identity row so the
-     312px panel never has to cram name + IP + both buttons onto one line (the
-     IP chip used to overflow and hide behind these buttons). Indented to align
-     under the name (past the avatar). */
-  .acts { display: flex; gap: 8px; margin: 9px 0 1px 37px; }
-  .acts .drive, .acts .connect { flex: 1 1 0; }
-
-  /* "Drive" button — opens the live control dashboard for this dog */
+  /* "Drive" button — the card's primary action, right-aligned on the identity row.
+     Neutral until hovered/driving; turns solid-accent while a drive is live. */
   .drive { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
     letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; flex: none;
+    display: inline-flex; align-items: center; gap: 5px;
     color: var(--fg); background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 4px 10px; transition: background .14s, border-color .14s; }
+    border-radius: var(--radius); padding: 4px 10px 4px 8px; transition: background .14s, border-color .14s, color .14s; }
+  .drive .ic { width: 14px; height: 14px; margin: 0; }
   .drive:hover { background: var(--accent); border-color: var(--ring); }
   .dog.driving .drive { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
-
-  /* mini blueprint launcher (expands under a connected dog) */
-  .launcher { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
-  .dog.launch-open .launcher { display: block; }
-  .lh { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-  .lh-t { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-fg); }
-  .lh-ip { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted-fg);
-    background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
-  .bp-filter { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 12px;
-    color: var(--fg); background: var(--bg); border: 1px solid var(--input); border-radius: var(--radius);
-    padding: 6px 9px; margin-bottom: 6px; }
-  .bp-filter:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
-  .bp-list { max-height: 184px; overflow: auto; }
-  .bp { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: var(--radius); }
-  .bp:hover { background: var(--accent); }
-  .bp-n { flex: 1; min-width: 0; font-size: 12px; font-family: var(--mono);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bp-go { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; flex: none;
-    color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 3px 9px; transition: background .14s, border-color .14s; }
-  .bp-go:hover { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
-  .bp-none { font-size: 12px; color: var(--muted-fg); padding: 10px 6px; }
-  .launch-msg { margin-top: 7px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--muted-fg); }
-  .launch-msg .ok { color: color-mix(in oklch, var(--ok) 80%, var(--fg)); }
-  .launch-msg .err { color: color-mix(in oklch, var(--danger) 80%, var(--fg)); }
 
   /* connect form */
   .form { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
@@ -356,7 +328,6 @@
 
   /* inline glyphs that disambiguate dog→wifi vs computer→dog actions */
   .ic { width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; flex: none; }
-  .connect .ic { width: 12px; height: 12px; margin-right: 4px; }
   .menu button .ic { width: 12px; height: 12px; margin-right: 6px; }
 
   /* reopen tab (left edge, visible when panel is slid away) */
@@ -392,7 +363,7 @@
     <div class="empty">
       <div class="glyph" id="stage-glyph">🐾</div>
       <h1 id="stage-title">No dog connected yet</h1>
-      <p id="stage-msg">Scan for nearby Go2s, then send wifi credentials to bring one onto your network. Battery, camera, blueprints &amp; controls will live here.</p>
+      <p id="stage-msg">Scan for nearby Go2s, then send wifi credentials to bring one onto your network. Battery, camera &amp; controls will live here.</p>
     </div>
   </div>
 
@@ -400,15 +371,16 @@
     <div class="p-head">
       <span class="t">Go2 Setup</span>
       <span class="spacer"></span>
+      <span class="kbd-hint"><kbd>J</kbd> toggle</span>
       <button class="icon-btn" id="slide" title="Slide panel away">‹</button>
-    </div>
-    <div class="p-scan">
-      <button class="btn primary" id="scan">Scan</button>
-      <span class="status"><span class="dot" id="dot"></span><span id="status">Ready</span></span>
     </div>
     <div class="p-manual" id="p-manual">
       <input id="manual-ip" placeholder="Know the IP? Drive it directly…" autocomplete="off" spellcheck="false" inputmode="decimal" />
       <button class="btn primary" id="manual-drive" title="Drive this IP live">Drive</button>
+    </div>
+    <div class="p-scan">
+      <button class="btn primary" id="scan">Scan</button>
+      <span class="status"><span class="dot" id="dot"></span><span id="status">Ready</span></span>
     </div>
     <div class="list" id="list">
       <div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>
@@ -471,15 +443,11 @@ const els = {
 
 let devices = []       // [{serial,name,ble_mac,ip,lan_mac,customName}]
 let scanning = false
-let hasPython = true
+let helperReady = true
 let menuKey = null     // ⋯ menu open for this dog
 let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
-let launchKey = null   // blueprint launcher open for this dog
 let detailsKey = null  // details panel open for this dog
-let go2Blueprints = [] // dimos blueprint names containing "go2"
-let bpState = "loading" // loading | ready | error
-let bpError = null
 let hostSsid = ""      // wifi SSID this computer is on (from the backend)
 let hostSsidStatus = "unknown" // ok | redacted | unknown
 const awaitingIp = new Set()   // dog keys provisioned but not yet seen on the network
@@ -512,7 +480,6 @@ let dogMode = ""               // local mode: resting | rising | stand | pose (s
 //   • dog → wifi  (provision the robot onto a network)  → wifi waves
 //   • computer → dog (open this machine's link to the robot) → link/chain
 const ICON_WIFI = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 11.5a12 12 0 0 1 16 0"/><path d="M7.5 15a7 7 0 0 1 9 0"/><circle cx="12" cy="18.5" r="1.15" fill="currentColor" stroke="none"/></svg>'
-const ICON_LINK = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5l5-5"/><path d="M11 6.8l1.1-1.1a3.6 3.6 0 0 1 5.1 5.1l-1.1 1.1"/><path d="M13 17.2l-1.1 1.1a3.6 3.6 0 0 1-5.1-5.1l1.1-1.1"/></svg>'
 const ICON_DRIVE = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="10" rx="4"/><path d="M7 12h3M8.5 10.5v3"/><circle cx="16" cy="11" r=".6" fill="currentColor"/><circle cx="18" cy="13.5" r=".6" fill="currentColor"/></svg>'
 
 // Last-used wifi creds, kept in localStorage so the next dog autofills.
@@ -544,6 +511,15 @@ function nameOf(d) {
 // remembered one (provisional) until fresh discovery data arrives.
 function effIp(d) { const cached = ipCache[keyOf(d)]; return d.ip || (cached && cached.ip) || "" }
 function ipIsStale(d) { const cached = ipCache[keyOf(d)]; return !d.ip && !!(cached && cached.ip) }
+
+// True when d's IP is a previously-remembered IP of a *different* (already-known)
+// dog. Used to hide an ARP-only "possible Go2" that's really a dog we recognise —
+// its own cache entry (keyed by its IP) is excluded so it doesn't hide itself.
+function ipRememberedElsewhere(d) {
+  if (!d.ip) return false
+  const selfKey = keyOf(d)
+  return Object.entries(ipCache).some(([key, cached]) => key !== selfKey && cached && cached.ip === d.ip)
+}
 
 // Deterministic pleasant colour from the Bluetooth id.
 function colorFor(id) {
@@ -594,7 +570,6 @@ function dogHtml(d) {
   if (stale) classes.push("cached")
   if (menuKey === key) classes.push("menu-open", "active")
   if (formKey === key) classes.push("form-open", "active")
-  if (launchKey === key) classes.push("launch-open", "active")
   if (detailsKey === key) classes.push("details-open", "active")
   if (controlKey === key) classes.push("driving", "active")
   const nameCell = (editKey === key)
@@ -621,19 +596,15 @@ function dogHtml(d) {
     <div class="row">
       <span class="av" style="background:${colorFor(btId(d))}"></span>
       <div class="meta">${nameCell}<div class="sub">${ip}${waiting}${serial}${(!ip && !waiting && !serial) ? "—" : ""}</div></div>
-      <button class="rowbtn info" title="Details">ⓘ</button>
-      <button class="rowbtn edit" title="Rename">✎</button>
+      ${eff ? `<button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>` : ""}
       <button class="rowbtn kebab" title="More">⋯</button>
     </div>
-    ${eff ? `<div class="acts">
-      <button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>
-      <button class="connect" title="Connect this computer to the robot (launch a Go2 blueprint)">${launchKey === key ? "Close" : ICON_LINK + "Connect"}</button>
-    </div>` : ""}
     ${detailsKey === key ? detailsHtml(d) : ""}
     <div class="menu">
+      <button class="mi-details"><span class="mi-ic">ⓘ</span>Details</button>
+      <button class="mi-rename"><span class="mi-ic">✎</span>Rename</button>
       <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>${ICON_WIFI}Connect to Wi-Fi…</button>
     </div>
-    ${launchKey === key ? launcherHtml(d) : ""}
     <div class="form">
       ${canConnect ? "" : '<div class="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>'}
       <div class="fld"><label>Wifi SSID — connect the dog to a network</label><input class="f-ssid" placeholder="network name" value="${esc(ssidVal)}" ${canConnect ? "" : "disabled"} /></div>
@@ -647,33 +618,6 @@ function dogHtml(d) {
       <div class="log f-log"></div>
     </div>
   </div>`
-}
-
-// Mini launcher: only dimos blueprints whose name mentions go2, launched against
-// this robot's ip. The Deno backend does the actual launch (assumes bridge up).
-function launcherHtml(d) {
-  let body
-  if (bpState === "loading") body = '<div class="bp-none">Loading blueprints…</div>'
-  else if (bpState === "error") body = `<div class="bp-none">Couldn't load blueprints${bpError ? " — " + esc(bpError) : ""}.</div>`
-  else if (!go2Blueprints.length) body = '<div class="bp-none">No Go2 blueprints found.</div>'
-  else body = `<input class="bp-filter" placeholder="filter blueprints…" />
-    <div class="bp-list">${go2Blueprints.map(bp => `<div class="bp" data-bp="${esc(bp)}"><span class="bp-n">${esc(bp)}</span><button class="bp-go" title="Launch">▷ Launch</button></div>`).join("")}</div>`
-  return `<div class="launcher">
-    <div class="lh"><span class="lh-t">Go2 Blueprints</span><span class="lh-ip">${esc(effIp(d))}</span></div>
-    ${body}
-    <div class="launch-msg"></div>
-  </div>`
-}
-
-async function fetchBlueprints() {
-  try {
-    const res = await fetch("/api/blueprints")
-    const data = await res.json()
-    if (!data || data.ok === false) { bpState = "error"; bpError = data && data.error; render(); return }
-    go2Blueprints = (data.blueprints || []).filter(n => /go2/i.test(n)).sort()
-    bpState = "ready"
-  } catch (err) { bpState = "error"; bpError = err.message }
-  render()
 }
 
 // ARP-fallback card: an IP found on the LAN (via the OS ARP table) that the real
@@ -693,12 +637,15 @@ function arpDogHtml(d) {
 }
 
 function render() {
-  if (!hasPython) {
-    els.list.innerHTML = '<div class="none">The dimos venv isn\'t available, so BLE discovery can\'t run.<br />Open this from a dashboard with dimos installed.</div>'
+  if (!helperReady) {
+    els.list.innerHTML = '<div class="none">The Go2 helper isn\'t running (needs <code>nix</code> to build on first launch).<br />Check the dashboard logs if this persists.</div>'
     applyNav(false)
     return
   }
-  const visible = devices.filter(d => !d.manual) // manual drive targets aren't scan results
+  const visible = devices.filter(d =>
+    !d.manual && // manual drive targets aren't scan results
+    !(d.arp_only && ipRememberedElsewhere(d)) // a "possible Go2" at a known dog's remembered IP is that dog — hide the dup
+  )
   if (!visible.length) {
     els.list.innerHTML = scanning
       ? '<div class="none">Scanning for nearby Go2s…</div>'
@@ -748,7 +695,7 @@ dimApp.receiveRequest((tag, msg) => {
   if (tag !== "go2") return
   switch (msg.type) {
     case "snapshot":
-      hasPython = msg.hasPython
+      helperReady = msg.ready
       hostSsid = msg.hostSsid || ""
       hostSsidStatus = msg.hostSsidStatus || "unknown"
       // keep any manually-entered drive targets alive across a full refresh
@@ -781,20 +728,12 @@ dimApp.receiveRequest((tag, msg) => {
       if (menuKey === msg.key) menuKey = null
       if (formKey === msg.key) formKey = null
       if (editKey === msg.key) editKey = null
-      if (launchKey === msg.key) launchKey = null
       if (controlKey === msg.key) stopControl()
       render(); break
     }
     case "renamed": {
       const d = devices.find(x => keyOf(x) === msg.key)
       if (d) { d.customName = msg.customName || undefined; render() }
-      break
-    }
-    case "launch_result": {
-      const el = els.list.querySelector(`.dog[data-key="${cssEsc(launchKey)}"] .launch-msg`)
-      if (el) el.innerHTML = msg.ok
-        ? `<span class="ok">✓ Launched ${esc(msg.name)}${msg.pid ? " (pid " + msg.pid + ")" : ""}</span>`
-        : `<span class="err">✗ ${esc(msg.name)}: ${esc(msg.error || "failed")}</span>`
       break
     }
     case "progress": appendLog(msg.msg); break
@@ -852,7 +791,7 @@ function onConnected() {
   // not "connected" — we've only handed it Wi-Fi creds; it isn't reachable until
   // it shows up on the network with an IP.
   els.stageTitle.textContent = "Wi-Fi sent to " + nm + " — waiting for it on the network"
-  els.stageMsg.textContent = "Credentials delivered over Bluetooth. Once " + nm + " joins the network and we see its IP, its dashboard — battery, camera, blueprints & controls — will appear here."
+  els.stageMsg.textContent = "Credentials delivered over Bluetooth. Once " + nm + " joins the network and we see its IP, its dashboard — battery, camera & controls — will appear here."
   // fold the wifi form back up once the success line has been seen
   setTimeout(() => { formKey = null; render() }, 1200)
 }
@@ -909,7 +848,6 @@ function startControl(key) {
   pressed.clear(); moving = false; dogMode = "resting"
   connIp = startIp
   connAes = d.aesKey || (ipCache[key] && ipCache[key].aes) || ""
-  launchKey = null // don't keep the blueprint launcher open for the same dog
   connectDeadline = Date.now() + 5000 // flaky first connect: keep retrying for ~5s while the robot frees its stale peer slot
   setSlid(true)    // auto-minimize the Go2 Setup panel while driving
   render()         // list row: Drive → Disconnect
@@ -1146,6 +1084,7 @@ setInterval(() => {
 function codeKey(e) { return KEYMAP[(e.code || "").toLowerCase()] || KEYMAP[(e.key || "").toLowerCase()] }
 window.addEventListener("keydown", (e) => {
   if (controlKey === null) return
+  if (!els.panel.classList.contains("slid")) return // setup panel open → keyboard belongs to its nav, not the driver
   const t = e.target
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return // don't drive while typing
   // Let modified combos (e.g. alt+arrows = switch apps) fall through to the shell.
@@ -1249,8 +1188,8 @@ els.list.addEventListener("click", (e) => {
     })
     return
   }
-  if (e.target.closest(".info")) { detailsKey = (detailsKey === key) ? null : key; menuKey = null; render(); return }
-  if (e.target.closest(".edit")) { editKey = key; menuKey = null; render(); return }
+  if (e.target.closest(".mi-details")) { detailsKey = (detailsKey === key) ? null : key; menuKey = null; render(); return }
+  if (e.target.closest(".mi-rename")) { editKey = key; menuKey = null; render(); return }
   if (e.target.closest(".kebab")) { menuKey = (menuKey === key) ? null : key; render(); return }
   if (e.target.closest(".mi-connect")) {
     if (e.target.disabled) return
@@ -1261,34 +1200,12 @@ els.list.addEventListener("click", (e) => {
     menuKey = null
     return
   }
-  if (e.target.closest(".connect")) {
-    launchKey = (launchKey === key) ? null : key
-    menuKey = null
-    render()
-    if (launchKey && bpState !== "ready") fetchBlueprints()
-    return
-  }
-  if (e.target.closest(".bp-go")) {
-    const bp = e.target.closest(".bp")?.dataset.bp
-    const d = devices.find(x => keyOf(x) === key)
-    if (!bp || !d) return
-    const el = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"] .launch-msg`)
-    if (el) el.innerHTML = `Launching ${esc(bp)}…`
-    dimApp.send("launch", { name: bp, ip: effIp(d) })
-    return
-  }
   if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
 })
 
 // live SSID-mismatch warning (direct DOM so the input keeps focus)
 els.list.addEventListener("input", (e) => {
   if (e.target.classList.contains("f-ssid")) { updateWarn(e.target.closest(".dog")); return }
-  // blueprint filter (direct DOM so the input keeps focus)
-  if (!e.target.classList.contains("bp-filter")) return
-  const q = e.target.value.trim().toLowerCase()
-  e.target.closest(".launcher").querySelectorAll(".bp").forEach(row => {
-    row.style.display = row.dataset.bp.toLowerCase().includes(q) ? "" : "none"
-  })
 })
 
 // rename: commit on Enter / blur, cancel on Escape
@@ -1344,7 +1261,7 @@ function showScanError(text, detailHtml) {
 }
 els.scan.addEventListener("click", () => {
   if (controlKey !== null) stopControl() // re-scan wipes the list; drop the drive session
-  devices = devices.filter(d => d.manual); menuKey = formKey = editKey = launchKey = null
+  devices = devices.filter(d => d.manual); menuKey = formKey = editKey = null
   clearScanWait()
   // Socket is down → no backend to reach. Don't silently queue the scan.
   if (!dimApp.connected) {
@@ -1387,7 +1304,11 @@ function driveManual() {
 }
 els.manualIp.addEventListener("input", syncManual)
 els.manualIp.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); driveManual() }
+  if (e.key === "Enter") { e.preventDefault(); driveManual(); return }
+  // hand the keyboard back down to the Scan button (and the dog list below it)
+  if (e.key === "ArrowDown" || e.key === "Escape") {
+    e.preventDefault(); els.manualIp.blur(); navKey = null; navBtn = 0; applyNav(true)
+  }
 })
 els.manualDrive.addEventListener("click", driveManual)
 
@@ -1398,20 +1319,44 @@ function setSlid(slid) {
 els.slide.addEventListener("click", () => setSlid(true))
 els.reopen.addEventListener("click", () => setSlid(false))
 // "j" toggles the setup panel for mouse-free use (skip while typing in a field).
+// It also hands the keyboard over: opening the panel gives arrow-key focus to the
+// panel nav (pausing the driver); closing it returns the keyboard to the driver.
 window.addEventListener("keydown", (e) => {
   if (e.key !== "j" || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return
   const t = e.target
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
   e.preventDefault()
-  setSlid(!els.panel.classList.contains("slid"))
+  const opening = els.panel.classList.contains("slid") // currently slid → this press opens it
+  setSlid(!opening)
+  if (opening) {
+    // Panel now owns the keyboard: release any held drive keys so the robot stops,
+    // then paint the panel's focus so arrows have a starting point.
+    if (pressed.size || boost) { pressed.clear(); boost = false; reflectKeys() }
+    applyNav(true)
+  }
 })
 
 // ── keyboard navigation: Scan button ↔ dog list ↔ per-dog action buttons ──
 // Per-dog focus targets, ordered the way they're most useful to reach.
-const NAV_SELECTORS = [".ip", ".drive", ".connect", ".kebab", ".info", ".edit"]
+// left-to-right on the card: IP chip (subline), Drive, ⋯ — so Left/Right arrows
+// track the visual layout.
+const NAV_SELECTORS = [".ip", ".drive", ".kebab"]
 function dogNavEls(dogEl) {
   if (!dogEl) return []
-  return NAV_SELECTORS.map(s => dogEl.querySelector(s)).filter(Boolean)
+  const base = NAV_SELECTORS.map(s => dogEl.querySelector(s)).filter(Boolean)
+  // an open ⋯ menu extends the focus ring with its (enabled) items
+  if (dogEl.classList.contains("menu-open")) {
+    base.push(...dogEl.querySelectorAll(".menu button:not([disabled])"))
+  }
+  return base
+}
+function menuItemIdxs(dogEl) {
+  return dogNavEls(dogEl).map((b, i) => (b.closest(".menu") ? i : -1)).filter(i => i >= 0)
+}
+// entering a dog lands on Drive (the primary action), not the copy-IP chip.
+function defaultNavBtn(dogEl) {
+  const i = dogNavEls(dogEl).findIndex(b => b.classList.contains("drive"))
+  return i >= 0 ? i : 0
 }
 function visibleDogEls() {
   return [...els.list.querySelectorAll(".dog")]
@@ -1436,18 +1381,52 @@ function applyNav(scroll) {
 function activateNav() {
   if (navKey === null) { els.scan.click(); return }
   const el = dogNavEls(els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`))[navBtn]
-  if (el) el.click()
+  if (!el) return
+  const openingMenu = el.classList.contains("kebab") && !el.closest(".dog").classList.contains("menu-open")
+  el.click()
+  // clicking ⋯ re-renders with the menu open — drop focus onto its first item
+  if (openingMenu) {
+    const dogEl = els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`)
+    const items = dogEl ? menuItemIdxs(dogEl) : []
+    if (items.length) { navBtn = items[0]; applyNav(true) }
+  }
 }
 window.addEventListener("keydown", (e) => {
-  if (controlKey !== null) return                   // driving mode owns the keyboard
-  if (els.panel.classList.contains("slid")) return  // panel hidden
+  if (els.panel.classList.contains("slid")) return  // panel hidden → driver (if any) owns the keyboard
   const t = e.target
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
   if (e.altKey || e.ctrlKey || e.metaKey) return
   const dogs = visibleDogEls()
+  // menu sub-mode: the focused dog's ⋯ menu is open → arrows walk its items,
+  // Left/Escape closes back to the ⋯, Enter picks the item.
+  const navDog = navKey === null ? null : els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`)
+  if (navDog && navDog.classList.contains("menu-open")) {
+    const idxs = menuItemIdxs(navDog)
+    const closeToKebab = () => {
+      menuKey = null; render()
+      const dogEl = els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`)
+      const k = dogEl ? dogNavEls(dogEl).findIndex(b => b.classList.contains("kebab")) : -1
+      navBtn = k >= 0 ? k : 0; applyNav(true)
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      const pos = idxs.indexOf(navBtn)
+      navBtn = idxs[(pos + 1) % idxs.length]; applyNav(true)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      const pos = idxs.indexOf(navBtn)
+      if (pos <= 0) closeToKebab()                    // above the first item → back to ⋯
+      else { navBtn = idxs[pos - 1]; applyNav(true) }
+    } else if (e.key === "ArrowLeft" || e.key === "Escape") {
+      e.preventDefault(); closeToKebab()
+    } else if (e.key === "Enter") {
+      e.preventDefault(); activateNav()
+    }
+    return
+  }
   if (e.key === "ArrowDown") {
     e.preventDefault()
-    if (navKey === null) { if (dogs.length) { navKey = dogs[0].dataset.key; navBtn = 0 } }
+    if (navKey === null) { if (dogs.length) { navKey = dogs[0].dataset.key; navBtn = defaultNavBtn(dogs[0]) } }
     else {
       const i = dogs.findIndex(d => d.dataset.key === navKey)
       if (i >= 0 && i < dogs.length - 1) navKey = dogs[i + 1].dataset.key
@@ -1455,11 +1434,10 @@ window.addEventListener("keydown", (e) => {
     applyNav(true)
   } else if (e.key === "ArrowUp") {
     e.preventDefault()
-    if (navKey !== null) {
-      const i = dogs.findIndex(d => d.dataset.key === navKey)
-      if (i <= 0) navKey = null                      // above the first dog → back to Scan
-      else navKey = dogs[i - 1].dataset.key
-    }
+    if (navKey === null) { els.manualIp.focus(); els.manualIp.select(); return } // above Scan → the "know the IP?" box
+    const i = dogs.findIndex(d => d.dataset.key === navKey)
+    if (i <= 0) navKey = null                        // above the first dog → back to Scan
+    else navKey = dogs[i - 1].dataset.key
     applyNav(true)
   } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     if (navKey === null) return
@@ -1484,7 +1462,6 @@ document.getElementById("help-cmd").addEventListener("click", () => {
 })
 
 dimApp.send("hello")
-fetchBlueprints()
 render()
 </script>
 </body>
