@@ -1,20 +1,23 @@
 // go2_dash — backend half (runs in the Deno dashboard process).
 //
 // Discovery + wifi provisioning for Unitree Go2 robots. BLE scanning and the
-// wifi handshake both go through CoreBluetooth (bleak), so this can't be pure
-// Deno — we shell into the dimos venv and run go2_helper.py, which reuses the
-// exact code behind `dimos go2tool` and speaks newline-JSON over stdio. We pipe
-// that to/from the browser panel over the app-bus. Live control, by contrast,
-// runs entirely in the browser over WebRTC — see the signaling relay below.
+// wifi handshake both need native Bluetooth (CoreBluetooth / BlueZ), so this
+// can't be pure Deno — we `nix run` the standalone Rust helper in ./go2_helper_rs,
+// which speaks newline-JSON over stdio. We pipe that to/from the browser panel
+// over the app-bus. Live control, by contrast, runs entirely in the browser over
+// WebRTC — see the signaling relay below.
 //
 // We also keep a small persisted map of user-given names, keyed by the robot's
 // Bluetooth id (its serial / BLE address), so a dog you renamed stays named
 // across scans and restarts.
 
 import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts"
-import { DimAppBackend, dimContext } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/backend.js"
+import { DimAppBackend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/backend.js"
 
-const HELPER_SCRIPT = new URL("./go2_helper.py", import.meta.url).pathname
+// The discovery/provisioning helper is a standalone Rust binary (BLE via
+// CoreBluetooth/BlueZ, LAN + ARP over UDP). We build+run it on demand with
+// `nix run` so it works on macOS and Linux without a dimos venv.
+const HELPER_DIR = new URL("./go2_helper_rs", import.meta.url).pathname
 const RESTART_MS = 3000
 // Live control now runs in the browser (unitree_go2_webrtc_js). The browser
 // can't reach the robot's plain-HTTP signaling port directly (no CORS headers),
@@ -30,7 +33,6 @@ const NAMES_DIR = `${HOME}/.local/share/dim`
 const NAMES_FILE = `${NAMES_DIR}/go2_dash_names.json`
 
 const dimApp = new DimAppBackend()
-const ctx = dimContext()
 
 let child = null
 let writer = null
@@ -183,29 +185,59 @@ function snapshot() {
     dimApp.send("go2", {
         type: "snapshot",
         ready,
-        hasPython: !!ctx.python,
         hostSsid,
         hostSsidStatus,
         devices: [...devices.values()].map(named),
     })
 }
 
+// Find the `nix` binary. A GUI-launched dashboard may not inherit the shell PATH
+// that has nix on it, so fall back to the usual install locations.
+let cachedNixBin
+async function resolveNixBin() {
+    if (cachedNixBin !== undefined) return cachedNixBin
+    const candidates = [
+        "nix",
+        `${HOME}/.nix-profile/bin/nix`,
+        "/nix/var/nix/profiles/default/bin/nix",
+        "/run/current-system/sw/bin/nix",
+        "/opt/homebrew/bin/nix",
+        "/usr/local/bin/nix",
+        `${HOME}/Commands/nix`,
+    ]
+    for (const bin of candidates) {
+        try {
+            const out = await new Deno.Command(bin, { args: ["--version"], stdout: "null", stderr: "null" }).output()
+            if (out.success) { cachedNixBin = bin; return bin }
+        } catch { /* not here — try the next candidate */ }
+    }
+    cachedNixBin = null
+    return null
+}
+
 async function start() {
-    if (!ctx.python) {
-        // No dimos venv — tell the panel so it can show a clear message.
+    const nix = await resolveNixBin()
+    if (!nix) {
+        // No nix — the helper can't be built. Tell the panel so it shows a clear message.
         ready = false
         snapshot()
+        console.error("go2_dash: `nix` not found on PATH — cannot build the Go2 helper")
         setTimeout(start, RESTART_MS)
         return
     }
     try {
-        child = new Deno.Command(ctx.python, {
-            args: [HELPER_SCRIPT],
-            cwd: ctx.dimosDir || undefined,
+        // `nix run` builds the helper on first launch (cached thereafter), then
+        // execs it with stdio forwarded. The first build can take a minute; the
+        // child stays alive during it, so the restart loop won't re-trigger.
+        child = new Deno.Command(nix, {
+            args: [
+                "run",
+                "--extra-experimental-features", "nix-command flakes",
+                `path:${HELPER_DIR}`,
+            ],
             stdin: "piped",
             stdout: "piped",
-            stderr: "null", // dimos logs LAN multicast warnings here — ignore
-            env: { PYTHONUNBUFFERED: "1" },
+            stderr: "inherit", // surface nix build progress/errors in dashboard logs
         }).spawn()
     } catch (err) {
         ready = false
@@ -224,7 +256,7 @@ async function start() {
             if (!line.trim()) continue
             let event
             try { event = JSON.parse(line) } catch { continue }
-            if (event.type === "ready") ready = true
+            if (event.type === "ready") { ready = true; snapshot() } // let a panel that opened mid-build learn the helper is up
             if (event.type === "device") {
                 devices.set(deviceKey(event), event)
                 dimApp.send("go2", named(event)) // overlay saved name
@@ -300,29 +332,6 @@ dimApp.onReceive((kind, payload) => {
         })
     } else if (kind === "connect") {
         sendToHelper({ type: "connect", ...(payload || {}) })
-    } else if (kind === "launch") {
-        // Launch a dimos blueprint via the dashboard's own API (we run inside
-        // that same Deno process). Assumes the python bridge is already up. The
-        // robot ip is forwarded so the dashboard runs
-        // `dimos --dtop --robot-ip <ip> run <name>` (global flags before `run`).
-        const name = payload && payload.name
-        if (!name) return
-        const ip = payload && payload.ip
-        const port = Deno.env.get("DIM_DASHBOARD_PORT") || "1024"
-        const dhost = Deno.env.get("DIM_DASHBOARD_HOST") || "127.0.0.1"
-        ;(async () => {
-            try {
-                const res = await fetch(`http://${dhost}:${port}/api/launch`, {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ name, ip }),
-                })
-                const data = await res.json().catch(() => ({}))
-                dimApp.send("go2", { type: "launch_result", name, ok: !!data.ok, pid: data.pid, error: data.error })
-            } catch (err) {
-                dimApp.send("go2", { type: "launch_result", name, ok: false, error: err.message })
-            }
-        })()
     } else if (kind === "rename") {
         const key = payload && payload.key
         if (!key) return
