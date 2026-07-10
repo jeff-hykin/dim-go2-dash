@@ -190,6 +190,14 @@
   .btn.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
   .btn.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
 
+  /* keyboard navigation: Scan button → dog list → per-dog action buttons.
+     A ring on the currently-focused control; the focused dog reveals its
+     normally-hover-only action buttons so they can be reached. */
+  .nav-focus { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .btn.primary.nav-focus { outline: 2px solid color-mix(in oklch, var(--primary) 45%, var(--fg)); }
+  .dog.nav-dog { background: var(--accent); }
+  .dog.nav-dog .rowbtn { opacity: 1; }
+
   .list { flex: 1; overflow: auto; padding: 7px; }
   .list .none { text-align: center; color: var(--muted-fg); font-size: 12px; line-height: 1.6; padding: 32px 18px; }
   .list .none.err { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
@@ -476,6 +484,13 @@ let hostSsid = ""      // wifi SSID this computer is on (from the backend)
 let hostSsidStatus = "unknown" // ok | redacted | unknown
 const awaitingIp = new Set()   // dog keys provisioned but not yet seen on the network
 
+// ── keyboard navigation of the setup panel ──
+// navKey === null means the Scan button is focused (highlighted by default, so
+// Enter scans). Otherwise it's a dog key, with navBtn indexing that dog's
+// action buttons (copy-ip, drive, connect, ⋯, ⓘ, ✎).
+let navKey = null
+let navBtn = 0
+
 // ── live control (WebRTC drive) state ──
 let controlKey = null          // dog key currently being driven (null = not driving)
 let controlStatus = "idle"     // idle | connecting | ready | error | closed
@@ -680,6 +695,7 @@ function arpDogHtml(d) {
 function render() {
   if (!hasPython) {
     els.list.innerHTML = '<div class="none">The dimos venv isn\'t available, so BLE discovery can\'t run.<br />Open this from a dashboard with dimos installed.</div>'
+    applyNav(false)
     return
   }
   const visible = devices.filter(d => !d.manual) // manual drive targets aren't scan results
@@ -687,6 +703,7 @@ function render() {
     els.list.innerHTML = scanning
       ? '<div class="none">Scanning for nearby Go2s…</div>'
       : '<div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>'
+    applyNav(false)
     return
   }
   els.list.innerHTML = visible.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
@@ -695,6 +712,7 @@ function render() {
     if (inp) { inp.focus(); inp.select() }
   }
   if (formKey) updateWarn(els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"]`))
+  applyNav(false)
 }
 
 // ── WebRTC signaling relay over the app-bus ──
@@ -1386,6 +1404,74 @@ window.addEventListener("keydown", (e) => {
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
   e.preventDefault()
   setSlid(!els.panel.classList.contains("slid"))
+})
+
+// ── keyboard navigation: Scan button ↔ dog list ↔ per-dog action buttons ──
+// Per-dog focus targets, ordered the way they're most useful to reach.
+const NAV_SELECTORS = [".ip", ".drive", ".connect", ".kebab", ".info", ".edit"]
+function dogNavEls(dogEl) {
+  if (!dogEl) return []
+  return NAV_SELECTORS.map(s => dogEl.querySelector(s)).filter(Boolean)
+}
+function visibleDogEls() {
+  return [...els.list.querySelectorAll(".dog")]
+}
+// Paint the current focus: the Scan button, or one action button inside a dog.
+function applyNav(scroll) {
+  document.querySelectorAll(".nav-focus").forEach(e => e.classList.remove("nav-focus"))
+  els.list.querySelectorAll(".nav-dog").forEach(e => e.classList.remove("nav-dog"))
+  const dogEl = navKey === null ? null : els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`)
+  if (navKey !== null && !dogEl) navKey = null // the focused dog vanished — fall back to Scan
+  if (navKey === null) { els.scan.classList.add("nav-focus"); return }
+  dogEl.classList.add("nav-dog")
+  const btns = dogNavEls(dogEl)
+  if (!btns.length) return
+  if (navBtn >= btns.length) navBtn = btns.length - 1
+  if (navBtn < 0) navBtn = 0
+  const el = btns[navBtn]
+  el.classList.add("nav-focus")
+  if (scroll) el.scrollIntoView({ block: "nearest" })
+}
+// Trigger the focused control (reusing the existing click handlers).
+function activateNav() {
+  if (navKey === null) { els.scan.click(); return }
+  const el = dogNavEls(els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`))[navBtn]
+  if (el) el.click()
+}
+window.addEventListener("keydown", (e) => {
+  if (controlKey !== null) return                   // driving mode owns the keyboard
+  if (els.panel.classList.contains("slid")) return  // panel hidden
+  const t = e.target
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
+  if (e.altKey || e.ctrlKey || e.metaKey) return
+  const dogs = visibleDogEls()
+  if (e.key === "ArrowDown") {
+    e.preventDefault()
+    if (navKey === null) { if (dogs.length) { navKey = dogs[0].dataset.key; navBtn = 0 } }
+    else {
+      const i = dogs.findIndex(d => d.dataset.key === navKey)
+      if (i >= 0 && i < dogs.length - 1) navKey = dogs[i + 1].dataset.key
+    }
+    applyNav(true)
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault()
+    if (navKey !== null) {
+      const i = dogs.findIndex(d => d.dataset.key === navKey)
+      if (i <= 0) navKey = null                      // above the first dog → back to Scan
+      else navKey = dogs[i - 1].dataset.key
+    }
+    applyNav(true)
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    if (navKey === null) return
+    const btns = dogNavEls(els.list.querySelector(`.dog[data-key="${cssEsc(navKey)}"]`))
+    if (!btns.length) return
+    e.preventDefault()
+    navBtn = (navBtn + (e.key === "ArrowRight" ? 1 : -1) + btns.length) % btns.length
+    applyNav(true)
+  } else if (e.key === "Enter") {
+    e.preventDefault()
+    activateNav()
+  }
 })
 
 // "not connecting?" help: expand/collapse + click-to-copy the route command
