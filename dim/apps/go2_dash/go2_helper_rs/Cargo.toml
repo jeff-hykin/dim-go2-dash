@@ -8,7 +8,7 @@ name = "go2_helper"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "time", "sync", "net", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "time", "sync", "net", "process", "fs"] }
 btleplug = "0.12"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
