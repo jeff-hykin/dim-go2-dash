@@ -1,3 +1,9 @@
+// AES-GCM via pure-JS @noble/ciphers instead of Web Crypto (crypto.subtle) —
+// crypto.subtle only exists in a secure context (https/localhost), so over a
+// plain-http LAN IP the Go2 signaling decrypt would fail with "crypto.subtle is
+// undefined". This has no such requirement.
+import { gcm as __nobleGcm } from "https://esm.sh/@noble/ciphers@1.2.1/aes"
+
 var __require = /* @__PURE__ */ ((x4) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x4, {
   get: (a4, b3) => (typeof require !== "undefined" ? require : a4)[b3]
 }) : x4)(function(x4) {
@@ -7072,8 +7078,7 @@ async function gcmDecrypt(data1B64, keyBytes) {
   const combined = new Uint8Array(ciphertext.length + tag.length);
   combined.set(ciphertext);
   combined.set(tag, ciphertext.length);
-  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, key, combined);
+  const plain = __nobleGcm(keyBytes, nonce).decrypt(combined);
   return new TextDecoder().decode(plain);
 }
 async function decryptData1(data1, data2, aes128KeyHex) {
