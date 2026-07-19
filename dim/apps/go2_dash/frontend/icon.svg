@@ -1,17 +1,8 @@
 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- wifi signal (the app connects a Go2 to wifi) -->
-  <path d="M6.6 7.7 a4 4 0 0 1 6 0" stroke="#45e0ff" stroke-width="1.4" stroke-linecap="round"/>
-  <path d="M8.3 9.2 a1.9 1.9 0 0 1 2.6 0" stroke="#45e0ff" stroke-width="1.4" stroke-linecap="round"/>
-  <circle cx="9.6" cy="10.5" r="0.75" fill="#45e0ff"/>
-  <!-- body -->
-  <rect x="5.4" y="11.1" width="9.3" height="4.3" rx="2.1" stroke="#7f97ab" stroke-width="1.5"/>
-  <!-- head -->
-  <rect x="14.1" y="10.8" width="4.6" height="4.6" rx="1.5" stroke="#7f97ab" stroke-width="1.5"/>
-  <!-- sensor eye -->
-  <circle cx="16.8" cy="12.5" r="1" fill="#45e0ff"/>
-  <!-- 4 articulated legs -->
-  <path d="M7 15.4 l-0.6 1.7 l0.4 1.9" stroke="#7f97ab" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M9.6 15.4 l-0.1 1.7 l0.2 1.9" stroke="#7f97ab" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M12.2 15.4 l0.1 1.7 l-0.2 1.9" stroke="#7f97ab" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M14.4 15.4 l0.5 1.7 l-0.2 1.9" stroke="#7f97ab" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- dog paw print (Go2 is a robot dog) -->
+  <ellipse cx="6.7" cy="11" rx="1.7" ry="2.1" fill="#45e0ff"/>
+  <ellipse cx="10.1" cy="8.4" rx="1.8" ry="2.3" fill="#45e0ff"/>
+  <ellipse cx="13.9" cy="8.4" rx="1.8" ry="2.3" fill="#45e0ff"/>
+  <ellipse cx="17.3" cy="11" rx="1.7" ry="2.1" fill="#45e0ff"/>
+  <path d="M12 11.3 C15.1 11.3 17.3 13.4 17.3 15.9 C17.3 18.8 14.8 20 12 20 C9.2 20 6.7 18.8 6.7 15.9 C6.7 13.4 8.9 11.3 12 11.3 Z" fill="#45e0ff"/>
 </svg>
