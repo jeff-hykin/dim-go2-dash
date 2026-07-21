@@ -644,7 +644,7 @@ function dogHtml(d) {
         <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" value="${esc(passVal)}" ${canConnect ? "" : "disabled"} /></div>
         <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="${esc(countryVal)}" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
       </div>
-      <div class="actions"><button class="btn f-cancel" hidden>Cancel</button><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button></div>
+      <div class="actions"><button class="btn f-cancel">Cancel</button><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button></div>
       <div class="log f-log"></div>
     </div>
   </div>`
@@ -836,8 +836,6 @@ function setBusy(on) {
   if (!root) return
   const btn = root.querySelector(".f-go")
   if (btn) { btn.disabled = on; btn.innerHTML = on ? "Connecting…" : ICON_WIFI + "Connect" }
-  const cancel = root.querySelector(".f-cancel")
-  if (cancel) cancel.hidden = !on
 }
 
 function onConnected() {
@@ -1305,12 +1303,20 @@ function startConnect(key) {
   dimApp.send("connect", { mac: d.ble_mac, ssid, password, country })
 }
 
-// Abort an in-flight provisioning. The backend aborts the BLE task and confirms
-// with a connect_result{cancelled}; we reset the form immediately for feedback.
+// Dual-purpose exit for the connect form: while a connect is in flight it aborts
+// the provisioning (backend aborts the BLE task and confirms with
+// connect_result{cancelled}); otherwise it just closes the form.
 function cancelConnect() {
-  dimApp.send("cancel")
-  appendLog("Cancelled.", "err")
-  setBusy(false)
+  const root = formKey && els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"]`)
+  const busy = root && root.querySelector(".f-go")?.disabled
+  if (busy) {
+    dimApp.send("cancel")
+    appendLog("Cancelled.", "err")
+    setBusy(false)
+  } else {
+    formKey = null
+    render()
+  }
 }
 
 // A scan needs the app's backend (BLE discovery lives there). If the socket is
