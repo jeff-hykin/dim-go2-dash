@@ -356,20 +356,6 @@
     white-space: pre; cursor: pointer; transition: border-color .12s; }
   .help-cmd:hover { border-color: var(--ring); }
   .help-cmd.copied { border-color: var(--ok); color: var(--ok); }
-
-  /* backend-build overlay: covers everything (panel z-index 40) and swallows clicks
-     so the whole UI is paused while the one-time nix compile runs. */
-  .backend-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-    background: color-mix(in oklch, var(--bg) 82%, transparent); backdrop-filter: blur(3px); }
-  .backend-overlay[hidden] { display: none; }
-  .bo-card { text-align: center; max-width: 320px; padding: 28px 34px; border-radius: 14px;
-    background: var(--card); border: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,.5); }
-  .bo-spinner { width: 34px; height: 34px; margin: 0 auto 16px; border-radius: 50%;
-    border: 3px solid var(--border); border-top-color: var(--primary); animation: spin .8s linear infinite; }
-  .bo-spinner[hidden] { display: none; }
-  .bo-title { font-size: 16px; font-weight: 700; color: var(--fg); margin-bottom: 7px; }
-  .bo-msg { font-size: 12.5px; line-height: 1.5; color: var(--muted-fg); }
-  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body class="science">
@@ -425,15 +411,6 @@
 
   <div class="toast" id="toast"></div>
 
-  <!-- Full-screen block while the Rust backend is building (one-time nix compile). -->
-  <div class="backend-overlay" id="backend-overlay" hidden>
-    <div class="bo-card">
-      <div class="bo-spinner" id="bo-spinner"></div>
-      <div class="bo-title" id="bo-title">Compiling backend</div>
-      <div class="bo-msg" id="bo-msg">Only happens one time, please wait.</div>
-    </div>
-  </div>
-
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/frontend.js"
 // In-browser WebRTC control of one Go2. Vendored rather than pulled from esm.sh,
@@ -462,16 +439,11 @@ const els = {
   stageGlyph: document.getElementById("stage-glyph"),
   stageTitle: document.getElementById("stage-title"),
   stageMsg: document.getElementById("stage-msg"),
-  backendOverlay: document.getElementById("backend-overlay"),
-  boSpinner: document.getElementById("bo-spinner"),
-  boTitle: document.getElementById("bo-title"),
-  boMsg: document.getElementById("bo-msg"),
 }
 
 let devices = []       // [{serial,name,ble_mac,ip,lan_mac,customName}]
 let scanning = false
 let helperReady = true
-let backendPhase = "ready" // building | ready | error (from the backend snapshot)
 let menuKey = null     // ⋯ menu open for this dog
 let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
@@ -666,26 +638,6 @@ function arpDogHtml(d) {
   </div>`
 }
 
-// Pause the whole UI while the backend is building (one-time nix compile), or show
-// a clear message if it can't be built at all. Hidden once the helper is ready.
-function updateBackendOverlay() {
-  const ov = els.backendOverlay
-  if (!ov) return
-  if (backendPhase === "building") {
-    els.boSpinner.hidden = false
-    els.boTitle.textContent = "Compiling backend"
-    els.boMsg.textContent = "Only happens one time, please wait."
-    ov.hidden = false
-  } else if (backendPhase === "error") {
-    els.boSpinner.hidden = true
-    els.boTitle.textContent = "Backend unavailable"
-    els.boMsg.innerHTML = "Couldn't build the Go2 helper — <code>nix</code> wasn't found on the PATH. Check the dashboard logs."
-    ov.hidden = false
-  } else {
-    ov.hidden = true
-  }
-}
-
 function render() {
   if (!helperReady) {
     els.list.innerHTML = '<div class="none">The Go2 helper isn\'t running (needs <code>nix</code> to build on first launch).<br />Check the dashboard logs if this persists.</div>'
@@ -746,13 +698,11 @@ dimApp.receiveRequest((tag, msg) => {
   switch (msg.type) {
     case "snapshot":
       helperReady = msg.ready
-      backendPhase = msg.phase || (msg.ready ? "ready" : "building")
       hostSsid = msg.hostSsid || ""
       hostSsidStatus = msg.hostSsidStatus || "unknown"
       // keep any manually-entered drive targets alive across a full refresh
       devices = [...(msg.devices || []), ...devices.filter(d => d.manual)]
       for (const dev of (msg.devices || [])) rememberIp(keyOf(dev), dev.ip, dev.aesKey)
-      updateBackendOverlay()
       render(); break
     case "scan_start":
       clearScanWait() // backend answered — cancel the no-response error

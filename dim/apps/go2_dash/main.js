@@ -37,10 +37,6 @@ const dimApp = new DimAppBackend()
 let child = null
 let writer = null
 let ready = false
-// Backend lifecycle for the panel's overlay: "building" while `nix run` compiles
-// the helper (one-time, slow), "ready" once it emits ready, "error" if it can't
-// be built/started at all.
-let phase = "building"
 // Discovered robots, keyed by serial||ble_mac (raw, before name overlay).
 const devices = new Map()
 // User-given names, keyed the same way. Persisted to NAMES_FILE.
@@ -189,7 +185,6 @@ function snapshot() {
     dimApp.send("go2", {
         type: "snapshot",
         ready,
-        phase,
         hostSsid,
         hostSsidStatus,
         devices: [...devices.values()].map(named),
@@ -225,7 +220,6 @@ async function start() {
     if (!nix) {
         // No nix — the helper can't be built. Tell the panel so it shows a clear message.
         ready = false
-        phase = "error"
         snapshot()
         console.error("go2_dash: `nix` not found on PATH — cannot build the Go2 helper")
         setTimeout(start, RESTART_MS)
@@ -235,8 +229,6 @@ async function start() {
         // `nix run` builds the helper on first launch (cached thereafter), then
         // execs it with stdio forwarded. The first build can take a minute; the
         // child stays alive during it, so the restart loop won't re-trigger.
-        phase = "building" // compiling (first launch) or spinning up (cached)
-        snapshot()
         child = new Deno.Command(nix, {
             args: [
                 "run",
@@ -249,7 +241,6 @@ async function start() {
         }).spawn()
     } catch (err) {
         ready = false
-        phase = "error"
         snapshot()
         console.error(`go2_dash: could not start helper — ${err.message}`)
         setTimeout(start, RESTART_MS)
@@ -265,7 +256,7 @@ async function start() {
             if (!line.trim()) continue
             let event
             try { event = JSON.parse(line) } catch { continue }
-            if (event.type === "ready") { ready = true; phase = "ready"; snapshot() } // let a panel that opened mid-build learn the helper is up
+            if (event.type === "ready") { ready = true; snapshot() } // let a panel that opened mid-build learn the helper is up
             if (event.type === "device") {
                 devices.set(deviceKey(event), event)
                 dimApp.send("go2", named(event)) // overlay saved name
@@ -282,7 +273,6 @@ async function start() {
 
     child.status.then(() => {
         ready = false
-        phase = "building" // exited — restarting (cached, so quick)
         writer = null
         child = null
         snapshot()
