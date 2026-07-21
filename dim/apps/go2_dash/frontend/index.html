@@ -644,7 +644,7 @@ function dogHtml(d) {
         <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" value="${esc(passVal)}" ${canConnect ? "" : "disabled"} /></div>
         <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="${esc(countryVal)}" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
       </div>
-      <div class="actions"><button class="btn f-cancel">Cancel</button><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button></div>
+      <div class="actions"><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button><button class="btn f-cancel">Cancel</button></div>
       <div class="log f-log"></div>
     </div>
   </div>`
