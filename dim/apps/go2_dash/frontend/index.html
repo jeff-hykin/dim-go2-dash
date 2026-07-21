@@ -356,6 +356,20 @@
     white-space: pre; cursor: pointer; transition: border-color .12s; }
   .help-cmd:hover { border-color: var(--ring); }
   .help-cmd.copied { border-color: var(--ok); color: var(--ok); }
+
+  /* backend-build overlay: covers everything (panel z-index 40) and swallows clicks
+     so the whole UI is paused while the one-time nix compile runs. */
+  .backend-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in oklch, var(--bg) 82%, transparent); backdrop-filter: blur(3px); }
+  .backend-overlay[hidden] { display: none; }
+  .bo-card { text-align: center; max-width: 320px; padding: 28px 34px; border-radius: 14px;
+    background: var(--card); border: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  .bo-spinner { width: 34px; height: 34px; margin: 0 auto 16px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--primary); animation: spin .8s linear infinite; }
+  .bo-spinner[hidden] { display: none; }
+  .bo-title { font-size: 16px; font-weight: 700; color: var(--fg); margin-bottom: 7px; }
+  .bo-msg { font-size: 12.5px; line-height: 1.5; color: var(--muted-fg); }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body class="science">
@@ -411,6 +425,15 @@
 
   <div class="toast" id="toast"></div>
 
+  <!-- Full-screen block while the Rust backend is building (one-time nix compile). -->
+  <div class="backend-overlay" id="backend-overlay" hidden>
+    <div class="bo-card">
+      <div class="bo-spinner" id="bo-spinner"></div>
+      <div class="bo-title" id="bo-title">Compiling backend</div>
+      <div class="bo-msg" id="bo-msg">Only happens one time, please wait.</div>
+    </div>
+  </div>
+
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.1.0/frontend.js"
 // In-browser WebRTC control of one Go2. Vendored rather than pulled from esm.sh,
@@ -439,11 +462,16 @@ const els = {
   stageGlyph: document.getElementById("stage-glyph"),
   stageTitle: document.getElementById("stage-title"),
   stageMsg: document.getElementById("stage-msg"),
+  backendOverlay: document.getElementById("backend-overlay"),
+  boSpinner: document.getElementById("bo-spinner"),
+  boTitle: document.getElementById("bo-title"),
+  boMsg: document.getElementById("bo-msg"),
 }
 
 let devices = []       // [{serial,name,ble_mac,ip,lan_mac,customName}]
 let scanning = false
 let helperReady = true
+let backendPhase = "ready" // building | ready | error (from the backend snapshot)
 let menuKey = null     // ⋯ menu open for this dog
 let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
@@ -553,11 +581,13 @@ function detailRow(label, value) {
   return `<div class="d-row"><span class="d-k">${label}</span><span class="d-v copyable" data-copy="${esc(value)}" title="Click to copy">${esc(value)}<span class="cp">⧉</span></span></div>`
 }
 function detailsHtml(d) {
+  // lan_mac is the real 48-bit network MAC (from LAN discovery/ARP); it only appears
+  // once the dog is reachable on the same LAN. ble_mac is the BLE peripheral id.
   const rows = detailRow("Bluetooth name", d.name)
     + detailRow("Serial", d.serial)
     + detailRow("Bluetooth ID", d.ble_mac)
     + detailRow("IP address", d.ip)
-    + detailRow("LAN MAC", d.lan_mac)
+    + detailRow("MAC address", d.lan_mac)
   return `<div class="details">${rows || '<div class="d-empty">No identifiers yet.</div>'}</div>`
 }
 
@@ -614,7 +644,7 @@ function dogHtml(d) {
         <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" value="${esc(passVal)}" ${canConnect ? "" : "disabled"} /></div>
         <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="${esc(countryVal)}" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
       </div>
-      <div class="actions"><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button></div>
+      <div class="actions"><button class="btn f-cancel" hidden>Cancel</button><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button></div>
       <div class="log f-log"></div>
     </div>
   </div>`
@@ -634,6 +664,26 @@ function arpDogHtml(d) {
       </div>
     </div>
   </div>`
+}
+
+// Pause the whole UI while the backend is building (one-time nix compile), or show
+// a clear message if it can't be built at all. Hidden once the helper is ready.
+function updateBackendOverlay() {
+  const ov = els.backendOverlay
+  if (!ov) return
+  if (backendPhase === "building") {
+    els.boSpinner.hidden = false
+    els.boTitle.textContent = "Compiling backend"
+    els.boMsg.textContent = "Only happens one time, please wait."
+    ov.hidden = false
+  } else if (backendPhase === "error") {
+    els.boSpinner.hidden = true
+    els.boTitle.textContent = "Backend unavailable"
+    els.boMsg.innerHTML = "Couldn't build the Go2 helper — <code>nix</code> wasn't found on the PATH. Check the dashboard logs."
+    ov.hidden = false
+  } else {
+    ov.hidden = true
+  }
 }
 
 function render() {
@@ -696,11 +746,13 @@ dimApp.receiveRequest((tag, msg) => {
   switch (msg.type) {
     case "snapshot":
       helperReady = msg.ready
+      backendPhase = msg.phase || (msg.ready ? "ready" : "building")
       hostSsid = msg.hostSsid || ""
       hostSsidStatus = msg.hostSsidStatus || "unknown"
       // keep any manually-entered drive targets alive across a full refresh
       devices = [...(msg.devices || []), ...devices.filter(d => d.manual)]
       for (const dev of (msg.devices || [])) rememberIp(keyOf(dev), dev.ip, dev.aesKey)
+      updateBackendOverlay()
       render(); break
     case "scan_start":
       clearScanWait() // backend answered — cancel the no-response error
@@ -743,6 +795,8 @@ dimApp.receiveRequest((tag, msg) => {
         if (lastAttempt) saveWifi(lastAttempt) // remember working creds for the next dog
         if (formKey) awaitingIp.add(formKey) // now wait for it to appear on the network
         onConnected()
+      } else if (msg.cancelled) {
+        setBusy(false) // already logged "Cancelled." on the click
       } else { appendLog("✗ " + (msg.error || "failed"), "err"); setBusy(false) }
       break
     case "warn": break // non-fatal (e.g. a LAN interface w/o route)
@@ -778,8 +832,12 @@ function appendLog(line, cls) {
 
 function setBusy(on) {
   if (!formKey) return
-  const btn = els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"] .f-go`)
+  const root = els.list.querySelector(`.dog[data-key="${cssEsc(formKey)}"]`)
+  if (!root) return
+  const btn = root.querySelector(".f-go")
   if (btn) { btn.disabled = on; btn.innerHTML = on ? "Connecting…" : ICON_WIFI + "Connect" }
+  const cancel = root.querySelector(".f-cancel")
+  if (cancel) cancel.hidden = !on
 }
 
 function onConnected() {
@@ -1200,6 +1258,7 @@ els.list.addEventListener("click", (e) => {
     menuKey = null
     return
   }
+  if (e.target.closest(".f-cancel")) { e.stopPropagation(); cancelConnect(); return }
   if (e.target.closest(".f-go")) { e.stopPropagation(); startConnect(key); return }
 })
 
@@ -1244,6 +1303,14 @@ function startConnect(key) {
   lastAttempt = { ssid, password, country } // saved to localStorage iff it succeeds
   setBusy(true)
   dimApp.send("connect", { mac: d.ble_mac, ssid, password, country })
+}
+
+// Abort an in-flight provisioning. The backend aborts the BLE task and confirms
+// with a connect_result{cancelled}; we reset the form immediately for feedback.
+function cancelConnect() {
+  dimApp.send("cancel")
+  appendLog("Cancelled.", "err")
+  setBusy(false)
 }
 
 // A scan needs the app's backend (BLE discovery lives there). If the socket is

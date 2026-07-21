@@ -7,10 +7,11 @@
 // Protocol (newline-delimited JSON both ways):
 //   stdin  : {"type":"scan","timeout":7}
 //            {"type":"connect","mac":..,"ssid":..,"password":..,"country":"US"}
+//            {"type":"cancel"}
 //   stdout : {"type":"ready"} / {"type":"scan_start"} / {"type":"scan_done","count":n}
 //            {"type":"device", serial, name, ble_mac, ip, lan_mac, arp_only}
 //            {"type":"drop","key":..} / {"type":"progress","msg":..}
-//            {"type":"connect_result","ok":bool,"serial":..,"error":..} / {"type":"warn","msg":..}
+//            {"type":"connect_result","ok":bool,"serial":..,"error":..,"cancelled":bool} / {"type":"warn","msg":..}
 
 mod arp;
 mod ble;
@@ -51,6 +52,7 @@ async fn main() {
     let registry: Registry = Arc::new(Mutex::new(HashMap::new()));
 
     let mut scan_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut connect_task: Option<tokio::task::JoinHandle<()>> = None;
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -75,7 +77,19 @@ async fn main() {
                 )));
             }
             Some("connect") => {
-                tokio::spawn(do_connect(registry.clone(), cmd));
+                // A new connect supersedes any in-flight one.
+                if let Some(task) = connect_task.take() {
+                    task.abort();
+                }
+                connect_task = Some(tokio::spawn(do_connect(registry.clone(), cmd)));
+            }
+            Some("cancel") => {
+                if let Some(task) = connect_task.take() {
+                    if !task.is_finished() {
+                        task.abort();
+                        emit(&json!({ "type": "connect_result", "ok": false, "cancelled": true }));
+                    }
+                }
             }
             _ => {}
         }

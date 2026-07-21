@@ -37,26 +37,31 @@ fn parse_ipv4(token: &str) -> Option<Ipv4Addr> {
     token.trim_matches(|c| c == '(' || c == ')').parse().ok()
 }
 
-/// Read the OS ARP/neighbour table and return Go2 (ip, mac) pairs. Handles
-/// macOS `arp -an`, Linux `/proc/net/arp`, and `ip neigh` line formats.
-pub async fn arp_scan() -> Vec<(String, String)> {
+/// True if a normalized MAC is in the Unitree Go2 Wi-Fi OUI range. Used to spot
+/// Go2s during *blind* ARP-only discovery (no serial/BLE identity to go on).
+pub fn is_go2_oui(mac: &str) -> bool {
+    GO2_OUIS.iter().any(|oui| mac.starts_with(oui))
+}
+
+/// Read the OS ARP/neighbour table and return every (ip, mac) pair, normalized.
+/// Handles macOS `arp -an`, Linux `/proc/net/arp`, and `ip neigh` line formats.
+/// Callers filter by OUI (blind discovery) or by known-IP (attach a real MAC to
+/// an already-identified dog, regardless of OUI).
+pub async fn arp_pairs() -> Vec<(String, String)> {
     let text = read_arp_table().await;
-    let mut hits: Vec<(String, String)> = Vec::new();
+    let mut pairs: Vec<(String, String)> = Vec::new();
     for line in text.lines() {
         let tokens: Vec<&str> = line.split_whitespace().collect();
         let ip = tokens.iter().find_map(|t| parse_ipv4(t));
         let mac = tokens.iter().find(|t| looks_like_mac(t));
         if let (Some(ip), Some(mac)) = (ip, mac) {
-            let normalized = norm_mac(mac);
-            if GO2_OUIS.iter().any(|oui| normalized.starts_with(oui)) {
-                let ip = ip.to_string();
-                if !hits.iter().any(|(existing, _)| existing == &ip) {
-                    hits.push((ip, normalized));
-                }
+            let ip = ip.to_string();
+            if !pairs.iter().any(|(existing, _)| existing == &ip) {
+                pairs.push((ip, norm_mac(mac)));
             }
         }
     }
-    hits
+    pairs
 }
 
 async fn read_arp_table() -> String {

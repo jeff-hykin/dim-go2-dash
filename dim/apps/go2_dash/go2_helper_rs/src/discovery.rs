@@ -12,7 +12,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time::{interval_at, Duration as TokioDuration, Instant};
 
-use crate::arp::{arp_scan, arp_sweep, go2_alive};
+use crate::arp::{arp_pairs, arp_sweep, go2_alive, is_go2_oui};
 use crate::ble::{scan_ble, BleDevice, Registry};
 use crate::emit;
 use crate::lan::{discover_broadcast, discover_multicast, LanDevice};
@@ -286,25 +286,28 @@ pub async fn do_scan(adapter: Option<Adapter>, registry: Registry, timeout_secs:
                 }
             }
             _ = arp_tick.tick() => {
-                let hits = arp_scan().await;
-                let unverified: Vec<(String, String)> = hits
+                let pairs = arp_pairs().await;
+                // Attach the real Wi-Fi MAC to any dog we've already identified by
+                // IP (via BLE/LAN), regardless of OUI — the OUI filter is only for
+                // spotting *unknown* Go2s with no other identity.
+                for (ip, mac) in &pairs {
+                    if merger.ip_known(ip) {
+                        merger.arp_upsert(ip, mac);
+                    }
+                }
+                // Blind ARP-only discovery: unknown IPs in the Go2 OUI range, each
+                // confirmed with a non-disruptive liveness probe before surfacing.
+                let candidates: Vec<(String, String)> = pairs
                     .iter()
-                    .filter(|(ip, _)| !merger.ip_known(ip))
+                    .filter(|(ip, mac)| !merger.ip_known(ip) && is_go2_oui(mac))
                     .cloned()
                     .collect();
                 let alive_flags = futures::future::join_all(
-                    unverified.iter().map(|(ip, _)| go2_alive(ip)),
+                    candidates.iter().map(|(ip, _)| go2_alive(ip)),
                 )
                 .await;
-                let alive: HashMap<String, bool> = unverified
-                    .iter()
-                    .map(|(ip, _)| ip.clone())
-                    .zip(alive_flags)
-                    .collect();
-                for (ip, mac) in &hits {
-                    if merger.ip_known(ip) {
-                        merger.arp_upsert(ip, mac);
-                    } else if *alive.get(ip).unwrap_or(&false) {
+                for ((ip, mac), alive) in candidates.iter().zip(alive_flags) {
+                    if alive {
                         merger.arp_upsert(ip, mac);
                     } else {
                         merger.arp_drop(ip);
