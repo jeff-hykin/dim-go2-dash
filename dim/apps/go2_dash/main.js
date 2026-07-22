@@ -37,6 +37,10 @@ const dimApp = new DimAppBackend()
 let child = null
 let writer = null
 let ready = false
+// A scan requested before the helper finished building. Flushed once the helper
+// emits "ready" (see the stdout loop), so the first-ever scan isn't lost to the
+// `nix run` compile.
+let pendingScan = null
 // Discovered robots, keyed by serial||ble_mac (raw, before name overlay).
 const devices = new Map()
 // User-given names, keyed the same way. Persisted to NAMES_FILE.
@@ -222,6 +226,10 @@ async function start() {
         ready = false
         snapshot()
         console.error("go2_dash: `nix` not found on PATH — cannot build the Go2 helper")
+        if (pendingScan) {
+            pendingScan = null
+            dimApp.send("go2", { type: "build_error", msg: "`nix` not found — can't build the Go2 BLE helper. Install nix, then press Scan again." })
+        }
         setTimeout(start, RESTART_MS)
         return
     }
@@ -233,20 +241,40 @@ async function start() {
             args: [
                 "run",
                 "--extra-experimental-features", "nix-command flakes",
+                "-L", // print the builder's own compile logs so we can stream build progress to the panel
                 `path:${HELPER_DIR}`,
             ],
             stdin: "piped",
             stdout: "piped",
-            stderr: "inherit", // surface nix build progress/errors in dashboard logs
+            stderr: "piped", // read build progress/errors and forward them to the panel
         }).spawn()
     } catch (err) {
         ready = false
         snapshot()
         console.error(`go2_dash: could not start helper — ${err.message}`)
+        if (pendingScan) {
+            pendingScan = null
+            dimApp.send("go2", { type: "build_error", msg: `Could not start the Go2 helper: ${err.message}` })
+        }
         setTimeout(start, RESTART_MS)
         return
     }
     writer = child.stdin.getWriter()
+
+    // Forward the helper's stderr. With `-L`, the first launch streams the Rust
+    // build log here; until the helper reports "ready" we relay each line to the
+    // panel so a pressed Scan shows live compile progress instead of timing out.
+    ;(async () => {
+        const errLines = child.stderr
+            .pipeThrough(new TextDecoderStream())
+            .pipeThrough(new TextLineStream())
+        for await (const line of errLines) {
+            const text = line.trim()
+            if (!text) continue
+            console.error(`go2_helper: ${text}`)
+            if (!ready) dimApp.send("go2", { type: "build", line: text })
+        }
+    })()
 
     ;(async () => {
         const lines = child.stdout
@@ -256,7 +284,11 @@ async function start() {
             if (!line.trim()) continue
             let event
             try { event = JSON.parse(line) } catch { continue }
-            if (event.type === "ready") { ready = true; snapshot() } // let a panel that opened mid-build learn the helper is up
+            if (event.type === "ready") {
+                ready = true
+                snapshot() // let a panel that opened mid-build learn the helper is up
+                if (pendingScan) { const p = pendingScan; pendingScan = null; runScan(p) } // flush a scan deferred during the build
+            }
             if (event.type === "device") {
                 devices.set(deviceKey(event), event)
                 dimApp.send("go2", named(event)) // overlay saved name
@@ -320,16 +352,29 @@ async function doRelay(req) {
     dimApp.send("relay_result", { id, ok: false, status: 502, error: `robot ${ip} unreachable: ${lastErr}` })
 }
 
+// Run a scan now: a re-scan re-discovers from scratch, so clear the cache, refresh
+// the SSID (the machine may have hopped networks), add the LAN multicast route
+// (once, behind the password modal) so dimos' native multicast discovery can reach
+// the dogs, THEN tell the helper to scan. Only call once the helper is `ready`.
+function runScan(payload) {
+    devices.clear()
+    refreshSsid().then(snapshot)
+    ensureMulticastRoute().finally(() => {
+        sendToHelper({ type: "scan", timeout: (payload && payload.timeout) || 7 })
+    })
+}
+
 dimApp.onReceive((kind, payload) => {
     if (kind === "scan") {
-        // A re-scan re-discovers from scratch; clear the cache so stale rows go.
-        devices.clear()
-        refreshSsid().then(snapshot) // the machine may have hopped networks
-        // Add the multicast route (once, behind the password modal) so dimos'
-        // native multicast LAN discovery can reach the dogs, THEN start the scan.
-        ensureMulticastRoute().finally(() => {
-            sendToHelper({ type: "scan", timeout: (payload && payload.timeout) || 7 })
-        })
+        if (ready) {
+            runScan(payload)
+        } else {
+            // Helper still building (first-run `nix run` compile, ~1min). Defer the
+            // scan and tell the panel we're building so it shows progress instead of
+            // firing its 4s no-response error; it runs the moment the helper is up.
+            pendingScan = payload || {}
+            dimApp.send("go2", { type: "building" })
+        }
     } else if (kind === "connect") {
         sendToHelper({ type: "connect", ...(payload || {}) })
     } else if (kind === "cancel") {

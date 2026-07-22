@@ -712,6 +712,24 @@ dimApp.receiveRequest((tag, msg) => {
       scanning = false; els.scan.disabled = false
       setStatus(msg.count ? `${msg.count} found` : "None found", msg.count ? "ok" : null)
       render(); break
+    // First launch compiles the Rust BLE helper via `nix run` (~1min). The backend
+    // defers our scan until it's built and streams the compile log here, so show
+    // progress instead of firing the 4s no-response error.
+    case "building":
+      clearScanWait()
+      scanning = false; els.scan.disabled = true
+      setStatus("Building helper…", "scanning")
+      els.list.innerHTML = '<div class="none">Building the Go2 helper (first run compiles a small Rust binary)… the scan starts automatically when it\'s ready.</div>'
+      break
+    case "build":
+      clearScanWait()
+      setStatus("Building helper…", "scanning")
+      els.list.innerHTML = `<div class="none">${esc(msg.line)}</div>`
+      break
+    case "build_error":
+      clearScanWait()
+      showScanError("Helper unavailable", esc(msg.msg || "Could not build the Go2 helper."))
+      break
     case "device": {
       const key = keyOf(msg)
       // dedupe: a serial-bearing record supersedes any serial-less card for the
