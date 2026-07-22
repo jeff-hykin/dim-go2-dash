@@ -417,8 +417,8 @@ import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/fron
 // so the panel still works behind the robot's VPN with no CDN reachable.
 import { UnitreeConnection, SPORT_CMD } from "./vendor/unitree.js"
 
-// follow the shell's light/dark like the other apps
-;(function () { const m = matchMedia("(prefers-color-scheme: light)"); const a = () => document.body.classList.toggle("dark", !m.matches); a(); m.addEventListener("change", a) })()
+// This app is always dark, regardless of the shell's light/dark setting.
+document.body.classList.add("dark")
 
 const dimApp = new DimAppFrontend()
 
@@ -1330,12 +1330,15 @@ function validIp(text) {
   const t = text.trim()
   return IPV4.test(t) && t.split(".").every(n => Number(n) <= 255)
 }
+// Remember the last IP someone drove manually, so the field autofills next time.
+const LAST_IP_LS = "go2dash.lastManualIp"
 function syncManual() {
   els.manualRow.classList.toggle("ready", validIp(els.manualIp.value))
 }
 function driveManual() {
   const ip = els.manualIp.value.trim()
   if (!validIp(ip)) return
+  try { localStorage.setItem(LAST_IP_LS, ip) } catch { /* private mode */ }
   const key = "manual:" + ip
   let d = devices.find(x => keyOf(x) === key)
   if (!d) { d = { serial: key, name: "Manual · " + ip, ip, manual: true }; devices.push(d) }
@@ -1352,6 +1355,11 @@ els.manualIp.addEventListener("keydown", (e) => {
   }
 })
 els.manualDrive.addEventListener("click", driveManual)
+// Autofill the field with the last manually-driven IP (reveals the Drive button).
+try {
+  const lastIp = localStorage.getItem(LAST_IP_LS)
+  if (lastIp && !els.manualIp.value) { els.manualIp.value = lastIp; syncManual() }
+} catch { /* private mode */ }
 
 function setSlid(slid) {
   els.panel.classList.toggle("slid", slid)
