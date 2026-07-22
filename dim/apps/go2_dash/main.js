@@ -195,6 +195,23 @@ function snapshot() {
     })
 }
 
+// Prefer a prebuilt helper binary shipped with the app, so users don't pay the
+// one-time `nix run` compile (a minute-plus on first launch). We ship statically
+// linked binaries per os-arch under ./go2_helper_rs/bin; if the matching one is
+// present and runnable we exec it directly. Anything not shipped falls back to
+// `nix run` below.
+let cachedPrebuiltBin
+async function resolvePrebuiltBin() {
+    if (cachedPrebuiltBin !== undefined) return cachedPrebuiltBin
+    const path = `${HELPER_DIR}/bin/go2_helper-${Deno.build.os}-${Deno.build.arch}`
+    try {
+        const info = await Deno.stat(path)
+        if (info.isFile) { cachedPrebuiltBin = path; return path }
+    } catch { /* not shipped for this platform — fall back to nix */ }
+    cachedPrebuiltBin = null
+    return null
+}
+
 // Find the `nix` binary. A GUI-launched dashboard may not inherit the shell PATH
 // that has nix on it, so fall back to the usual install locations.
 let cachedNixBin
@@ -220,30 +237,42 @@ async function resolveNixBin() {
 }
 
 async function start() {
-    const nix = await resolveNixBin()
-    if (!nix) {
-        // No nix — the helper can't be built. Tell the panel so it shows a clear message.
-        ready = false
-        snapshot()
-        console.error("go2_dash: `nix` not found on PATH — cannot build the Go2 helper")
-        if (pendingScan) {
-            pendingScan = null
-            dimApp.send("go2", { type: "build_error", msg: "`nix` not found — can't build the Go2 BLE helper. Install nix, then press Scan again." })
+    // Prefer a shipped prebuilt binary (instant); else `nix run` (compiles on first
+    // launch). Both speak the same newline-JSON stdio protocol, so everything below
+    // — stderr forwarding, the stdout event loop, the restart loop — is identical.
+    const prebuilt = await resolvePrebuiltBin()
+    let cmd, args
+    if (prebuilt) {
+        cmd = prebuilt
+        args = []
+    } else {
+        const nix = await resolveNixBin()
+        if (!nix) {
+            // No prebuilt binary and no nix — the helper can't run. Tell the panel.
+            ready = false
+            snapshot()
+            console.error("go2_dash: no prebuilt helper for this platform and `nix` not found — cannot run the Go2 helper")
+            if (pendingScan) {
+                pendingScan = null
+                dimApp.send("go2", { type: "build_error", msg: "No prebuilt Go2 helper for this platform and `nix` isn't installed. Install nix, then press Scan again." })
+            }
+            setTimeout(start, RESTART_MS)
+            return
         }
-        setTimeout(start, RESTART_MS)
-        return
+        cmd = nix
+        args = [
+            "run",
+            "--extra-experimental-features", "nix-command flakes",
+            "-L", // print the builder's own compile logs so we can stream build progress to the panel
+            `path:${HELPER_DIR}`,
+        ]
     }
     try {
-        // `nix run` builds the helper on first launch (cached thereafter), then
-        // execs it with stdio forwarded. The first build can take a minute; the
-        // child stays alive during it, so the restart loop won't re-trigger.
-        child = new Deno.Command(nix, {
-            args: [
-                "run",
-                "--extra-experimental-features", "nix-command flakes",
-                "-L", // print the builder's own compile logs so we can stream build progress to the panel
-                `path:${HELPER_DIR}`,
-            ],
+        // With a prebuilt binary this execs instantly. With `nix run` the first
+        // launch builds the helper (cached thereafter); the child stays alive
+        // during the build, so the restart loop won't re-trigger.
+        child = new Deno.Command(cmd, {
+            args,
             stdin: "piped",
             stdout: "piped",
             stderr: "piped", // read build progress/errors and forward them to the panel

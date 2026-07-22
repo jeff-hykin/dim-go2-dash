@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+# nix build gc-root symlinks (point into /nix/store)
+go2_helper_rs/result
+go2_helper_rs/result-*
