@@ -63,12 +63,32 @@
             targetUpper = lib.toUpper targetSnake;
             ccBinDir    = "${cross.stdenv.cc}/bin";
             ccPrefix    = cross.stdenv.cc.targetPrefix;
+
+            # libdbus-sys only needs the client library. The full dbus package
+            # enables daemon-only features (systemd activation, AppArmor, audit,
+            # X11 autolaunch) whose transitive deps don't cross-compile from
+            # darwin: systemd → util-linux → sqlite → tcl, and AppArmor → python3.
+            # Strip them all — the client libdbus doesn't use any of them.
+            leanDbus = (cross.dbus.override {
+              x11Support = false;
+              enableSystemd = false;
+            }).overrideAttrs (old: {
+              buildInputs = [ cross.expat cross.libcap_ng ];
+              # The Rust musl target links fully static, so libdbus-sys needs a
+              # libdbus-1.a (nixpkgs dbus ships only the shared lib by default).
+              mesonFlags = (builtins.filter
+                (f: f != "-Dapparmor=enabled" && f != "-Dlibaudit=enabled")
+                old.mesonFlags)
+                ++ [ "-Dapparmor=disabled" "-Dlibaudit=disabled"
+                     "-Ddefault_library=static" ];
+              doCheck = false;
+            });
           in
           rustPlatform.buildRustPackage (commonArgs // {
             pname = "go2_helper-${target}";
 
             nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ cross.dbus ];
+            buildInputs = [ leanDbus ];
 
             buildPhase = ''
               runHook preBuild
@@ -82,13 +102,17 @@
               runHook postInstall
             '';
 
-            "CARGO_TARGET_${targetUpper}_LINKER" = "${ccBinDir}/${ccPrefix}cc";
-            "CC_${targetSnake}"  = "${ccBinDir}/${ccPrefix}cc";
-            "AR_${targetSnake}"  = "${ccBinDir}/${ccPrefix}ar";
-            # Static libdbus + its deps, resolved by pkg-config for libdbus-sys.
-            PKG_CONFIG_ALLOW_CROSS = "1";
-            PKG_CONFIG_ALL_STATIC = "1";
-            PKG_CONFIG_PATH = "${cross.dbus.dev}/lib/pkgconfig";
+            # Env vars go in `env` so they don't collide with the cross
+            # stdenv's own env attrs (modern nixpkgs forbids overlap).
+            env = {
+              "CARGO_TARGET_${targetUpper}_LINKER" = "${ccBinDir}/${ccPrefix}cc";
+              "CC_${targetSnake}"  = "${ccBinDir}/${ccPrefix}cc";
+              "AR_${targetSnake}"  = "${ccBinDir}/${ccPrefix}ar";
+              # Static libdbus + its deps, resolved by pkg-config for libdbus-sys.
+              PKG_CONFIG_ALLOW_CROSS = "1";
+              PKG_CONFIG_ALL_STATIC = "1";
+              PKG_CONFIG_PATH = "${leanDbus.dev}/lib/pkgconfig";
+            };
           });
 
       in {
