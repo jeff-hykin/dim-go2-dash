@@ -45,6 +45,20 @@
         nativeBuild = rustPlatform.buildRustPackage (commonArgs // {
           nativeBuildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
           buildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.dbus ];
+          # rustPlatform links nix's libiconv on darwin, leaving a /nix/store
+          # dylib reference that doesn't resolve on a mac without nix. Point it
+          # at the system copy (present on every macOS) so the prebuilt binaries
+          # in bin/ run anywhere. preFixup, so strip + codesign happen after.
+          preFixup = lib.optionalString pkgs.stdenv.isDarwin ''
+            bin=$out/bin/go2_helper
+            for dep in $(otool -L "$bin" | awk '/\/nix\/store\/.*libiconv/ {print $1}'); do
+              install_name_tool -change "$dep" /usr/lib/libiconv.2.dylib "$bin"
+            done
+            # (first otool line is the binary's own store path — skip it)
+            if otool -L "$bin" | tail -n +2 | grep -q /nix/store; then
+              echo "go2_helper still references the nix store:"; otool -L "$bin"; exit 1
+            fi
+          '';
         });
 
         # ── portable static musl cross builds (Linux targets) ───────────────
@@ -121,6 +135,12 @@
           native      = nativeBuild;
           linux-x86   = buildMuslCross "x86_64-unknown-linux-musl";
           linux-arm64 = buildMuslCross "aarch64-unknown-linux-musl";
+        } // lib.optionalAttrs (system == "aarch64-darwin") {
+          # Intel-mac build from an Apple-silicon mac. Nix runs the x86_64-darwin
+          # derivation under Rosetta, which needs `extra-platforms = x86_64-darwin`
+          # in nix.conf (and Rosetta installed). It's the same nativeBuild, just
+          # evaluated for the other darwin system.
+          darwin-x86 = self.packages.x86_64-darwin.native;
         };
 
         apps.default = {
