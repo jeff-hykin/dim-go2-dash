@@ -345,6 +345,27 @@
   .reopen.show { display: block; }
 
   /* collapsible "not connecting?" help at the bottom of the panel */
+  /* Unitree accounts (AES keys) — a collapsible section like the help one */
+  .p-accounts { flex: none; border-top: 1px solid var(--border); padding: 7px 14px 11px; }
+  .p-accounts.open .help-toggle .hc { transform: rotate(90deg); }
+  .p-accounts .acct-body { display: none; margin-top: 4px; }
+  .p-accounts.open .acct-body { display: block; }
+  .p-accounts.flash { animation: acct-flash 1.2s ease-out; }
+  @keyframes acct-flash { 0% { background: var(--ring-soft); } 100% { background: transparent; } }
+  .acct-hint { font-size: 11px; line-height: 1.45; color: var(--muted-fg); margin: 4px 0 8px; }
+  .acct { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; }
+  .acct + .acct { border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent); }
+  .acct .a-main { flex: 1; min-width: 0; }
+  .acct .a-email { color: var(--fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct .a-sub { font-size: 10.5px; color: var(--muted-fg); line-height: 1.4; }
+  .acct .a-sub.err { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
+  .acct .btn { font-size: 11px; padding: 3px 9px; flex: none; }
+  .acct .a-rm { appearance: none; cursor: pointer; font: inherit; font-size: 13px; color: var(--muted-fg); background: none; border: 0; padding: 2px 4px; flex: none; }
+  .acct .a-rm:hover { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
+  .p-accounts .form.cloud { margin-top: 6px; padding-top: 8px; }
+  .p-accounts .form.cloud .actions { margin-top: 2px; }
+  .acct-empty { font-size: 11.5px; color: var(--muted-fg); padding: 4px 0; }
+  .ctl-err .btn { margin-left: 8px; font-size: 11px; padding: 2px 8px; vertical-align: 1px; }
   .p-help { flex: none; border-top: 1px solid var(--border); padding: 7px 14px 11px; }
   .help-toggle { appearance: none; cursor: pointer; font: inherit; font-size: 11.5px; color: var(--muted-fg);
     background: transparent; border: 0; padding: 4px 0; display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; }
@@ -392,6 +413,18 @@
     <div class="list" id="list">
       <div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>
     </div>
+    <div class="p-accounts" id="p-accounts">
+      <button class="help-toggle" id="acct-toggle"><span class="hc">▸</span><span id="acct-title">Unitree accounts (AES keys)</span></button>
+      <div class="acct-body">
+        <div class="acct-hint">Dogs on firmware ≥ 1.1.15 need a per-device AES key, which only Unitree's cloud hands out. Sign in with the Go2/G1 app account each dog is paired to; <b>Pull</b> tries every region and saves the key of every robot bound to it.</div>
+        <div id="acct-list"></div>
+        <div class="form cloud">
+          <div class="fld"><label>Unitree account email</label><input class="c-email" id="acct-email" autocomplete="off" spellcheck="false" placeholder="you@example.com" /></div>
+          <div class="fld"><label>Password</label><input class="c-pass" id="acct-pass" type="password" placeholder="••••••" /></div>
+          <div class="actions"><button class="btn primary" id="acct-add">Add &amp; pull</button><span class="acct-hint" style="margin:0">Saved on this computer only.</span></div>
+        </div>
+      </div>
+    </div>
     <div class="p-help" id="p-help">
       <button class="help-toggle" id="help-toggle"><span class="hc">▸</span>A dog shows but never gets an IP?</button>
       <div class="help-body">
@@ -437,6 +470,12 @@ const els = {
   manualRow: document.getElementById("p-manual"),
   manualIp: document.getElementById("manual-ip"),
   manualDrive: document.getElementById("manual-drive"),
+  accounts: document.getElementById("p-accounts"),
+  acctTitle: document.getElementById("acct-title"),
+  acctList: document.getElementById("acct-list"),
+  acctEmail: document.getElementById("acct-email"),
+  acctPass: document.getElementById("acct-pass"),
+  acctAdd: document.getElementById("acct-add"),
   panel: document.getElementById("panel"),
   reopen: document.getElementById("reopen"),
   toast: document.getElementById("toast"),
@@ -455,8 +494,7 @@ let bleNotice = null // helper couldn't use Bluetooth this scan (macOS permissio
 let menuKey = null     // ⋯ menu open for this dog
 let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
-let cloudKey = null    // "fetch key from Unitree" form open in this dog's details
-const EMAIL_LS = "go2dash.unitreeEmail" // remembered cloud account email (never the password)
+let accounts = []      // Unitree accounts saved in the backend: [{email, lastPull, pulling, error, robots}]
 let detailsKey = null  // details panel open for this dog
 let hostSsid = ""      // wifi SSID this computer is on (from the backend)
 let hostSsidStatus = "unknown" // ok | redacted | unknown
@@ -574,7 +612,7 @@ function detailsHtml(d) {
   // the Unitree cloud hands out: paste it, or sign in and fetch it right here.
   const key = keyOf(d)
   const aesRow = `<div class="d-row"><span class="d-k">AES key</span><input class="aes" value="${esc(aesOf(d))}" placeholder="32 hex chars — needed on firmware ≥ 1.1.15" maxlength="32" spellcheck="false" autocomplete="off" /></div>`
-  const cloud = cloudKey === key ? cloudFormHtml() : `<button class="btn mini d-fetch">Fetch key from Unitree…</button>`
+  const cloud = `<button class="btn mini d-fetch">Fetch key from Unitree…</button>`
   return `<div class="details">${rows}${aesRow}${cloud}</div>`
 }
 function aesOf(d) { return d.aesKey || (ipCache[keyOf(d)] && ipCache[keyOf(d)].aes) || "" }
@@ -596,18 +634,6 @@ function commitIp(input) {
   try { localStorage.setItem(IP_LS, JSON.stringify(ipCache)) } catch { /* private mode */ }
   render() // Drive appears (or goes) with the remembered IP
 }
-function cloudFormHtml() {
-  let email = ""
-  try { email = localStorage.getItem(EMAIL_LS) || "" } catch { /* private mode */ }
-  return `<div class="form cloud">
-      <div class="f-hint">Signs in to Unitree's cloud with your Go2 app account (both regions) and saves the key of every robot bound to it. The password is not stored.</div>
-      <div class="fld"><label>Unitree account email</label><input class="c-email" value="${esc(email)}" autocomplete="off" spellcheck="false" /></div>
-      <div class="fld"><label>Password</label><input class="c-pass" type="password" placeholder="••••••" /></div>
-      <div class="actions"><button class="btn primary c-go">Fetch keys</button><button class="btn c-cancel">Cancel</button></div>
-      <div class="log c-log"></div>
-    </div>`
-}
-
 function dogHtml(d) {
   const key = keyOf(d)
   const canConnect = !!d.ble_mac
@@ -808,7 +834,7 @@ dimApp.receiveRequest((tag, msg) => {
       if (d) d.aesKey = msg.aesKey || undefined
       break
     }
-    case "aes_fetch_result": onAesFetchResult(msg); break
+    case "accounts": accounts = msg.accounts || []; renderAccounts(); break
     case "connect_result":
       if (msg.ok) {
         appendLog("✓ Wi-Fi credentials accepted" + (msg.serial ? " — serial " + msg.serial : ""), "ok")
@@ -1069,7 +1095,7 @@ function renderControl() {
         <span class="spacer"></span>
         <button class="ctl-close" title="Disconnect">✕ Disconnect</button>
       </div>
-      ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}${/AES|data2=3/i.test(controlError) ? " Set this dog's AES key under ⋯ → Details, or fetch it from Unitree there." : ""}</div>` : ""}
+      ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}${/AES|data2=3/i.test(controlError) ? ` This dog needs its AES key from Unitree's cloud.<button class="btn ctl-signin">Sign in to Unitree…</button>` : ""}</div>` : ""}
       <div class="vel" id="vel">fwd 0.00 · str 0.00 · yaw 0.00  ·  shift = run</div>
       <div class="dpad">
         <button class="dbtn sl" data-k="q" title="Strafe left">⟲</button>
@@ -1209,6 +1235,7 @@ els.ctl.addEventListener("pointercancel", releasePad)
 // action buttons + stop
 els.ctl.addEventListener("click", (e) => {
   if (e.target.closest(".ctl-close")) { stopControl(); return }
+  if (e.target.closest(".ctl-signin")) { setSlid(false); openAccounts(); return }
   const act = e.target.closest(".act:not(.ctl-close)")
   if (act && act.dataset.name) doAction(act.dataset.name)
 })
@@ -1268,9 +1295,7 @@ els.list.addEventListener("click", (e) => {
   }
   if (e.target.closest(".mi-details")) { detailsKey = (detailsKey === key) ? null : key; menuKey = null; render(); return }
   if (e.target.closest(".mi-rename")) { editKey = key; menuKey = null; render(); return }
-  if (e.target.closest(".d-fetch")) { cloudKey = key; render(); focusIn(key, ".c-pass, .c-email"); return }
-  if (e.target.closest(".c-cancel")) { cloudKey = null; render(); return }
-  if (e.target.closest(".c-go")) { fetchCloudKeys(key); return }
+  if (e.target.closest(".d-fetch")) { openAccounts(); return }
   if (e.target.closest(".kebab")) { menuKey = (menuKey === key) ? null : key; render(); return }
   if (e.target.closest(".mi-connect")) {
     if (e.target.disabled) return
@@ -1293,10 +1318,6 @@ els.list.addEventListener("input", (e) => {
 // rename / AES key: commit on Enter / blur, cancel on Escape
 els.list.addEventListener("keydown", (e) => {
   if (e.target.classList.contains("aes") || e.target.classList.contains("ipin")) { if (e.key === "Enter") e.target.blur(); return }
-  if (e.target.classList.contains("c-pass") || e.target.classList.contains("c-email")) {
-    if (e.key === "Enter") { e.preventDefault(); fetchCloudKeys(e.target.closest(".dog")?.dataset.key) }
-    return
-  }
   if (!e.target.classList.contains("rename")) return
   if (e.key === "Enter") { e.target.blur() }
   else if (e.key === "Escape") { editKey = null; render() }
@@ -1335,52 +1356,70 @@ function commitAesKey(input) {
   try { localStorage.setItem(IP_LS, JSON.stringify(ipCache)) } catch { /* private mode */ }
   dimApp.send("aes_key", { key, aesKey })
 }
-function focusIn(key, selector) {
-  const el = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"] ${selector}`)
-  if (el) el.focus()
+// ── Unitree accounts (AES keys) ──
+// The backend owns the list (and the passwords); we just draw it and send
+// add / pull / remove. Opening the section is what both "Fetch key from
+// Unitree…" (Details) and the AES drive error do.
+function openAccounts() {
+  els.accounts.classList.add("open")
+  els.accounts.classList.remove("flash"); void els.accounts.offsetWidth; els.accounts.classList.add("flash")
+  els.accounts.scrollIntoView({ block: "nearest", behavior: "smooth" })
+  const target = accounts.length ? els.acctList.querySelector(".a-pull") : els.acctEmail
+  if (target) target.focus()
 }
-function cloudLog(key, line, cls) {
-  const log = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"] .c-log`)
-  if (!log) return
-  const div = document.createElement("div")
-  if (cls) div.className = cls
-  div.textContent = line
-  log.appendChild(div)
+function agoText(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
+  if (s < 60) return "just now"
+  if (s < 3600) return `${Math.round(s / 60)} min ago`
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`
+  return `${Math.round(s / 86400)} d ago`
 }
-function fetchCloudKeys(key) {
-  if (!key) return
-  const root = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"]`)
-  if (!root) return
-  const email = root.querySelector(".c-email").value.trim()
-  const password = root.querySelector(".c-pass").value
-  if (!email || !password) { cloudLog(key, "Enter the account email and password.", "err"); return }
-  try { localStorage.setItem(EMAIL_LS, email) } catch { /* private mode */ }
-  root.querySelector(".c-log").innerHTML = ""
-  const btn = root.querySelector(".c-go")
-  btn.disabled = true; btn.textContent = "Fetching…"
-  dimApp.send("fetch_aes_keys", { email, password })
+function accountHtml(a) {
+  const robots = a.robots || []
+  const keyed = robots.filter(r => r.hasKey).length
+  let sub, cls = ""
+  if (a.pulling) sub = "Signing in and pulling keys…"
+  else if (a.error) { sub = "✗ " + a.error; cls = "err" }
+  else if (a.lastPull) sub = `${keyed} key${keyed === 1 ? "" : "s"} · ${robots.length} robot${robots.length === 1 ? "" : "s"} bound · pulled ${agoText(a.lastPull)}`
+  else sub = "Never pulled"
+  const names = robots.map(r => (r.alias ? `${r.alias} (${r.sn})` : r.sn) + (r.hasKey ? "" : " — no key (old firmware)")).join("\n")
+  return `<div class="acct" data-email="${esc(a.email)}">
+      <div class="a-main"><div class="a-email">${esc(a.email)}</div><div class="a-sub ${cls}" title="${esc(names)}">${esc(sub)}</div></div>
+      <button class="btn a-pull" ${a.pulling ? "disabled" : ""}>${a.pulling ? "Pulling…" : "Pull"}</button>
+      <button class="a-rm" title="Forget this account (keys already pulled stay)">✕</button>
+    </div>`
 }
-function onAesFetchResult(msg) {
-  const key = cloudKey
-  if (!key) return
-  const root = els.list.querySelector(`.dog[data-key="${cssEsc(key)}"]`)
-  const btn = root && root.querySelector(".c-go")
-  if (btn) { btn.disabled = false; btn.textContent = "Fetch keys" }
-  if (!msg.ok) { cloudLog(key, "✗ " + (msg.error || "fetch failed"), "err"); return }
-  const d = devices.find(x => keyOf(x) === key)
-  const robots = msg.robots || []
-  const withKey = robots.filter(r => r.hasKey)
-  const mine = d && d.serial && robots.find(r => r.sn === d.serial)
-  if (mine && mine.hasKey) {
-    cloudKey = null // the snapshot that follows carries this dog's key into the AES row
-    render()
-    return
-  }
-  cloudLog(key, `✓ ${withKey.length} of ${robots.length} bound robot(s) have a key: ${withKey.map(r => r.alias ? `${r.alias} (${r.sn})` : r.sn).join(", ") || "none"}`, "ok")
-  if (!d || !d.serial) cloudLog(key, "This dog has no serial yet — scan again with Bluetooth on so the key can be matched.", "err")
-  else if (mine) cloudLog(key, `${d.serial} is bound but has no key — its firmware is below 1.1.15, so it doesn't need one.`, "err")
-  else cloudLog(key, `${d.serial} isn't bound to that account — pair it in the Go2 app first.`, "err")
+function renderAccounts() {
+  const keyed = new Set()
+  for (const a of accounts) for (const r of (a.robots || [])) if (r.hasKey) keyed.add(r.sn)
+  els.acctTitle.textContent = accounts.length
+    ? `Unitree accounts (${accounts.length}) · ${keyed.size} AES key${keyed.size === 1 ? "" : "s"}`
+    : "Unitree accounts (AES keys)"
+  els.acctList.innerHTML = accounts.length
+    ? accounts.map(accountHtml).join("")
+    : '<div class="acct-empty">No account yet — add the one your dogs are paired to.</div>'
 }
+function addAccount() {
+  const email = els.acctEmail.value.trim()
+  const password = els.acctPass.value
+  if (!email || !password) { (email ? els.acctPass : els.acctEmail).focus(); return }
+  dimApp.send("account_add", { email, password })
+  els.acctEmail.value = ""; els.acctPass.value = ""
+}
+els.acctAdd.addEventListener("click", addAccount)
+for (const inp of [els.acctEmail, els.acctPass]) {
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addAccount() } })
+}
+els.acctList.addEventListener("click", (e) => {
+  const row = e.target.closest(".acct")
+  if (!row) return
+  const email = row.dataset.email
+  if (e.target.closest(".a-pull")) { dimApp.send("account_pull", { email }); return }
+  if (e.target.closest(".a-rm")) { dimApp.send("account_remove", { email }); return }
+})
+document.getElementById("acct-toggle").addEventListener("click", () => {
+  els.accounts.classList.toggle("open")
+})
 
 function startConnect(key) {
   const d = devices.find(x => keyOf(x) === key)
@@ -1638,6 +1677,7 @@ document.getElementById("help-cmd").addEventListener("click", () => {
 
 dimApp.send("hello")
 render()
+renderAccounts()
 </script>
 </body>
 </html>

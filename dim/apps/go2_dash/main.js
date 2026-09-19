@@ -37,6 +37,11 @@ const NAMES_FILE = `${NAMES_DIR}/go2_dash_names.json`
 // the Unitree cloud (unitree_cloud.js). Persisted like the names.
 const AES_KEYS_FILE = `${NAMES_DIR}/go2_dash_aes_keys.json`
 const AES_KEY_OK = /^[0-9a-f]{32}$/i
+// Unitree app accounts the keys are pulled from, keyed by email:
+//   { password, lastPull: ms | null, robots: [{sn, alias, hasKey}], error: string | null }
+// The password is kept so each account has a one-click "Pull" — the file is
+// owner-only (0600). Multiple accounts are fine; a pull merges into aesKeys.
+const ACCOUNTS_FILE = `${NAMES_DIR}/go2_dash_unitree_accounts.json`
 
 const dimApp = new DimAppBackend()
 
@@ -52,6 +57,7 @@ const devices = new Map()
 // User-given names, keyed the same way. Persisted to NAMES_FILE.
 let names = {}
 let aesKeys = {}
+let accounts = {}
 // SSID of the wifi network THIS machine is on (best-effort). The panel autofills
 // it and warns when you'd provision a dog onto a different one — a dog on another
 // network won't be reachable / discoverable from here.
@@ -186,34 +192,62 @@ async function loadJson(file) {
     }
 }
 
-async function saveJson(file, data) {
+async function saveJson(file, data, mode) {
     try {
         await Deno.mkdir(NAMES_DIR, { recursive: true })
-        await Deno.writeTextFile(file, JSON.stringify(data, null, 2))
+        await Deno.writeTextFile(file, JSON.stringify(data, null, 2), mode ? { mode } : undefined)
+        if (mode) await Deno.chmod(file, mode).catch(() => {}) // writeTextFile's mode only applies on create
     } catch (err) {
         console.error(`go2_dash: could not save ${file} — ${err.message}`)
     }
 }
 
-// Sign in to the Unitree cloud and keep the AES key of every robot bound to that
-// account, so each dog's key is in place before its first Drive.
-async function fetchAesKeys({ email, password }) {
-    let robots
+// ── Unitree accounts ──
+// What the panel sees of an account: everything but the password.
+function accountView(email) {
+    const a = accounts[email]
+    return {
+        email,
+        lastPull: a.lastPull || null,
+        pulling: !!a.pulling,
+        error: a.error || null,
+        robots: a.robots || [],
+    }
+}
+function sendAccounts() {
+    dimApp.send("go2", { type: "accounts", accounts: Object.keys(accounts).sort().map(accountView) })
+}
+function persistAccounts() {
+    const out = {}
+    for (const [email, a] of Object.entries(accounts)) {
+        out[email] = { password: a.password, lastPull: a.lastPull || null, robots: a.robots || [], error: a.error || null }
+    }
+    return saveJson(ACCOUNTS_FILE, out, 0o600)
+}
+
+// Sign in to the Unitree cloud as this account (every region and app name —
+// unitree_cloud.js tries them all and merges) and keep the AES key of every
+// robot bound to it, so each dog's key is in place before its first Drive.
+async function pullAccount(email) {
+    const a = accounts[email]
+    if (!a || a.pulling) return
+    a.pulling = true
+    sendAccounts()
     try {
-        robots = await fetchBoundRobots({ email: (email || "").trim(), password: password || "" })
+        const robots = await fetchBoundRobots({ email, password: a.password })
+        for (const robot of robots) {
+            if (robot.sn && AES_KEY_OK.test(robot.key)) aesKeys[robot.sn] = robot.key.toLowerCase()
+        }
+        await saveJson(AES_KEYS_FILE, aesKeys)
+        a.robots = robots.map((r) => ({ sn: r.sn, alias: r.alias || "", hasKey: AES_KEY_OK.test(r.key) }))
+        a.error = null
+        a.lastPull = Date.now()
     } catch (err) {
-        dimApp.send("go2", { type: "aes_fetch_result", ok: false, error: err.message })
-        return
+        a.error = err.message
     }
-    for (const robot of robots) {
-        if (robot.sn && AES_KEY_OK.test(robot.key)) aesKeys[robot.sn] = robot.key.toLowerCase()
-    }
-    await saveJson(AES_KEYS_FILE, aesKeys)
-    dimApp.send("go2", {
-        type: "aes_fetch_result",
-        ok: true,
-        robots: robots.map((r) => ({ sn: r.sn, alias: r.alias, hasKey: AES_KEY_OK.test(r.key) })),
-    })
+    a.pulling = false
+    await persistAccounts()
+    sendAccounts()
     snapshot()
 }
 
@@ -458,16 +492,35 @@ dimApp.onReceive((kind, payload) => {
         else delete aesKeys[key]
         saveJson(AES_KEYS_FILE, aesKeys)
         dimApp.send("go2", { type: "aes_key", key, aesKey: aesKey || null })
-    } else if (kind === "fetch_aes_keys") {
-        fetchAesKeys(payload || {}) // {email, password}
+    } else if (kind === "account_add") {
+        // {email, password}: save (or update the password of) an account, then pull it.
+        const email = ((payload && payload.email) || "").trim().toLowerCase()
+        const password = (payload && payload.password) || ""
+        if (!email || !password) return
+        const prev = accounts[email] || {}
+        accounts[email] = { ...prev, password, error: null }
+        persistAccounts().then(() => pullAccount(email))
+    } else if (kind === "account_pull") {
+        const email = ((payload && payload.email) || "").trim().toLowerCase()
+        if (accounts[email]) pullAccount(email)
+    } else if (kind === "account_remove") {
+        // Forgets the login only; keys already pulled stay on the dogs.
+        const email = ((payload && payload.email) || "").trim().toLowerCase()
+        if (!accounts[email]) return
+        delete accounts[email]
+        persistAccounts()
+        sendAccounts()
     } else if (kind === "relay") {
         doRelay(payload || {})
     } else if (kind === "hello") {
         refreshSsid().then(snapshot) // bring a freshly-opened panel up to date
+        sendAccounts()
     }
 })
 
 names = await loadJson(NAMES_FILE)
 aesKeys = await loadJson(AES_KEYS_FILE)
+accounts = await loadJson(ACCOUNTS_FILE)
+for (const a of Object.values(accounts)) a.pulling = false
 await refreshSsid()
 start()
