@@ -22,10 +22,11 @@ mod protocol;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use ble::{first_adapter, provision_wifi, Registry};
 use btleplug::platform::Adapter;
@@ -38,17 +39,59 @@ pub fn emit(value: &Value) {
     let _ = out.flush();
 }
 
+/// The BLE adapter, probed in the background. On macOS the first CoreBluetooth
+/// call blocks until the user answers the Bluetooth permission prompt — under a
+/// launchd desktop service that can be forever — so the probe must never sit
+/// between `ready` and the stdin loop.
+#[derive(Clone)]
+enum AdapterState {
+    Pending,
+    Ready(Adapter),
+    Failed,
+}
+
+fn spawn_adapter_probe() -> watch::Receiver<AdapterState> {
+    let (tx, rx) = watch::channel(AdapterState::Pending);
+    tokio::spawn(async move {
+        let state = match first_adapter().await {
+            Ok(adapter) => AdapterState::Ready(adapter),
+            Err(err) => {
+                emit(&json!({ "type": "warn", "msg": format!("bluetooth: {err}") }));
+                AdapterState::Failed
+            }
+        };
+        let _ = tx.send(state);
+    });
+    rx
+}
+
+/// The adapter if it's usable, waiting briefly for a probe still in flight. A
+/// probe still pending after that is (on macOS) the permission dialog: say so,
+/// and let the scan go ahead over LAN/ARP only.
+async fn adapter_for_scan(rx: &mut watch::Receiver<AdapterState>) -> Option<Adapter> {
+    if matches!(*rx.borrow(), AdapterState::Pending) {
+        let _ = tokio::time::timeout(Duration::from_millis(1500), rx.changed()).await;
+    }
+    let state = rx.borrow().clone();
+    match state {
+        AdapterState::Ready(adapter) => Some(adapter),
+        AdapterState::Failed => None,
+        AdapterState::Pending => {
+            emit(&json!({
+                "type": "warn",
+                "kind": "bluetooth_pending",
+                "msg": "Bluetooth permission pending — click Allow on this Mac's Bluetooth prompt, then scan again. Scanning the network only.",
+            }));
+            None
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     emit(&json!({ "type": "ready" }));
 
-    let adapter: Option<Adapter> = match first_adapter().await {
-        Ok(adapter) => Some(adapter),
-        Err(err) => {
-            emit(&json!({ "type": "warn", "msg": format!("bluetooth: {err}") }));
-            None
-        }
-    };
+    let mut adapter_rx = spawn_adapter_probe();
     let registry: Registry = Arc::new(Mutex::new(HashMap::new()));
 
     let mut scan_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -70,8 +113,9 @@ async fn main() {
                     continue; // a scan is already running — ignore re-trigger
                 }
                 let timeout = cmd.get("timeout").and_then(|v| v.as_f64()).unwrap_or(7.0);
+                let adapter = adapter_for_scan(&mut adapter_rx).await;
                 scan_task = Some(tokio::spawn(discovery::do_scan(
-                    adapter.clone(),
+                    adapter,
                     registry.clone(),
                     timeout,
                 )));

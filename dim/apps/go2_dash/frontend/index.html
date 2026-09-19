@@ -207,6 +207,7 @@
   .list { flex: 1; overflow: auto; padding: 7px; }
   .list .none { text-align: center; color: var(--muted-fg); font-size: 12px; line-height: 1.6; padding: 32px 18px; }
   .list .none.err { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
+  .list .none.warn { color: color-mix(in oklch, #d9a53a 82%, var(--fg)); padding: 14px 18px 0; }
 
   .dog { position: relative; border-radius: var(--radius); margin: 3px 2px; padding: 9px 10px;
     transition: background .14s; }
@@ -444,6 +445,7 @@ const els = {
 let devices = []       // [{serial,name,ble_mac,ip,lan_mac,customName}]
 let scanning = false
 let helperReady = true
+let bleNotice = null // helper couldn't use Bluetooth this scan (macOS permission prompt pending)
 let menuKey = null     // ⋯ menu open for this dog
 let formKey = null     // wifi connect form open for this dog
 let editKey = null     // rename input open for this dog
@@ -648,14 +650,15 @@ function render() {
     !d.manual && // manual drive targets aren't scan results
     !(d.arp_only && ipRememberedElsewhere(d)) // a "possible Go2" at a known dog's remembered IP is that dog — hide the dup
   )
+  const notice = bleNotice ? `<div class="none warn">${esc(bleNotice)}</div>` : ""
   if (!visible.length) {
-    els.list.innerHTML = scanning
+    els.list.innerHTML = notice + (scanning
       ? '<div class="none">Scanning for nearby Go2s…</div>'
-      : '<div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>'
+      : '<div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>')
     applyNav(false)
     return
   }
-  els.list.innerHTML = visible.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
+  els.list.innerHTML = notice + visible.map(d => d.arp_only ? arpDogHtml(d) : dogHtml(d)).join("")
   if (editKey) {
     const inp = els.list.querySelector(`.dog[data-key="${cssEsc(editKey)}"] .rename`)
     if (inp) { inp.focus(); inp.select() }
@@ -767,7 +770,9 @@ dimApp.receiveRequest((tag, msg) => {
         setBusy(false) // already logged "Cancelled." on the click
       } else { appendLog("✗ " + (msg.error || "failed"), "err"); setBusy(false) }
       break
-    case "warn": break // non-fatal (e.g. a LAN interface w/o route)
+    case "warn": // non-fatal (e.g. a LAN interface w/o route) — except a scan that had to skip Bluetooth
+      if (msg.kind === "bluetooth_pending") { bleNotice = msg.msg; render() }
+      break
   }
 })
 
@@ -1303,6 +1308,7 @@ function showScanError(text, detailHtml) {
 els.scan.addEventListener("click", () => {
   if (controlKey !== null) stopControl() // re-scan wipes the list; drop the drive session
   devices = devices.filter(d => d.manual); menuKey = formKey = editKey = null
+  bleNotice = null
   clearScanWait()
   // Socket is down → no backend to reach. Don't silently queue the scan.
   if (!dimApp.connected) {
