@@ -269,8 +269,6 @@
   .d-row .aes.bad { border-color: var(--danger); }
   .btn.mini { font-size: 11px; padding: 3px 9px; margin-top: 7px; }
   .form.cloud { display: block; margin-top: 8px; padding-top: 8px; }
-  .form.cloud select { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; color: var(--fg);
-    background: var(--input, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
 
   /* ⋯ dropdown */
   .menu { position: absolute; right: 8px; top: 38px; z-index: 5; min-width: 152px;
@@ -584,12 +582,9 @@ function cloudFormHtml() {
   let email = ""
   try { email = localStorage.getItem(EMAIL_LS) || "" } catch { /* private mode */ }
   return `<div class="form cloud">
-      <div class="f-hint">Signs in to Unitree's cloud with your Go2 app account and saves the key of every robot bound to it. The password is not stored.</div>
+      <div class="f-hint">Signs in to Unitree's cloud with your Go2 app account (both regions) and saves the key of every robot bound to it. The password is not stored.</div>
       <div class="fld"><label>Unitree account email</label><input class="c-email" value="${esc(email)}" autocomplete="off" spellcheck="false" /></div>
-      <div class="two">
-        <div class="fld"><label>Password</label><input class="c-pass" type="password" placeholder="••••••" /></div>
-        <div class="fld" style="flex:0 0 96px"><label>Region</label><select class="c-region"><option value="global">global</option><option value="cn">cn</option></select></div>
-      </div>
+      <div class="fld"><label>Password</label><input class="c-pass" type="password" placeholder="••••••" /></div>
       <div class="actions"><button class="btn primary c-go">Fetch keys</button><button class="btn c-cancel">Cancel</button></div>
       <div class="log c-log"></div>
     </div>`
@@ -1339,13 +1334,12 @@ function fetchCloudKeys(key) {
   if (!root) return
   const email = root.querySelector(".c-email").value.trim()
   const password = root.querySelector(".c-pass").value
-  const region = root.querySelector(".c-region").value
   if (!email || !password) { cloudLog(key, "Enter the account email and password.", "err"); return }
   try { localStorage.setItem(EMAIL_LS, email) } catch { /* private mode */ }
   root.querySelector(".c-log").innerHTML = ""
   const btn = root.querySelector(".c-go")
   btn.disabled = true; btn.textContent = "Fetching…"
-  dimApp.send("fetch_aes_keys", { email, password, region })
+  dimApp.send("fetch_aes_keys", { email, password })
 }
 function onAesFetchResult(msg) {
   const key = cloudKey
@@ -1366,7 +1360,7 @@ function onAesFetchResult(msg) {
   cloudLog(key, `✓ ${withKey.length} of ${robots.length} bound robot(s) have a key: ${withKey.map(r => r.alias ? `${r.alias} (${r.sn})` : r.sn).join(", ") || "none"}`, "ok")
   if (!d || !d.serial) cloudLog(key, "This dog has no serial yet — scan again with Bluetooth on so the key can be matched.", "err")
   else if (mine) cloudLog(key, `${d.serial} is bound but has no key — its firmware is below 1.1.15, so it doesn't need one.`, "err")
-  else cloudLog(key, `${d.serial} isn't bound to that account (try the other region, or pair it in the Go2 app first).`, "err")
+  else cloudLog(key, `${d.serial} isn't bound to that account — pair it in the Go2 app first.`, "err")
 }
 
 function startConnect(key) {

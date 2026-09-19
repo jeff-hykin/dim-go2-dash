@@ -197,10 +197,10 @@ async function saveJson(file, data) {
 
 // Sign in to the Unitree cloud and keep the AES key of every robot bound to that
 // account, so each dog's key is in place before its first Drive.
-async function fetchAesKeys({ email, password, region }) {
+async function fetchAesKeys({ email, password }) {
     let robots
     try {
-        robots = await fetchBoundRobots({ email: (email || "").trim(), password: password || "", region: region || "global" })
+        robots = await fetchBoundRobots({ email: (email || "").trim(), password: password || "" })
     } catch (err) {
         dimApp.send("go2", { type: "aes_fetch_result", ok: false, error: err.message })
         return
@@ -459,7 +459,7 @@ dimApp.onReceive((kind, payload) => {
         saveJson(AES_KEYS_FILE, aesKeys)
         dimApp.send("go2", { type: "aes_key", key, aesKey: aesKey || null })
     } else if (kind === "fetch_aes_keys") {
-        fetchAesKeys(payload || {})
+        fetchAesKeys(payload || {}) // {email, password}
     } else if (kind === "relay") {
         doRelay(payload || {})
     } else if (kind === "hello") {
