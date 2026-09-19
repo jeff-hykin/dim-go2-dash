@@ -263,10 +263,10 @@
   .d-v.copied { color: var(--ok); }
   .d-v.copied .cp { opacity: 1; }
   .d-empty { font-size: 11.5px; color: var(--muted-fg); }
-  .d-row .aes { flex: 1; min-width: 0; appearance: none; font: inherit; font-family: var(--mono); font-size: 11px;
+  .d-row input { flex: 1; min-width: 0; appearance: none; font: inherit; font-family: var(--mono); font-size: 11px;
     color: var(--fg); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
-  .d-row .aes:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
-  .d-row .aes.bad { border-color: var(--danger); }
+  .d-row input:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+  .d-row input.bad { border-color: var(--danger); }
   .btn.mini { font-size: 11px; padding: 3px 9px; margin-top: 7px; }
   .form.cloud { display: block; margin-top: 8px; padding-top: 8px; }
 
@@ -568,7 +568,7 @@ function detailsHtml(d) {
   const rows = detailRow("Bluetooth name", d.name)
     + detailRow("Serial", d.serial)
     + detailRow("Bluetooth ID", d.ble_mac)
-    + detailRow("IP address", d.ip)
+    + ipRowHtml(d)
     + detailRow("MAC address", d.lan_mac)
   // Firmware ≥ 1.1.15 encrypts the WebRTC handshake with a per-device key that only
   // the Unitree cloud hands out: paste it, or sign in and fetch it right here.
@@ -578,6 +578,24 @@ function detailsHtml(d) {
   return `<div class="details">${rows}${aesRow}${cloud}</div>`
 }
 function aesOf(d) { return d.aesKey || (ipCache[keyOf(d)] && ipCache[keyOf(d)].aes) || "" }
+// The IP is normally learned from LAN discovery. When the dog is on a network this
+// machine can't discover on (VPN, another subnet), typing it here remembers it for
+// this dog — with its AES key — and puts the Drive button on the card.
+function ipRowHtml(d) {
+  if (d.ip) return detailRow("IP address", d.ip) // live from discovery: authoritative
+  return `<div class="d-row"><span class="d-k">IP address</span><input class="ipin" value="${esc(effIp(d))}" placeholder="not seen on this network — type it to drive anyway" spellcheck="false" autocomplete="off" inputmode="decimal" /></div>`
+}
+function commitIp(input) {
+  const key = input.closest(".dog")?.dataset.key
+  const ip = input.value.trim()
+  if (ip && !validIp(ip)) { input.classList.add("bad"); return }
+  input.classList.remove("bad")
+  const d = devices.find(x => keyOf(x) === key)
+  if (!d || effIp(d) === ip) return
+  ipCache[key] = { ip, aes: aesOf(d) }
+  try { localStorage.setItem(IP_LS, JSON.stringify(ipCache)) } catch { /* private mode */ }
+  render() // Drive appears (or goes) with the remembered IP
+}
 function cloudFormHtml() {
   let email = ""
   try { email = localStorage.getItem(EMAIL_LS) || "" } catch { /* private mode */ }
@@ -1274,7 +1292,7 @@ els.list.addEventListener("input", (e) => {
 
 // rename / AES key: commit on Enter / blur, cancel on Escape
 els.list.addEventListener("keydown", (e) => {
-  if (e.target.classList.contains("aes")) { if (e.key === "Enter") e.target.blur(); return }
+  if (e.target.classList.contains("aes") || e.target.classList.contains("ipin")) { if (e.key === "Enter") e.target.blur(); return }
   if (e.target.classList.contains("c-pass") || e.target.classList.contains("c-email")) {
     if (e.key === "Enter") { e.preventDefault(); fetchCloudKeys(e.target.closest(".dog")?.dataset.key) }
     return
@@ -1285,6 +1303,7 @@ els.list.addEventListener("keydown", (e) => {
 })
 els.list.addEventListener("blur", (e) => {
   if (e.target.classList.contains("aes")) { commitAesKey(e.target); return }
+  if (e.target.classList.contains("ipin")) { commitIp(e.target); return }
   if (!e.target.classList.contains("rename")) return
   const key = e.target.closest(".dog")?.dataset.key
   if (key) {
