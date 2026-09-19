@@ -13,6 +13,7 @@
 
 import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts"
 import { DimAppBackend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/backend.js"
+import { fetchBoundRobots } from "./unitree_cloud.js"
 
 // The discovery/provisioning helper is a standalone Rust binary (BLE via
 // CoreBluetooth/BlueZ, LAN + ARP over UDP). We build+run it on demand with
@@ -31,6 +32,11 @@ const RELAY_TIMEOUT_MS = 4000
 const HOME = Deno.env.get("HOME") || "."
 const NAMES_DIR = `${HOME}/.local/share/dim`
 const NAMES_FILE = `${NAMES_DIR}/go2_dash_names.json`
+// Per-device AES-128 keys (32 hex chars) for the data2=3 WebRTC handshake on
+// Go2 firmware ≥ 1.1.15, keyed by serial. Pasted in the panel or fetched from
+// the Unitree cloud (unitree_cloud.js). Persisted like the names.
+const AES_KEYS_FILE = `${NAMES_DIR}/go2_dash_aes_keys.json`
+const AES_KEY_OK = /^[0-9a-f]{32}$/i
 
 const dimApp = new DimAppBackend()
 
@@ -45,6 +51,7 @@ let pendingScan = null
 const devices = new Map()
 // User-given names, keyed the same way. Persisted to NAMES_FILE.
 let names = {}
+let aesKeys = {}
 // SSID of the wifi network THIS machine is on (best-effort). The panel autofills
 // it and warns when you'd provision a dog onto a different one — a dog on another
 // network won't be reachable / discoverable from here.
@@ -162,27 +169,52 @@ async function ensureMulticastRoute() {
     }
 }
 
-// Overlay the saved custom name (if any) onto a device record.
+// Overlay the saved custom name and AES key (if any) onto a device record.
 function named(device) {
-    const name = names[deviceKey(device)]
-    return name ? { ...device, customName: name } : device
+    const key = deviceKey(device)
+    const out = { ...device }
+    if (names[key]) out.customName = names[key]
+    if (aesKeys[key]) out.aesKey = aesKeys[key]
+    return out
 }
 
-async function loadNames() {
+async function loadJson(file) {
     try {
-        names = JSON.parse(await Deno.readTextFile(NAMES_FILE))
+        return JSON.parse(await Deno.readTextFile(file))
     } catch {
-        names = {}
+        return {}
     }
 }
 
-async function saveNames() {
+async function saveJson(file, data) {
     try {
         await Deno.mkdir(NAMES_DIR, { recursive: true })
-        await Deno.writeTextFile(NAMES_FILE, JSON.stringify(names, null, 2))
+        await Deno.writeTextFile(file, JSON.stringify(data, null, 2))
     } catch (err) {
-        console.error(`go2_dash: could not save names — ${err.message}`)
+        console.error(`go2_dash: could not save ${file} — ${err.message}`)
     }
+}
+
+// Sign in to the Unitree cloud and keep the AES key of every robot bound to that
+// account, so each dog's key is in place before its first Drive.
+async function fetchAesKeys({ email, password, region }) {
+    let robots
+    try {
+        robots = await fetchBoundRobots({ email: (email || "").trim(), password: password || "", region: region || "global" })
+    } catch (err) {
+        dimApp.send("go2", { type: "aes_fetch_result", ok: false, error: err.message })
+        return
+    }
+    for (const robot of robots) {
+        if (robot.sn && AES_KEY_OK.test(robot.key)) aesKeys[robot.sn] = robot.key.toLowerCase()
+    }
+    await saveJson(AES_KEYS_FILE, aesKeys)
+    dimApp.send("go2", {
+        type: "aes_fetch_result",
+        ok: true,
+        robots: robots.map((r) => ({ sn: r.sn, alias: r.alias, hasKey: AES_KEY_OK.test(r.key) })),
+    })
+    snapshot()
 }
 
 function snapshot() {
@@ -414,8 +446,20 @@ dimApp.onReceive((kind, payload) => {
         const name = (payload.name || "").trim()
         if (name) names[key] = name
         else delete names[key]
-        saveNames()
+        saveJson(NAMES_FILE, names)
         dimApp.send("go2", { type: "renamed", key, customName: name || null })
+    } else if (kind === "aes_key") {
+        // The panel validated the format; an empty key clears it.
+        const key = payload && payload.key
+        if (!key) return
+        const aesKey = (payload.aesKey || "").trim().toLowerCase()
+        if (aesKey && !AES_KEY_OK.test(aesKey)) return
+        if (aesKey) aesKeys[key] = aesKey
+        else delete aesKeys[key]
+        saveJson(AES_KEYS_FILE, aesKeys)
+        dimApp.send("go2", { type: "aes_key", key, aesKey: aesKey || null })
+    } else if (kind === "fetch_aes_keys") {
+        fetchAesKeys(payload || {})
     } else if (kind === "relay") {
         doRelay(payload || {})
     } else if (kind === "hello") {
@@ -423,6 +467,7 @@ dimApp.onReceive((kind, payload) => {
     }
 })
 
-await loadNames()
+names = await loadJson(NAMES_FILE)
+aesKeys = await loadJson(AES_KEYS_FILE)
 await refreshSsid()
 start()
