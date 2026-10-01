@@ -34,8 +34,8 @@ the app-bus. No dimos venv is required — `nix` builds the helper on first laun
 dimos-desktop install https://github.com/jeff-hykin/dim-go2-dash --ref dimos-desktop2
 ```
 
-The install step (`nix run .#install`) caches the backend's imports and makes sure a Go2 helper binary is ready: the
-shipped one for your platform, or one built with nix.
+Desktop runs `nix build .#dimosApp`, which wraps the frontend and backend as a `dimos-app-server`; the backend runs the
+shipped Go2 helper binary for your platform (`go2_helper_rs/bin`).
 
 ### Old dashboard
 
@@ -50,7 +50,6 @@ The app appears in the dashboard rail within a few seconds.
 ```
 dim/apps/go2_dash/
   app.json        title
-  icon.svg        rail icon
   index.html      the panel (frontend)
   main.js         backend — nix-runs the Rust helper, relays over the app-bus
   go2_helper_rs/  Rust helper — BLE + LAN/ARP discovery + wifi provisioning

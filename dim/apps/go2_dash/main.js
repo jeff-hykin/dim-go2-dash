@@ -269,8 +269,8 @@ function snapshot() {
 let cachedPrebuiltBin
 async function resolvePrebuiltBin() {
     if (cachedPrebuiltBin !== undefined) return cachedPrebuiltBin
-    // shipped binary, else the one the install step (`nix run .#install`) built into ./go2_helper_rs/result
-    for (const path of [`${HELPER_DIR}/bin/go2_helper-${Deno.build.os}-${Deno.build.arch}`, `${HELPER_DIR}/result/bin/go2_helper`]) {
+    // the shipped binary for this system (in the nix store when run by `nix build .#dimosApp`)
+    for (const path of [`${HELPER_DIR}/bin/go2_helper-${Deno.build.os}-${Deno.build.arch}`]) {
         try {
             const info = await Deno.stat(path)
             if (info.isFile) { cachedPrebuiltBin = path; return path }
