@@ -269,11 +269,13 @@ function snapshot() {
 let cachedPrebuiltBin
 async function resolvePrebuiltBin() {
     if (cachedPrebuiltBin !== undefined) return cachedPrebuiltBin
-    const path = `${HELPER_DIR}/bin/go2_helper-${Deno.build.os}-${Deno.build.arch}`
-    try {
-        const info = await Deno.stat(path)
-        if (info.isFile) { cachedPrebuiltBin = path; return path }
-    } catch { /* not shipped for this platform — fall back to nix */ }
+    // shipped binary, else the one the install step (`nix run .#install`) built into ./go2_helper_rs/result
+    for (const path of [`${HELPER_DIR}/bin/go2_helper-${Deno.build.os}-${Deno.build.arch}`, `${HELPER_DIR}/result/bin/go2_helper`]) {
+        try {
+            const info = await Deno.stat(path)
+            if (info.isFile) { cachedPrebuiltBin = path; return path }
+        } catch { /* not here — try the next */ }
+    }
     cachedPrebuiltBin = null
     return null
 }

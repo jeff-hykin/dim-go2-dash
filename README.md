@@ -28,6 +28,17 @@ the app-bus. No dimos venv is required — `nix` builds the helper on first laun
 
 ## Install
 
+### dimOS Desktop
+
+```sh
+dimos-desktop install https://github.com/jeff-hykin/dim-go2-dash --ref dimos-desktop2
+```
+
+The install step (`nix run .#install`) caches the backend's imports and makes sure a Go2 helper binary is ready: the
+shipped one for your platform, or one built with nix.
+
+### Old dashboard
+
 ```sh
 dim install https://github.com/jeff-hykin/dim-go2-dash
 ```

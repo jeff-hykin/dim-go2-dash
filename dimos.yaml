@@ -1,0 +1,13 @@
+name: dim-go2-dash
+install: nix run .#install
+apps:
+    - name: go2_dash
+      title: Go2 Dash
+      icon: dim/apps/go2_dash/frontend/icon.svg
+      frontend: dim/apps/go2_dash/frontend
+      backend:
+          dim_app: dim/apps/go2_dash/main.js
+requires:
+    dimos-desktop:
+        version: ">=0.2.0"
+        apis: { app.frontend: 1, app.dim_app: 1 }
