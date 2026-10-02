@@ -12,6 +12,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta name="color-scheme" content="dark" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Go2 Dash · DimOS</title>
 <link rel="stylesheet" href="theme.css" />
@@ -40,7 +41,7 @@
   /* top overlay bar: name / ip / status on the left, Disconnect on the right */
   .ctl-top { position: absolute; top: 0; left: 0; right: 0; z-index: 5; display: flex;
     align-items: center; gap: 12px; padding: 12px 14px; pointer-events: none;
-    background: linear-gradient(to bottom, color-mix(in oklch, black 62%, transparent), transparent); }
+    background: linear-gradient(to bottom, color-mix(in srgb, black 62%, transparent), transparent); }
   .ctl-top > * { pointer-events: auto; }
   .ctl-top .nm { font-size: 16px; font-weight: 600; letter-spacing: .01em; color: #fff;
     text-shadow: 0 1px 3px rgba(0,0,0,.6); }
@@ -49,8 +50,8 @@
   .ctl-top .spacer { flex: 1; }
   .ctl-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
     letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.85);
-    background: color-mix(in oklch, black 45%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in oklch, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
+    background: color-mix(in srgb, black 45%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in srgb, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
   .ctl-pill .d { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
   .ctl-pill.connecting, .ctl-pill.reconnecting { color: color-mix(in oklch, var(--primary) 55%, white); }
   .ctl-pill.connecting .d, .ctl-pill.reconnecting .d { animation: pulse 1s ease-in-out infinite; }
@@ -59,10 +60,10 @@
   /* current-mode badge, next to the status pill */
   .mode-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
     letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.75);
-    background: color-mix(in oklch, black 45%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in oklch, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
+    background: color-mix(in srgb, black 45%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in srgb, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
   .mode-badge.stand, .mode-badge.pose { color: color-mix(in oklch, var(--ok) 62%, white);
-    border-color: color-mix(in oklch, var(--ok) 42%, transparent); }
+    border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
   .mode-badge.rising { color: color-mix(in oklch, var(--primary) 60%, white); }
   .cam-wrap video { width: 100%; height: 100%; object-fit: contain; display: none; }
   .cam-wrap.live video { display: block; }
@@ -71,17 +72,17 @@
   .cam-wrap.live .cam-ph { display: none; }
   .cam-ph .glyph { font-size: 40px; opacity: .5; }
   .vel { position: absolute; left: 12px; bottom: 12px; font-family: var(--mono); font-size: 10.5px;
-    color: var(--fg); background: color-mix(in oklch, black 55%, transparent);
-    border: 1px solid color-mix(in oklch, white 14%, transparent); border-radius: var(--radius);
+    color: var(--fg); background: color-mix(in srgb, black 55%, transparent);
+    border: 1px solid color-mix(in srgb, white 14%, transparent); border-radius: var(--radius);
     padding: 6px 9px; min-width: 118px; backdrop-filter: blur(3px); }
-  .vel.on { border-color: color-mix(in oklch, var(--primary) 60%, transparent); }
+  .vel.on { border-color: color-mix(in srgb, var(--primary) 60%, transparent); }
 
   /* Disconnect: overlay button, top-right of the camera */
   .ctl-close { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
-    letter-spacing: .02em; color: #fff; background: color-mix(in oklch, black 42%, transparent);
-    backdrop-filter: blur(3px); border: 1px solid color-mix(in oklch, white 20%, transparent);
+    letter-spacing: .02em; color: #fff; background: color-mix(in srgb, black 42%, transparent);
+    backdrop-filter: blur(3px); border: 1px solid color-mix(in srgb, white 20%, transparent);
     border-radius: var(--radius); padding: 7px 13px; transition: background .14s, border-color .14s; }
-  .ctl-close:hover { background: color-mix(in oklch, var(--danger) 60%, transparent); border-color: transparent; }
+  .ctl-close:hover { background: color-mix(in srgb, var(--danger) 60%, transparent); border-color: transparent; }
 
   /* commands: horizontally-scrollable bar centered along the bottom of the camera */
   .cmd-dock { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 4;
@@ -92,10 +93,10 @@
     -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
     mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent); }
   .cmd-scroll::-webkit-scrollbar { height: 6px; }
-  .cmd-scroll::-webkit-scrollbar-thumb { background: color-mix(in oklch, white 22%, transparent); border-radius: 3px; }
+  .cmd-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, white 22%, transparent); border-radius: 3px; }
   /* slash-search field, revealed on "/" — filters the command list */
   .cmd-search { display: none; align-items: center; gap: 6px; flex: 0 0 auto;
-    background: color-mix(in oklch, black 52%, transparent); backdrop-filter: blur(4px);
+    background: color-mix(in srgb, black 52%, transparent); backdrop-filter: blur(4px);
     border: 1px solid color-mix(in oklch, var(--primary) 55%, white 16%); border-radius: var(--radius); padding: 5px 9px; }
   .cmd-bar.searching .cmd-search { display: flex; }
   .cmd-search .ico { font-size: 13px; color: var(--muted-fg); }
@@ -104,10 +105,10 @@
   .cmd-search input::placeholder { color: var(--muted-fg); }
   .act { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
     letter-spacing: .03em; white-space: nowrap; flex: 0 0 auto;
-    color: var(--fg); background: color-mix(in oklch, black 44%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in oklch, white 16%, transparent);
+    color: var(--fg); background: color-mix(in srgb, black 44%, transparent); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in srgb, white 16%, transparent);
     border-radius: var(--radius); padding: 8px 14px; transition: background .14s, border-color .14s; }
-  .act:hover { background: color-mix(in oklch, black 30%, transparent); border-color: var(--ring); }
+  .act:hover { background: color-mix(in srgb, black 30%, transparent); border-color: var(--ring); }
   .act:active { transform: translateY(1px); }
   .act.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
   .act.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
@@ -122,7 +123,7 @@
   .toast { position: fixed; left: 50%; top: 22px; transform: translate(-50%, -14px); z-index: 60;
     max-width: min(440px, 88vw); padding: 11px 16px; font-size: 13px; font-weight: 600; line-height: 1.35;
     color: #fff; text-align: center; background: color-mix(in oklch, #b4460b 82%, black); backdrop-filter: blur(4px);
-    border: 1px solid color-mix(in oklch, white 24%, transparent); border-radius: var(--radius);
+    border: 1px solid color-mix(in srgb, white 24%, transparent); border-radius: var(--radius);
     box-shadow: 0 10px 30px -10px rgba(0,0,0,.6); opacity: 0; pointer-events: none;
     transition: opacity .18s ease, transform .18s ease; }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -131,10 +132,10 @@
   .dpad { position: absolute; right: 12px; bottom: 12px; z-index: 3;
     display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); gap: 6px; }
   .dbtn { appearance: none; cursor: pointer; user-select: none; touch-action: none; font: inherit; font-size: 17px;
-    color: var(--fg); background: color-mix(in oklch, black 52%, transparent);
-    border: 1px solid color-mix(in oklch, white 16%, transparent); border-radius: var(--radius);
+    color: var(--fg); background: color-mix(in srgb, black 52%, transparent);
+    border: 1px solid color-mix(in srgb, white 16%, transparent); border-radius: var(--radius);
     display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
-  .dbtn:hover { background: color-mix(in oklch, black 40%, transparent); }
+  .dbtn:hover { background: color-mix(in srgb, black 40%, transparent); }
   .dbtn.held { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
   .dbtn.sl { grid-column: 1; grid-row: 1; } .dbtn.fwd { grid-column: 2; grid-row: 1; } .dbtn.sr { grid-column: 3; grid-row: 1; }
   .dbtn.left { grid-column: 1; grid-row: 2; } .dbtn.back { grid-column: 2; grid-row: 2; } .dbtn.right { grid-column: 3; grid-row: 2; }
@@ -143,7 +144,7 @@
     font-family: var(--mono); font-size: 12px; line-height: 1.5;
     color: color-mix(in oklch, var(--danger) 82%, var(--fg)); padding: 10px 12px; border-radius: var(--radius);
     background: color-mix(in oklch, var(--danger) 18%, rgba(0,0,0,.72)); backdrop-filter: blur(4px);
-    border: 1px solid color-mix(in oklch, var(--danger) 45%, transparent); }
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); }
 
   /* ── floating panel (left) ── */
   .panel { position: fixed; left: 16px; top: 16px; bottom: 16px; width: 312px; z-index: 40;
@@ -228,7 +229,7 @@
   .ip .cp { font-size: 9px; opacity: .55; }
   .ip.copied { color: var(--ok); border-color: var(--ok); }
   .ip.copied .cp { opacity: 1; }
-  .dog.cached { outline: 1px dotted color-mix(in oklch, var(--ring) 80%, transparent); outline-offset: -2px; }
+  .dog.cached { outline: 1px dotted color-mix(in srgb, var(--ring) 80%, transparent); outline-offset: -2px; }
   .ip.cached { border-style: dotted; color: var(--muted-fg); }
   .sub .serial { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
     opacity: 0; transition: opacity .14s; }
@@ -254,7 +255,7 @@
   .details { margin: 8px 2px 2px; padding: 8px 10px; border-radius: var(--radius);
     background: var(--bg); border: 1px solid var(--border); }
   .d-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11.5px; }
-  .d-row + .d-row { border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent); }
+  .d-row + .d-row { border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
   .d-k { flex: none; width: 92px; color: var(--muted-fg); }
   .d-v { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
     font-family: var(--mono); color: var(--fg); word-break: break-all; }
@@ -354,7 +355,7 @@
   @keyframes acct-flash { 0% { background: var(--ring-soft); } 100% { background: transparent; } }
   .acct-hint { font-size: 11px; line-height: 1.45; color: var(--muted-fg); margin: 4px 0 8px; }
   .acct { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; }
-  .acct + .acct { border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent); }
+  .acct + .acct { border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
   .acct .a-main { flex: 1; min-width: 0; }
   .acct .a-email { color: var(--fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .acct .a-sub { font-size: 10.5px; color: var(--muted-fg); line-height: 1.4; }
@@ -386,7 +387,7 @@
   .help-cmd.copied { border-color: var(--ok); color: var(--ok); }
 </style>
 </head>
-<body class="science">
+<body class="science dark">
   <div class="stage" id="stage">
     <div class="empty">
       <div class="glyph" id="stage-glyph">🐾</div>
@@ -457,8 +458,6 @@ import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.5.0/fron
 // so the panel still works behind the robot's VPN with no CDN reachable.
 import { UnitreeConnection, SPORT_CMD } from "./vendor/unitree.js"
 
-// This app is always dark, regardless of the shell's light/dark setting.
-document.body.classList.add("dark")
 
 const dimApp = new DimAppFrontend()
 
