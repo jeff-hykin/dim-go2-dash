@@ -1,6 +1,6 @@
 # dim-go2-dash
 
-A [DimOS dashboard](https://github.com/jeff-hykin/dim-app) app for discovering and
+A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for discovering and
 provisioning **Unitree Go2** robots.
 
 - **Discover** nearby Go2s over Bluetooth (BLE) and on the local network (LAN).

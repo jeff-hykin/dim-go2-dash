@@ -12,7 +12,7 @@
 // across scans and restarts.
 
 import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts"
-import { DimAppBackend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.3.0/backend.js"
+import { DimAppBackend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.5.0/backend.js"
 import { fetchBoundRobots } from "./unitree_cloud.js"
 
 // The discovery/provisioning helper is a standalone Rust binary (BLE via
@@ -132,7 +132,7 @@ async function refreshSsid() {
 // default route), so the send dies with "No route to host" and the multicast path
 // finds nothing (go2_helper falls back to broadcast + ARP). Pinning a host route
 // for the group onto the Wi-Fi NIC lets the multicast probe actually reach the
-// dogs. That needs root, so it goes through the desktop password modal via
+// dogs. That needs root, so it goes through the SDK's password prompt via
 // dimApp.sudo.run; if the user cancels we just keep using broadcast/ARP.
 const MULTICAST_GROUP = "231.1.1.1"
 let multicastRouteReady = false
