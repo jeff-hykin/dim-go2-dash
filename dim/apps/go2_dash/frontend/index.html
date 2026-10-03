@@ -580,12 +580,12 @@ function dogHtml(d) {
       <span class="av" style="background:${colorFor(btId(d))}"></span>
       <div class="meta">${nameCell}<div class="sub">${ip}${waiting}${serial}${(!ip && !waiting && !serial) ? "—" : ""}</div></div>
       ${eff ? `<button class="drive dim-btn sm icon${controlKey === key ? " primary" : ""}" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>` : ""}
-      <button class="rowbtn kebab dim-btn ghost icon" title="More">${dimIcon("menu", 15)}</button>
+      <button class="rowbtn kebab dim-btn ghost icon" title="More">${dimIcon("more-horizontal", 15)}</button>
     </div>
     ${detailsKey === key ? detailsHtml(d) : ""}
     <div class="menu">
       <button class="mi-details"><span class="mi-ic">${dimIcon("info", 13)}</span>Details</button>
-      <button class="mi-rename"><span class="mi-ic">${dimIcon("file", 13)}</span>Rename</button>
+      <button class="mi-rename"><span class="mi-ic">${dimIcon("edit", 13)}</span>Rename</button>
       <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>${ICON_WIFI}Connect to Wi-Fi…</button>
     </div>
     <div class="form">
@@ -1022,7 +1022,7 @@ function renderControl() {
       <div class="cmd-dock">
         <span class="mode-badge dim-badge ${MODE_TONE[dogMode] || ""}" title="Current dog mode">Mode: ${esc(modeLabel)}</span>
         <div class="cmd-bar${cmdSearching ? " searching" : ""}" id="cmd-bar">
-          <div class="cmd-search dim-panel glass"><span class="ico">${dimIcon("target", 13)}</span><input class="dim-input" id="cmd-search-input" type="text" placeholder="Search commands…" autocomplete="off" spellcheck="false" /></div>
+          <div class="cmd-search dim-panel glass"><span class="ico">${dimIcon("search", 13)}</span><input class="dim-input" id="cmd-search-input" type="text" placeholder="Search commands…" autocomplete="off" spellcheck="false" /></div>
           <div class="cmd-scroll" id="cmd-scroll">${actions}</div>
         </div>
       </div>
