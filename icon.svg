@@ -1,8 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" color="#d06b26" role="img" aria-label="Go2 Dashboard">
-  <!-- dimOS app icon set: 24 grid, 2px round strokes, one hue per app at equal lightness, 24% tint for the duotone fill -->
-  <path d="M4.5 7h10a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" fill="currentColor" fill-opacity=".24" stroke="none"/>
-  <rect x="2.5" y="7" width="14" height="6.5" rx="2"/>
-  <path d="M16.5 8.5l1.2-3h2.6a1.2 1.2 0 0 1 1.2 1.2v2.1a1.2 1.2 0 0 1-1.2 1.2h-3.8"/>
-  <path d="M5.5 13.5l-2 3.5 2 4M13.5 13.5l-2 3.5 2 4"/>
-  <path d="M8.5 13.5l-1.5 3.5 1.5 4M16.5 13.5l-1.5 3.5 1.5 4" stroke-opacity=".5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Go2 Dashboard">
+  <!-- dimOS app icon set v6: dark glass tile tinted to the glyph, neon gradient glyph with a soft bloom -->
+  <defs>
+    <radialGradient id="tile" cx=".5" cy=".18" r=".95"><stop offset="0" stop-color="#3a2208"/><stop offset="1" stop-color="#07070f"/></radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".13"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".25" stop-color="#fff" stop-opacity=".1"/><stop offset="1" stop-color="#fff" stop-opacity=".06"/></linearGradient>
+    <filter id="bloom" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4"/></filter>
+    <linearGradient id="a" gradientUnits="userSpaceOnUse" x1="0" y1="14" x2="0" y2="50"><stop offset="0" stop-color="#fff27a"/><stop offset="1" stop-color="#ff8a1f"/></linearGradient>
+    <g id="glyph"><g fill="url(#a)">
+      <ellipse cx="32" cy="40" rx="8.6" ry="7.2"/>
+      <ellipse cx="20.6" cy="31.6" rx="3.5" ry="4.5" transform="rotate(-24 20.6 31.6)"/>
+      <ellipse cx="26.8" cy="23.6" rx="3.6" ry="4.8" transform="rotate(-9 26.8 23.6)"/>
+      <ellipse cx="37.2" cy="23.6" rx="3.6" ry="4.8" transform="rotate(9 37.2 23.6)"/>
+      <ellipse cx="43.4" cy="31.6" rx="3.5" ry="4.5" transform="rotate(24 43.4 31.6)"/></g></g>
+  </defs>
+  <path d="M16 2H48A14 14 0 0 1 62 16V48A14 14 0 0 1 48 62H16A14 14 0 0 1 2 48V16A14 14 0 0 1 16 2Z" fill="url(#tile)"/>
+  <path d="M16 3H48A13 13 0 0 1 61 16V24H3V16A13 13 0 0 1 16 3Z" fill="url(#sheen)"/>
+  <g transform="translate(32 32) scale(1.12) translate(-32 -32)">
+    <use href="#glyph" filter="url(#bloom)"/>
+    <use href="#glyph"/>
+  </g>
+  <path d="M16 2H48A14 14 0 0 1 62 16V48A14 14 0 0 1 48 62H16A14 14 0 0 1 2 48V16A14 14 0 0 1 16 2Z" fill="none" stroke="url(#rim)" stroke-width="1"/>
 </svg>
