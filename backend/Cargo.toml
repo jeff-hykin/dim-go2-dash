@@ -30,6 +30,13 @@ socket2 = { version = "0.5", features = ["all"] }
 if-addrs = "0.13"
 libc = "0.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { version = "0.9", optional = true }
+
+[features]
+# compile libdbus in (for the static cross build in flake.nix), instead of linking the system's
+vendored-dbus = ["dbus/vendored"]
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
