@@ -1,0 +1,1003 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+body {
+    color: var(--fg);
+    background: var(--bg);
+    font-family: var(--sans);
+}
+
+/* ── main stage: reserved for the per-dog dashboard (battery, camera, …) ── */
+.stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+.stage .empty {
+    text-align: center;
+    max-width: 360px;
+    color: var(--muted-fg);
+}
+.stage .empty .glyph {
+    font-size: 44px;
+    opacity: 0.5;
+    margin-bottom: 14px;
+}
+.stage .empty h1 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+    margin: 0 0 8px;
+    letter-spacing: 0.02em;
+}
+.stage .empty p {
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+}
+.stage.connected .glyph {
+    opacity: 1;
+}
+
+/* ── live control dashboard (fills the stage when driving a dog) ── */
+/* Live-control stage. It sits to the RIGHT of the setup panel (left:344px) so it
+   never overlaps — an inset:0 box would cover the panel's transparent area and
+   swallow its clicks. When the panel slides away it reclaims that space. */
+/* the camera fills the whole iframe; tabs, controls & readouts float over it */
+.ctl {
+    position: fixed;
+    inset: 0;
+    box-sizing: border-box;
+    z-index: 1;
+}
+
+/* camera letterbox stays black in both themes (it frames video) */
+.cam-wrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* top overlay bar: name / ip / status on the left, Disconnect on the right */
+.ctl-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 78%, transparent), transparent);
+}
+.ctl-top > * {
+    pointer-events: auto;
+}
+.ctl-top .nm {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+.ctl-top .ctl-ip {
+    font-size: 11px;
+    color: var(--muted-fg);
+}
+.ctl-top .spacer {
+    flex: 1;
+}
+.ctl-pill.info .dot {
+    animation: pulse 1s ease-in-out infinite;
+}
+.cam-wrap video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+}
+.cam-wrap.live video {
+    display: block;
+}
+.cam-ph {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted-fg);
+    font-size: 13px;
+    text-align: center;
+    padding: 24px;
+}
+.cam-wrap.live .cam-ph {
+    display: none;
+}
+.cam-ph .glyph {
+    font-size: 40px;
+    opacity: 0.5;
+}
+.vel {
+    position: absolute;
+    left: 12px;
+    bottom: 60px; /* above the command bar */
+    font-size: 10.5px;
+    padding: 6px 9px;
+    min-width: 118px;
+}
+.vel.on {
+    border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+}
+
+/* commands: horizontally-scrollable bar centered along the bottom of the camera */
+.cmd-dock {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    max-width: min(56%, 760px);
+}
+.cmd-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+}
+.cmd-scroll {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px;
+    scrollbar-width: thin;
+    scroll-behavior: smooth;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+    mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+}
+.cmd-scroll::-webkit-scrollbar {
+    height: 6px;
+}
+.cmd-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+/* slash-search field, revealed on "/" — filters the command list */
+.cmd-search {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    padding: 0 0 0 9px;
+    border-color: var(--ring);
+}
+.cmd-bar.searching .cmd-search {
+    display: flex;
+}
+.cmd-search .ico {
+    color: var(--muted-fg);
+    display: inline-flex;
+}
+.cmd-search .dim-input {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    font-size: 12px;
+    width: 120px;
+    padding: 6px 9px 6px 0;
+}
+.f-go .dim-icon, .ctl-close .dim-icon {
+    margin-right: 5px;
+}
+.act {
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+.act.ok {
+    border-color: var(--ok);
+    color: var(--ok);
+}
+.act.err {
+    border-color: var(--danger);
+    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+}
+.act.nomatch {
+    display: none;
+}
+/* left-edge tab (GO2 SETUP), overlaid on the camera; hidden while the panel is open */
+.edge-tabs {
+    position: fixed;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 30;
+    border-left: 0;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+.edge-tabs:not(:has(.reopen.show)) {
+    display: none;
+}
+
+/* transient warning toast (e.g. driving before the robot is in walking mode) */
+.dim-toasts {
+    z-index: 60;
+}
+.toast {
+    max-width: min(440px, 88vw);
+    text-align: center;
+}
+.toast:not(.show) {
+    display: none;
+}
+
+/* on-screen d-pad (click-and-hold, mirrors the keyboard) — overlaid on the camera */
+.dpad {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(2, 44px);
+    gap: 6px;
+}
+.dpad .dbtn {
+    user-select: none;
+    touch-action: none;
+    padding: 0;
+    font-size: 17px;
+}
+.dbtn.held {
+    color: var(--primary-fg);
+    background: var(--primary);
+    border-color: var(--primary);
+}
+.dbtn.sl {
+    grid-column: 1;
+    grid-row: 1;
+}
+.dbtn.fwd {
+    grid-column: 2;
+    grid-row: 1;
+}
+.dbtn.sr {
+    grid-column: 3;
+    grid-row: 1;
+}
+.dbtn.left {
+    grid-column: 1;
+    grid-row: 2;
+}
+.dbtn.back {
+    grid-column: 2;
+    grid-row: 2;
+}
+.dbtn.right {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+.ctl-err {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    top: 52px;
+    z-index: 6;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* ── floating panel (left) ── */
+.panel {
+    position: fixed;
+    left: 16px;
+    top: 16px;
+    bottom: 16px;
+    width: 312px;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.32s;
+}
+.panel.slid {
+    transform: translateX(calc(-100% - 32px));
+    opacity: 0;
+    pointer-events: none;
+}
+
+.p-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+.p-head .spacer {
+    flex: 1;
+}
+.p-head .icon-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+/* keyboard hint in the header — "J toggle" */
+.kbd-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+}
+.kbd-hint kbd {
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1;
+    text-transform: none;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: var(--radius-sm);
+    padding: 2px 5px;
+}
+
+.p-scan {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 15px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+/* drive-a-known-IP-directly row (Drive button appears only once a valid IP is typed) */
+.p-manual {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+.p-manual .dim-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    padding: 7px 9px;
+}
+.p-manual .dim-btn {
+    display: none;
+}
+.p-manual.ready .dim-btn {
+    display: inline-block;
+}
+.status {
+    font-size: 12px;
+    color: var(--muted-fg);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted-fg);
+    flex: none;
+}
+.dot.scanning {
+    background: var(--primary);
+    animation: pulse 1s ease-in-out infinite;
+}
+.dot.ok {
+    background: var(--ok);
+}
+.dot.err {
+    background: var(--danger);
+}
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.35;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* keyboard navigation: Scan button → dog list → per-dog action buttons.
+   A ring on the currently-focused control; the focused dog reveals its
+   normally-hover-only action buttons so they can be reached. */
+.nav-focus {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+.dim-btn.primary.nav-focus {
+    outline: 2px solid color-mix(in oklch, var(--primary) 45%, var(--fg));
+}
+.dog.nav-dog {
+    background: var(--accent);
+}
+.dog.nav-dog .rowbtn {
+    opacity: 1;
+}
+
+.list {
+    flex: 1;
+    overflow: auto;
+    padding: 7px;
+}
+.list .none {
+    text-align: center;
+    color: var(--muted-fg);
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 32px 18px;
+}
+.list .none.err {
+    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+}
+.list .none.warn {
+    color: color-mix(in oklch, var(--warn) 82%, var(--fg));
+    padding: 14px 18px 0;
+}
+
+.dog {
+    position: relative;
+    border-radius: var(--radius);
+    margin: 3px 2px;
+    padding: 9px 10px;
+    transition: background 0.14s;
+}
+.dog:hover {
+    background: var(--accent);
+}
+.dog .row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+/* per-robot id colour comes from the Bluetooth id (inline style) */
+.av {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    flex: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 18%, transparent), var(--shadow-xs);
+}
+.meta {
+    flex: 1;
+    min-width: 0;
+}
+.nm {
+    font-size: 13.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sub {
+    font-size: 11px;
+    color: var(--muted-fg);
+    font-family: var(--mono);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 16px;
+}
+/* IP shows as a click-to-copy chip that never shrinks (the Connect button used
+   to crowd it into an ellipsis). The serial stays hover-revealed + truncating. */
+.ip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 7px;
+    line-height: 1.5;
+    transition: color 0.14s, border-color 0.14s;
+}
+.ip:hover {
+    color: var(--primary);
+    border-color: var(--ring);
+}
+.cp {
+    display: inline-flex;
+    opacity: 0.55;
+}
+.ip.copied {
+    color: var(--ok);
+    border-color: var(--ok);
+}
+.ip.copied .cp {
+    opacity: 1;
+}
+.dog.cached {
+    outline: 1px dotted color-mix(in srgb, var(--ring) 80%, transparent);
+    outline-offset: -2px;
+}
+.ip.cached {
+    border-style: dotted;
+    color: var(--muted-fg);
+}
+.sub .serial {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transition: opacity 0.14s;
+}
+.dog:hover .sub .serial {
+    opacity: 0.8;
+}
+/* "waiting for IP" status (after provisioning, before it shows on the network) */
+.waiting {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--sans);
+    font-size: 10.5px;
+    color: var(--muted-fg);
+}
+.waiting .wd {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    animation: pulse 1s ease-in-out infinite;
+}
+.dog .rowbtn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    flex: none;
+    color: var(--muted-fg);
+    opacity: 0;
+    transition: opacity 0.14s, color 0.14s;
+}
+/* the ⋯ is the card's only always-visible affordance (dimmed until hover) —
+   Details / Rename / Connect all live behind it. */
+.kebab {
+    opacity: 0.45;
+}
+.dog:hover .kebab, .dog.active .kebab, .dog.nav-dog .kebab {
+    opacity: 1;
+}
+.dog.menu-open .kebab {
+    color: var(--primary);
+    opacity: 1;
+}
+.dog:hover .rowbtn, .dog.active .rowbtn {
+    opacity: 1;
+}
+.rowbtn:hover {
+    color: var(--fg);
+}
+
+/* details panel (ⓘ) — every identifier we know, each click-to-copy */
+.details {
+    margin: 8px 2px 2px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: var(--bg);
+    border: 1px solid var(--border);
+}
+.d-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 11.5px;
+}
+.d-row + .d-row {
+    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.d-k {
+    flex: none;
+    width: 92px;
+    color: var(--muted-fg);
+}
+.d-v {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    font-family: var(--mono);
+    color: var(--fg);
+    word-break: break-all;
+}
+.d-v .cp {
+    opacity: 0.5;
+    flex: none;
+}
+.d-v:hover {
+    color: var(--primary);
+}
+.d-v.copied {
+    color: var(--ok);
+}
+.d-v.copied .cp {
+    opacity: 1;
+}
+.d-empty {
+    font-size: 11.5px;
+    color: var(--muted-fg);
+}
+.d-row .dim-input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 6px;
+}
+.d-row .dim-input.bad {
+    border-color: var(--danger);
+}
+.dim-btn.mini {
+    margin-top: 7px;
+}
+.form.cloud {
+    display: block;
+    margin-top: 8px;
+    padding-top: 8px;
+}
+
+/* ⋯ dropdown */
+.menu {
+    position: absolute;
+    right: 8px;
+    top: 38px;
+    z-index: 5;
+    min-width: 152px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+    display: none;
+}
+.dog.menu-open .menu {
+    display: block;
+}
+.menu button {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 7px 9px;
+}
+.menu button:hover {
+    background: var(--accent);
+}
+.menu button > .dim-icon {
+    margin-right: 7px;
+}
+.menu button .mi-ic {
+    display: inline-flex;
+    width: 15px;
+    margin-right: 7px;
+    font-size: 12px;
+    color: var(--muted-fg);
+    justify-content: center;
+}
+
+/* rename input (replaces the name in place) */
+.rename.dim-input {
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 3px 7px;
+    border-color: var(--ring);
+}
+
+/* "Drive" button — the card's primary action, right-aligned on the identity row.
+   Neutral until hovered/driving; turns solid-accent (.primary) while a drive is live. */
+.dog .drive {
+    white-space: nowrap;
+    flex: none;
+    gap: 5px;
+    padding: 4px 10px 4px 8px;
+}
+
+/* connect form */
+.form {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: none;
+}
+.dog.form-open .form {
+    display: block;
+}
+.form label {
+    display: block;
+    margin: 0 0 4px;
+}
+.form .fld {
+    margin-bottom: 9px;
+}
+.form .dim-input {
+    font-size: 13px;
+    padding: 7px 9px;
+}
+.form .two {
+    display: flex;
+    gap: 8px;
+}
+.form .two .fld {
+    flex: 1;
+}
+.form .actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.log {
+    margin-top: 9px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--muted-fg);
+    max-height: 130px;
+    overflow: auto;
+    white-space: pre-wrap;
+}
+.log .ok {
+    color: color-mix(in oklch, var(--ok) 80%, var(--fg));
+}
+.log .err {
+    color: color-mix(in oklch, var(--danger) 80%, var(--fg));
+}
+
+/* "you're on a different network" warning under the SSID field */
+.f-warn {
+    display: none;
+    margin: -3px 0 9px;
+    font-size: 11px;
+    line-height: 1.45;
+    padding: 6px 8px;
+}
+.f-warn.show {
+    display: block;
+}
+.f-hint {
+    margin: -3px 0 9px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--muted-fg);
+}
+
+/* ARP fallback: unverified dog card */
+.dog.arp {
+    border: 1px dashed color-mix(in oklch, var(--warn) 45%, var(--border));
+}
+.av.arp-av {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    box-shadow: none;
+    color: color-mix(in oklch, var(--warn) 88%, var(--fg));
+    background: color-mix(in oklch, var(--warn) 22%, var(--card));
+}
+.arp-tag {
+    margin-left: 6px;
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+
+/* reopen tab (left edge, visible when panel is slid away) */
+.reopen {
+    writing-mode: vertical-rl;
+    rotate: 180deg;
+    padding: 14px 7px;
+    display: none;
+}
+.reopen.show {
+    display: block;
+}
+
+/* collapsible "not connecting?" help at the bottom of the panel */
+/* Unitree accounts (AES keys) — a collapsible section like the help one */
+.p-accounts {
+    flex: none;
+    border-top: 1px solid var(--border);
+    padding: 7px 14px 11px;
+}
+.p-accounts.open .help-toggle .hc {
+    transform: rotate(90deg);
+}
+.p-accounts .acct-body {
+    display: none;
+    margin-top: 4px;
+}
+.p-accounts.open .acct-body {
+    display: block;
+}
+.p-accounts.flash {
+    animation: acct-flash 1.2s ease-out;
+}
+@keyframes acct-flash {
+    0% {
+        background: var(--ring-soft);
+    }
+    100% {
+        background: transparent;
+    }
+}
+.acct-hint {
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--muted-fg);
+    margin: 4px 0 8px;
+}
+.acct {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+}
+.acct + .acct {
+    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.acct .a-main {
+    flex: 1;
+    min-width: 0;
+}
+.acct .a-email {
+    color: var(--fg);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.acct .a-sub {
+    font-size: 10.5px;
+    color: var(--muted-fg);
+    line-height: 1.4;
+}
+.acct .a-sub.err {
+    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+}
+.acct .dim-btn {
+    flex: none;
+}
+.acct .a-rm {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--muted-fg);
+}
+.acct .a-rm:hover {
+    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+}
+.p-accounts .form.cloud {
+    margin-top: 6px;
+    padding-top: 8px;
+}
+.p-accounts .form.cloud .actions {
+    margin-top: 2px;
+}
+.acct-empty {
+    font-size: 11.5px;
+    color: var(--muted-fg);
+    padding: 4px 0;
+}
+.ctl-err .dim-btn {
+    margin-left: 8px;
+    vertical-align: 1px;
+}
+.p-help {
+    flex: none;
+    border-top: 1px solid var(--border);
+    padding: 7px 14px 11px;
+}
+.help-toggle.dim-btn {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    padding: 6px 4px;
+    color: var(--muted-fg);
+}
+.help-toggle.dim-btn:hover {
+    color: var(--fg);
+}
+.help-toggle .hc {
+    display: inline-flex;
+    transition: transform 0.15s;
+}
+.p-help.open .help-toggle .hc {
+    transform: rotate(90deg);
+}
+.help-body {
+    display: none;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--muted-fg);
+    margin-top: 3px;
+}
+.p-help.open .help-body {
+    display: block;
+}
+.help-body p {
+    margin: 6px 0;
+}
+.help-body b {
+    color: var(--fg);
+    font-weight: 600;
+}
+.help-body ul {
+    margin: 6px 0;
+    padding-left: 15px;
+}
+.help-body li {
+    margin: 5px 0;
+}
+.help-body code {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+}
+.help-cmd {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    margin: 5px 0;
+    overflow-x: auto;
+    white-space: pre;
+    cursor: pointer;
+    transition: border-color 0.12s;
+}
+.help-cmd:hover {
+    border-color: var(--ring);
+}
+.help-cmd.copied {
+    border-color: var(--ok);
+    color: var(--ok);
+}

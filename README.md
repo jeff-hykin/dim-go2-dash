@@ -1,60 +1,54 @@
 # dim-go2-dash
 
-A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for discovering and
-provisioning **Unitree Go2** robots.
+A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for **Unitree Go2** robot dogs:
 
-- **Discover** nearby Go2s over Bluetooth (BLE) and on the local network (LAN).
-  When a robot is seen on both, its rows merge so you get its name, serial *and*
-  IP in one card.
-- **Connect to wifi** — click a discovered Go2 and send it wifi credentials over
-  Bluetooth, so it joins your network.
-
-It's a side panel that slides away once a dog is connected, leaving the stage for
-the per-dog dashboard to come (battery, camera, blueprints, keyboard controls, …).
+- **Discover** nearby Go2s over Bluetooth (BLE) and on the local network (LAN + ARP). A robot seen both ways is one
+  card with its name, serial and IP.
+- **Connect to Wi-Fi**: send a Go2 Wi-Fi credentials over Bluetooth so it joins your network.
+- **Drive** one live: camera, stand / sit / jump / dance / …, and keyboard or d-pad walking, over WebRTC.
 
 | Discover | Connect to Wi-Fi |
 | --- | --- |
 | ![Discovering nearby Go2s](docs/discover.png) | ![Sending Wi-Fi credentials to a Go2](docs/connect-wifi.png) |
 
-## How it works
+## Every action is an endpoint
 
-BLE scanning and the wifi handshake both need native Bluetooth (CoreBluetooth on
-macOS, BlueZ on Linux), so this can't be pure Deno. The backend (`main.js`) uses
-`nix run` to build and launch a standalone **Rust helper** (`go2_helper_rs`) that
-does BLE discovery, LAN/ARP discovery, and wifi provisioning, and speaks
-newline-JSON over stdio. The dashboard pipes that to/from the browser panel over
-the app-bus. No dimos venv is required — `nix` builds the helper on first launch
-(cached thereafter) and it runs on both macOS and Linux.
+The backend does everything (scans, provisioning, the robot's WebRTC session); the page and Desktop's agent call the
+same HTTP endpoints, listed in `dimos.yaml` (`agent:`) and served as `agent.json`. A few:
 
-## Install
+| | |
+| --- | --- |
+| `POST api/scan` | scan (Bluetooth + LAN), answers with the robots found |
+| `POST api/robots/{key}/wifi` | put a robot on Wi-Fi over Bluetooth |
+| `POST api/drive/connect` | open the live session to a robot |
+| `POST api/drive/jump`, `…/stand`, `…/sit`, `…/dance1`, … | robot commands |
+| `POST api/drive/move` | walk at a velocity for a while |
+| `GET api/state` | everything at once |
 
-### dimOS Desktop
-
-```sh
-dimos-desktop install https://github.com/jeff-hykin/dim-go2-dash --ref dimos-desktop2
-```
-
-Desktop runs `nix build .#dimosApp`, which wraps the frontend and backend as a `dimos-app-server`; the backend runs the
-shipped Go2 helper binary for your platform (`go2_helper_rs/bin`).
-
-### Old dashboard
-
-```sh
-dim install https://github.com/jeff-hykin/dim-go2-dash
-```
-
-The app appears in the dashboard rail within a few seconds.
+Robot-moving and Wi-Fi-changing endpoints take `dryRun: true` (check and say what would be sent, send nothing);
+`POST api/drive/connect` with `dryRun: true` opens a simulated session. `GO2_DASH_MOCK=1` simulates every robot,
+Bluetooth and cloud interaction.
 
 ## Layout
 
 ```
-dim/apps/go2_dash/
-  app.json        title
-  index.html      the panel (frontend)
-  main.js         backend — nix-runs the Rust helper, relays over the app-bus
-  go2_helper_rs/  Rust helper — BLE + LAN/ARP discovery + wifi provisioning
-    flake.nix     builds the helper (native + linux-musl cross), run via nix
-    src/          protocol, ble, lan, arp, discovery, main
+backend/    Rust (Bluetooth via CoreBluetooth/BlueZ, WebRTC to the robot), axum server → dimos-app-server
+  src/routes.rs     every endpoint        src/drive.rs      live session + commands
+  src/app.rs        state, scan, Wi-Fi    src/robot_rtc.rs  the Go2 WebRTC handshake
+  src/ble.rs …      discovery/provisioning (BLE, LAN, ARP)   src/video.rs  camera → pages
+  tests/routes.rs   each route, happy path + error (mock app)
+frontend/   TypeScript + Vite + React
+flake.nix   nix build .#dimosApp → bin/dimos-app-server
+```
+
+Develop: `cd backend && GO2_DASH_MOCK=1 cargo run -- --port 8787 --frontend ../frontend/dist` and
+`cd frontend && npm run dev`. Checks: `cargo test`, `npm run typecheck`, `deno task check-endpoints`
+(`--write` regenerates `dimos.yaml`'s `agent:`).
+
+## Install
+
+```sh
+dimos-desktop install https://github.com/jeff-hykin/dim-go2-dash
 ```
 
 Licensed under Apache-2.0.

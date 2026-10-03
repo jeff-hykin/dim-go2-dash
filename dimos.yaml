@@ -1,3 +1,307 @@
-# A dimOS Desktop app. Format: https://github.com/dimensionalOS/dimos-desktop/blob/jeff/rust_desktop/docs/apps.md
 title: Go2 Dash
 dimos-desktop-api: ">=2 <3"
+caches:
+    - url: "https://dimos-desktop.cachix.org"
+      key: "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ="
+agent:
+    description: >-
+        Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, and drive one live
+        (stand, sit, jump, dance, walk) over WebRTC. Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
+    endpoints:
+        - description: >-
+              Everything at once: scanned robots, scan status, Wi-Fi provisioning, the drive session, this computer's Wi-Fi,
+              Unitree accounts, the robot commands
+          method: GET
+          path: api/state
+          role: context
+        - description: "The robots found by the last scan (name, serial, Bluetooth id, IP, whether its AES key is saved)"
+          method: GET
+          path: api/robots
+        - description: One robot
+          method: GET
+          params:
+              key:
+                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
+                  required: true
+                  type: string
+          path: "api/robots/{key}"
+        - description: >-
+              Scan for Go2s over Bluetooth and the local network (passive: nothing is paired or changed). Forgets the previous
+              results; with wait (default) answers when the scan ends
+          method: POST
+          params:
+              timeout:
+                  description: seconds to scan (default 7)
+                  type: number
+              wait:
+                  description: answer when the scan ends with the robots found (default true); false answers right away
+                  type: boolean
+          path: api/scan
+        - description: Rename a robot (saved on this computer); an empty name goes back to its Bluetooth name
+          method: PUT
+          params:
+              key:
+                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
+                  required: true
+                  type: string
+              name:
+                  required: true
+                  type: string
+          path: "api/robots/{key}/name"
+        - description: >-
+              Save a robot's per-device AES-128 key (32 hex chars; firmware ≥ 1.1.15 needs it to connect); empty clears it.
+              POST api/accounts fetches keys instead
+          method: PUT
+          params:
+              aesKey:
+                  required: true
+                  type: string
+              key:
+                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
+                  required: true
+                  type: string
+          path: "api/robots/{key}/aes-key"
+        - description: >-
+              Set the IP to drive a robot at when the scan can't see it on the network (a VPN, another subnet); empty clears
+              it
+          method: PUT
+          params:
+              ip:
+                  required: true
+                  type: string
+              key:
+                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
+                  required: true
+                  type: string
+          path: "api/robots/{key}/ip"
+        - description: >-
+              This computer's Wi-Fi (SSID) and, on macOS, whether LAN discovery's multicast can reach the robots (a VPN can
+              hijack it; `fix` is the command that routes it)
+          method: GET
+          path: api/network
+        - description: >-
+              Put a robot on a Wi-Fi network: sends the SSID, password and country over Bluetooth, answers once the robot
+              accepted them. Use dryRun: true to check without sending
+          method: POST
+          params:
+              country:
+                  description: two-letter Wi-Fi country code (default US)
+                  type: string
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+              key:
+                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
+                  required: true
+                  type: string
+              password:
+                  type: string
+              ssid:
+                  required: true
+                  type: string
+          path: "api/robots/{key}/wifi"
+        - description: >-
+              The current or last Wi-Fi provisioning: status (idle, running, ok, error, cancelled, dry-run), robot, SSID and
+              its log
+          method: GET
+          path: api/wifi
+        - description: Abort the running Wi-Fi provisioning
+          method: POST
+          path: api/wifi/cancel
+        - description: Forget the last Wi-Fi provisioning result (closes it in the UI)
+          method: DELETE
+          path: api/wifi
+        - description: >-
+              The drive session: robot, status (connecting, ready, reconnecting, error), mode (resting, rising, stand, pose),
+              velocity, last command
+          method: GET
+          path: api/drive
+        - description: >-
+              Connect to a robot for live control and camera (closes any other session); answers when ready. dryRun: true
+              opens a simulated session that sends nothing
+          method: POST
+          params:
+              aesKey:
+                  description: 'the robot''s AES key for this connection (default: the saved one)'
+                  type: string
+              dryRun:
+                  description: "true: a simulated session — commands and moves are accepted and shown, never sent"
+                  type: boolean
+              ip:
+                  description: 'drive this IP directly (no scan needed), or override the robot''s'
+                  type: string
+              robot:
+                  description: a key from GET api/robots
+                  type: string
+          path: api/drive/connect
+        - description: Close the drive session (stops any move first)
+          method: POST
+          path: api/drive/disconnect
+        - description: >-
+              Walk (or, in pose mode, tilt) at a velocity for a while, then stop; a new move replaces the last. Axes are -1..1
+              of 0.6 m/s forward, 0.4 m/s sideways, 1.1 rad/s turning (×2.2 with run). Needs stand first
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+              durationMs:
+                  description: "how long, 100..5000 (default 500)"
+                  type: number
+              forward:
+                  description: "-1..1, positive = forward"
+                  type: number
+              run:
+                  description: 2.2× faster
+                  type: boolean
+              strafe:
+                  description: "-1..1, positive = left"
+                  type: number
+              turn:
+                  description: "-1..1, positive = turn left"
+                  type: number
+          path: api/drive/move
+        - description: Stop moving now
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/stop
+        - description: 'For pages: a WebRTC offer (receive-only video) in, the answer that streams the robot''s camera out'
+          method: POST
+          params:
+              sdp:
+                  description: the page's SDP offer
+                  required: true
+                  type: string
+          path: api/drive/video
+        - description: Saved Unitree app accounts (the AES keys come from them) and the robots bound to each
+          method: GET
+          path: api/accounts
+        - description: Save a Unitree app account (on this computer only) and pull the AES key of every robot bound to it
+          method: POST
+          params:
+              email:
+                  required: true
+                  type: string
+              password:
+                  required: true
+                  type: string
+          path: api/accounts
+        - description: Sign in again and refresh the AES keys of the robots bound to a saved account
+          method: POST
+          params:
+              email:
+                  required: true
+                  type: string
+          path: "api/accounts/{email}/pull"
+        - description: Forget a saved account (keys already pulled stay)
+          method: DELETE
+          params:
+              email:
+                  required: true
+                  type: string
+          path: "api/accounts/{email}"
+        - description: >-
+              Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first (on the
+              robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/stand
+        - description: >-
+              Balance-stand in pose mode: api/drive/move then tilts/turns the body in place instead of walking (on the robot
+              of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/pose
+        - description: Sit down (the robot can't walk until it stands again) (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/sit
+        - description: Lie down (StandDown) (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/lie_down
+        - description: Jump forward (FrontJump) — needs clear space in front (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/jump
+        - description: Wave a front paw (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/hello
+        - description: Stretch (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/stretch
+        - description: Get back on its feet after a fall (RecoveryStand) (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/recover
+        - description: Go limp and lie down (Damp) (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/relax
+        - description: Get up from sitting (RiseSit) (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/rise_sit
+        - description: Dance routine 1 (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/dance1
+        - description: Dance routine 2 (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/dance2
+        - description: Wiggle its hips (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/wiggle_hips
+        - description: Make a heart with its front paws (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/finger_heart

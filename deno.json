@@ -1,0 +1,28 @@
+{
+    "lock": false,
+    "tasks": {
+        "check-endpoints": "deno run -A scripts/check_endpoints.ts"
+    },
+    "fmt": {
+        "indentWidth": 4,
+        "semiColons": false,
+        "lineWidth": 120,
+        "exclude": [
+            "frontend/dist",
+            "frontend/node_modules",
+            "backend",
+            "icon.svg",
+            "README.md"
+        ]
+    },
+    "lint": {
+        "exclude": [
+            "frontend/dist",
+            "frontend/node_modules",
+            "backend"
+        ]
+    },
+    "imports": {
+        "@std/yaml": "jsr:@std/yaml@1"
+    }
+}
