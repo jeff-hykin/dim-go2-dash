@@ -18,7 +18,7 @@
 <link rel="stylesheet" href="theme.css" />
 <style>
   html, body { height: 100%; margin: 0; overflow: hidden; }
-  body { color: var(--fg); background: var(--bg); font-family: var(--sans, system-ui, sans-serif); }
+  body { color: var(--fg); background: var(--bg); font-family: var(--sans); }
 
   /* ── main stage: reserved for the per-dog dashboard (battery, camera, …) ── */
   .stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 40px; }
@@ -35,54 +35,27 @@
   /* the camera fills the whole iframe; tabs, controls & readouts float over it */
   .ctl { position: fixed; inset: 0; box-sizing: border-box; z-index: 1; }
 
+  /* camera letterbox stays black in both themes (it frames video) */
   .cam-wrap { position: absolute; inset: 0; overflow: hidden; background: #000;
     display: flex; align-items: center; justify-content: center; }
 
   /* top overlay bar: name / ip / status on the left, Disconnect on the right */
   .ctl-top { position: absolute; top: 0; left: 0; right: 0; z-index: 5; display: flex;
     align-items: center; gap: 12px; padding: 12px 14px; pointer-events: none;
-    background: linear-gradient(to bottom, color-mix(in srgb, black 62%, transparent), transparent); }
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 78%, transparent), transparent); }
   .ctl-top > * { pointer-events: auto; }
-  .ctl-top .nm { font-size: 16px; font-weight: 600; letter-spacing: .01em; color: #fff;
-    text-shadow: 0 1px 3px rgba(0,0,0,.6); }
-  .ctl-top .ctl-ip { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,.82);
-    text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  .ctl-top .nm { font-size: 16px; font-weight: 600; letter-spacing: .01em; }
+  .ctl-top .ctl-ip { font-size: 11px; color: var(--muted-fg); }
   .ctl-top .spacer { flex: 1; }
-  .ctl-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
-    letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.85);
-    background: color-mix(in srgb, black 45%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in srgb, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
-  .ctl-pill .d { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .ctl-pill.connecting, .ctl-pill.reconnecting { color: color-mix(in oklch, var(--primary) 55%, white); }
-  .ctl-pill.connecting .d, .ctl-pill.reconnecting .d { animation: pulse 1s ease-in-out infinite; }
-  .ctl-pill.ready { color: color-mix(in oklch, var(--ok) 60%, white); }
-  .ctl-pill.error { color: color-mix(in oklch, var(--danger) 55%, white); }
-  /* current-mode badge, next to the status pill */
-  .mode-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
-    letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.75);
-    background: color-mix(in srgb, black 45%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in srgb, white 18%, transparent); border-radius: 999px; padding: 3px 10px; }
-  .mode-badge.stand, .mode-badge.pose { color: color-mix(in oklch, var(--ok) 62%, white);
-    border-color: color-mix(in srgb, var(--ok) 42%, transparent); }
-  .mode-badge.rising { color: color-mix(in oklch, var(--primary) 60%, white); }
+  .ctl-pill.info .dot { animation: pulse 1s ease-in-out infinite; }
   .cam-wrap video { width: 100%; height: 100%; object-fit: contain; display: none; }
   .cam-wrap.live video { display: block; }
   .cam-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
     justify-content: center; gap: 10px; color: var(--muted-fg); font-size: 13px; text-align: center; padding: 24px; }
   .cam-wrap.live .cam-ph { display: none; }
   .cam-ph .glyph { font-size: 40px; opacity: .5; }
-  .vel { position: absolute; left: 12px; bottom: 12px; font-family: var(--mono); font-size: 10.5px;
-    color: var(--fg); background: color-mix(in srgb, black 55%, transparent);
-    border: 1px solid color-mix(in srgb, white 14%, transparent); border-radius: var(--radius);
-    padding: 6px 9px; min-width: 118px; backdrop-filter: blur(3px); }
+  .vel { position: absolute; left: 12px; bottom: 12px; font-size: 10.5px; padding: 6px 9px; min-width: 118px; }
   .vel.on { border-color: color-mix(in srgb, var(--primary) 60%, transparent); }
-
-  /* Disconnect: overlay button, top-right of the camera */
-  .ctl-close { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
-    letter-spacing: .02em; color: #fff; background: color-mix(in srgb, black 42%, transparent);
-    backdrop-filter: blur(3px); border: 1px solid color-mix(in srgb, white 20%, transparent);
-    border-radius: var(--radius); padding: 7px 13px; transition: background .14s, border-color .14s; }
-  .ctl-close:hover { background: color-mix(in srgb, var(--danger) 60%, transparent); border-color: transparent; }
 
   /* commands: horizontally-scrollable bar centered along the bottom of the camera */
   .cmd-dock { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 4;
@@ -93,94 +66,64 @@
     -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
     mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent); }
   .cmd-scroll::-webkit-scrollbar { height: 6px; }
-  .cmd-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, white 22%, transparent); border-radius: 3px; }
+  .cmd-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   /* slash-search field, revealed on "/" — filters the command list */
-  .cmd-search { display: none; align-items: center; gap: 6px; flex: 0 0 auto;
-    background: color-mix(in srgb, black 52%, transparent); backdrop-filter: blur(4px);
-    border: 1px solid color-mix(in oklch, var(--primary) 55%, white 16%); border-radius: var(--radius); padding: 5px 9px; }
+  .cmd-search { display: none; align-items: center; gap: 6px; flex: 0 0 auto; padding: 0 0 0 9px;
+    border-color: var(--ring); }
   .cmd-bar.searching .cmd-search { display: flex; }
-  .cmd-search .ico { font-size: 13px; color: var(--muted-fg); }
-  .cmd-search input { appearance: none; border: none; outline: none; background: transparent; color: var(--fg);
-    font: inherit; font-size: 12px; width: 120px; }
-  .cmd-search input::placeholder { color: var(--muted-fg); }
-  .act { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
-    letter-spacing: .03em; white-space: nowrap; flex: 0 0 auto;
-    color: var(--fg); background: color-mix(in srgb, black 44%, transparent); backdrop-filter: blur(3px);
-    border: 1px solid color-mix(in srgb, white 16%, transparent);
-    border-radius: var(--radius); padding: 8px 14px; transition: background .14s, border-color .14s; }
-  .act:hover { background: color-mix(in srgb, black 30%, transparent); border-color: var(--ring); }
-  .act:active { transform: translateY(1px); }
-  .act.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
-  .act.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
+  .cmd-search .ico { color: var(--muted-fg); display: inline-flex; }
+  .cmd-search .dim-input { border: 0; box-shadow: none; background: transparent; font-size: 12px; width: 120px; padding: 6px 9px 6px 0; }
+  .f-go .dim-icon, .ctl-close .dim-icon { margin-right: 5px; }
+  .act { white-space: nowrap; flex: 0 0 auto; }
   .act.ok { border-color: var(--ok); color: var(--ok); }
   .act.err { border-color: var(--danger); color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
   .act.nomatch { display: none; }
-  /* left-edge tab (GO2 SETUP), overlaid on the camera */
+  /* left-edge tab (GO2 SETUP), overlaid on the camera; hidden while the panel is open */
   .edge-tabs { position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 30;
-    display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+    border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .edge-tabs:not(:has(.reopen.show)) { display: none; }
 
   /* transient warning toast (e.g. driving before the robot is in walking mode) */
-  .toast { position: fixed; left: 50%; top: 22px; transform: translate(-50%, -14px); z-index: 60;
-    max-width: min(440px, 88vw); padding: 11px 16px; font-size: 13px; font-weight: 600; line-height: 1.35;
-    color: #fff; text-align: center; background: color-mix(in oklch, #b4460b 82%, black); backdrop-filter: blur(4px);
-    border: 1px solid color-mix(in srgb, white 24%, transparent); border-radius: var(--radius);
-    box-shadow: 0 10px 30px -10px rgba(0,0,0,.6); opacity: 0; pointer-events: none;
-    transition: opacity .18s ease, transform .18s ease; }
-  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .dim-toasts { z-index: 60; }
+  .toast { max-width: min(440px, 88vw); text-align: center; }
+  .toast:not(.show) { display: none; }
 
   /* on-screen d-pad (click-and-hold, mirrors the keyboard) — overlaid on the camera */
   .dpad { position: absolute; right: 12px; bottom: 12px; z-index: 3;
     display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); gap: 6px; }
-  .dbtn { appearance: none; cursor: pointer; user-select: none; touch-action: none; font: inherit; font-size: 17px;
-    color: var(--fg); background: color-mix(in srgb, black 52%, transparent);
-    border: 1px solid color-mix(in srgb, white 16%, transparent); border-radius: var(--radius);
-    display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
-  .dbtn:hover { background: color-mix(in srgb, black 40%, transparent); }
-  .dbtn.held { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+  .dpad .dbtn { user-select: none; touch-action: none; padding: 0; font-size: 17px; }
+  .dbtn.held { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
   .dbtn.sl { grid-column: 1; grid-row: 1; } .dbtn.fwd { grid-column: 2; grid-row: 1; } .dbtn.sr { grid-column: 3; grid-row: 1; }
   .dbtn.left { grid-column: 1; grid-row: 2; } .dbtn.back { grid-column: 2; grid-row: 2; } .dbtn.right { grid-column: 3; grid-row: 2; }
 
   .ctl-err { position: absolute; left: 14px; right: 14px; top: 52px; z-index: 6;
-    font-family: var(--mono); font-size: 12px; line-height: 1.5;
-    color: color-mix(in oklch, var(--danger) 82%, var(--fg)); padding: 10px 12px; border-radius: var(--radius);
-    background: color-mix(in oklch, var(--danger) 18%, rgba(0,0,0,.72)); backdrop-filter: blur(4px);
-    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); }
+    font-family: var(--mono); font-size: 12px; line-height: 1.5; }
 
   /* ── floating panel (left) ── */
   .panel { position: fixed; left: 16px; top: 16px; bottom: 16px; width: 312px; z-index: 40;
-    display: flex; flex-direction: column; background: var(--card);
-    border: 1px solid var(--border); border-radius: calc(var(--radius) * 1.6);
-    box-shadow: 0 18px 50px -20px rgba(0,0,0,.55), 0 2px 8px -4px rgba(0,0,0,.3);
+    display: flex; flex-direction: column; box-shadow: var(--shadow-lg);
     overflow: hidden; transition: transform .32s cubic-bezier(.4,0,.2,1), opacity .32s; }
   .panel.slid { transform: translateX(calc(-100% - 32px)); opacity: 0; pointer-events: none; }
 
   .p-head { display: flex; align-items: center; gap: 10px; padding: 13px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
-  .p-head .t { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
   .p-head .spacer { flex: 1; }
-  .icon-btn { appearance: none; cursor: pointer; font: inherit; color: var(--muted-fg);
-    background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
-    width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
-    transition: color .14s, border-color .14s; }
-  .icon-btn:hover { color: var(--fg); border-color: var(--ring); }
+  .p-head .icon-btn { width: 26px; height: 26px; padding: 0; }
   /* keyboard hint in the header — "J toggle" */
   .kbd-hint { display: inline-flex; align-items: center; gap: 5px; font-size: 10px;
     letter-spacing: .04em; text-transform: uppercase; color: var(--muted-fg); }
   .kbd-hint kbd { font-family: var(--mono); font-size: 10px; line-height: 1; text-transform: none;
     color: var(--fg); background: var(--bg); border: 1px solid var(--border);
-    border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; }
+    border-bottom-width: 2px; border-radius: var(--radius-sm); padding: 2px 5px; }
 
   .p-scan { display: flex; align-items: center; gap: 10px; padding: 11px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
   /* drive-a-known-IP-directly row (Drive button appears only once a valid IP is typed) */
   .p-manual { display: flex; align-items: center; gap: 8px; padding: 10px 15px;
     border-bottom: 1px solid var(--border); flex: none; }
-  .p-manual input { flex: 1; min-width: 0; box-sizing: border-box; appearance: none; font: inherit;
-    font-size: 12px; color: var(--fg); background: var(--bg); border: 1px solid var(--input, var(--border));
-    border-radius: var(--radius); padding: 7px 9px; outline: none; }
-  .p-manual input:focus { border-color: var(--ring); }
-  .p-manual .btn { display: none; }
-  .p-manual.ready .btn { display: inline-block; }
+  .p-manual .dim-input { flex: 1; min-width: 0; font-size: 12px; padding: 7px 9px; }
+  .p-manual .dim-btn { display: none; }
+  .p-manual.ready .dim-btn { display: inline-block; }
   .status { font-size: 12px; color: var(--muted-fg); display: flex; align-items: center; gap: 7px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-fg); flex: none; }
   .dot.scanning { background: var(--primary); animation: pulse 1s ease-in-out infinite; }
@@ -188,34 +131,26 @@
   .dot.err { background: var(--danger); }
   @keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
 
-  .btn { appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
-    letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; color: var(--fg);
-    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 7px 14px; box-shadow: var(--shadow-2xs); transition: background .14s, border-color .14s; }
-  .btn:hover { background: var(--accent); border-color: color-mix(in oklch, var(--border) 55%, var(--primary)); }
-  .btn:disabled { opacity: .5; cursor: progress; }
-  .btn.primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
-  .btn.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
-
   /* keyboard navigation: Scan button → dog list → per-dog action buttons.
      A ring on the currently-focused control; the focused dog reveals its
      normally-hover-only action buttons so they can be reached. */
   .nav-focus { outline: 2px solid var(--ring); outline-offset: 2px; }
-  .btn.primary.nav-focus { outline: 2px solid color-mix(in oklch, var(--primary) 45%, var(--fg)); }
+  .dim-btn.primary.nav-focus { outline: 2px solid color-mix(in oklch, var(--primary) 45%, var(--fg)); }
   .dog.nav-dog { background: var(--accent); }
   .dog.nav-dog .rowbtn { opacity: 1; }
 
   .list { flex: 1; overflow: auto; padding: 7px; }
   .list .none { text-align: center; color: var(--muted-fg); font-size: 12px; line-height: 1.6; padding: 32px 18px; }
   .list .none.err { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
-  .list .none.warn { color: color-mix(in oklch, #d9a53a 82%, var(--fg)); padding: 14px 18px 0; }
+  .list .none.warn { color: color-mix(in oklch, var(--warn) 82%, var(--fg)); padding: 14px 18px 0; }
 
   .dog { position: relative; border-radius: var(--radius); margin: 3px 2px; padding: 9px 10px;
     transition: background .14s; }
   .dog:hover { background: var(--accent); }
   .dog .row { display: flex; align-items: center; gap: 11px; }
+  /* per-robot id colour comes from the Bluetooth id (inline style) */
   .av { width: 26px; height: 26px; border-radius: 50%; flex: none;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 1px 3px -1px rgba(0,0,0,.5); }
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 18%, transparent), var(--shadow-xs); }
   .meta { flex: 1; min-width: 0; }
   .nm { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { font-size: 11px; color: var(--muted-fg); font-family: var(--mono); margin-top: 2px;
@@ -226,7 +161,7 @@
     color: var(--fg); background: var(--bg); border: 1px solid var(--border);
     border-radius: 999px; padding: 1px 7px; line-height: 1.5; transition: color .14s, border-color .14s; }
   .ip:hover { color: var(--primary); border-color: var(--ring); }
-  .ip .cp { font-size: 9px; opacity: .55; }
+  .cp { display: inline-flex; opacity: .55; }
   .ip.copied { color: var(--ok); border-color: var(--ok); }
   .ip.copied .cp { opacity: 1; }
   .dog.cached { outline: 1px dotted color-mix(in srgb, var(--ring) 80%, transparent); outline-offset: -2px; }
@@ -236,16 +171,14 @@
   .dog:hover .sub .serial { opacity: .8; }
   /* "waiting for IP" status (after provisioning, before it shows on the network) */
   .waiting { flex: none; display: inline-flex; align-items: center; gap: 5px;
-    font-family: var(--sans, system-ui); font-size: 10.5px; color: var(--muted-fg); }
+    font-family: var(--sans); font-size: 10.5px; color: var(--muted-fg); }
   .waiting .wd { width: 6px; height: 6px; border-radius: 50%; background: var(--primary);
     animation: pulse 1s ease-in-out infinite; }
-  .rowbtn { appearance: none; cursor: pointer; font: inherit; line-height: 1; color: var(--muted-fg);
-    background: transparent; border: 0; border-radius: var(--radius); width: 24px; height: 24px; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
+  .dog .rowbtn { width: 24px; height: 24px; padding: 0; flex: none; color: var(--muted-fg);
     opacity: 0; transition: opacity .14s, color .14s; }
   /* the ⋯ is the card's only always-visible affordance (dimmed until hover) —
      Details / Rename / Connect all live behind it. */
-  .kebab { font-size: 16px; opacity: .45; }
+  .kebab { opacity: .45; }
   .dog:hover .kebab, .dog.active .kebab, .dog.nav-dog .kebab { opacity: 1; }
   .dog.menu-open .kebab { color: var(--primary); opacity: 1; }
   .dog:hover .rowbtn, .dog.active .rowbtn { opacity: 1; }
@@ -259,56 +192,42 @@
   .d-k { flex: none; width: 92px; color: var(--muted-fg); }
   .d-v { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
     font-family: var(--mono); color: var(--fg); word-break: break-all; }
-  .d-v .cp { font-size: 9px; opacity: .5; flex: none; }
+  .d-v .cp { opacity: .5; flex: none; }
   .d-v:hover { color: var(--primary); }
   .d-v.copied { color: var(--ok); }
   .d-v.copied .cp { opacity: 1; }
   .d-empty { font-size: 11.5px; color: var(--muted-fg); }
-  .d-row input { flex: 1; min-width: 0; appearance: none; font: inherit; font-family: var(--mono); font-size: 11px;
-    color: var(--fg); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
-  .d-row input:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
-  .d-row input.bad { border-color: var(--danger); }
-  .btn.mini { font-size: 11px; padding: 3px 9px; margin-top: 7px; }
+  .d-row .dim-input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; padding: 3px 6px; }
+  .d-row .dim-input.bad { border-color: var(--danger); }
+  .dim-btn.mini { margin-top: 7px; }
   .form.cloud { display: block; margin-top: 8px; padding-top: 8px; }
 
   /* ⋯ dropdown */
   .menu { position: absolute; right: 8px; top: 38px; z-index: 5; min-width: 152px;
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    box-shadow: 0 12px 30px -12px rgba(0,0,0,.55); padding: 4px; display: none; }
+    box-shadow: var(--shadow-lg); padding: 4px; display: none; }
   .dog.menu-open .menu { display: block; }
-  .menu button { display: block; width: 100%; text-align: left; appearance: none; cursor: pointer;
+  .menu button { display: flex; align-items: center; width: 100%; text-align: left; appearance: none; cursor: pointer;
     font: inherit; font-size: 12.5px; color: var(--fg); background: transparent; border: 0;
-    border-radius: calc(var(--radius) - 2px); padding: 7px 9px; }
+    border-radius: var(--radius-sm); padding: 7px 9px; }
   .menu button:hover { background: var(--accent); }
+  .menu button > .dim-icon { margin-right: 7px; }
   .menu button .mi-ic { display: inline-flex; width: 15px; margin-right: 7px; font-size: 12px;
     color: var(--muted-fg); justify-content: center; }
 
   /* rename input (replaces the name in place) */
-  .rename { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 13.5px;
-    font-weight: 600; color: var(--fg); background: var(--bg); border: 1px solid var(--ring);
-    border-radius: var(--radius); padding: 3px 7px; }
-  .rename:focus { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); }
+  .rename.dim-input { font-size: 13.5px; font-weight: 600; padding: 3px 7px; border-color: var(--ring); }
 
   /* "Drive" button — the card's primary action, right-aligned on the identity row.
-     Neutral until hovered/driving; turns solid-accent while a drive is live. */
-  .drive { appearance: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
-    letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; flex: none;
-    display: inline-flex; align-items: center; gap: 5px;
-    color: var(--fg); background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 4px 10px 4px 8px; transition: background .14s, border-color .14s, color .14s; }
-  .drive .ic { width: 14px; height: 14px; margin: 0; }
-  .drive:hover { background: var(--accent); border-color: var(--ring); }
-  .dog.driving .drive { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
+     Neutral until hovered/driving; turns solid-accent (.primary) while a drive is live. */
+  .dog .drive { white-space: nowrap; flex: none; gap: 5px; padding: 4px 10px 4px 8px; }
 
   /* connect form */
   .form { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
   .dog.form-open .form { display: block; }
-  .form label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
-    color: var(--muted-fg); margin: 0 0 4px; }
+  .form label { display: block; margin: 0 0 4px; }
   .form .fld { margin-bottom: 9px; }
-  .form input { width: 100%; box-sizing: border-box; appearance: none; font: inherit; font-size: 13px;
-    color: var(--fg); background: var(--bg); border: 1px solid var(--input); border-radius: var(--radius); padding: 7px 9px; }
-  .form input:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+  .form .dim-input { font-size: 13px; padding: 7px 9px; }
   .form .two { display: flex; gap: 8px; }
   .form .two .fld { flex: 1; }
   .form .actions { display: flex; gap: 8px; align-items: center; }
@@ -318,31 +237,19 @@
   .log .err { color: color-mix(in oklch, var(--danger) 80%, var(--fg)); }
 
   /* "you're on a different network" warning under the SSID field */
-  .f-warn { display: none; margin: -3px 0 9px; font-size: 11px; line-height: 1.45; padding: 6px 8px;
-    border-radius: var(--radius); color: color-mix(in oklch, var(--danger) 78%, var(--fg));
-    background: color-mix(in oklch, var(--danger) 12%, var(--card));
-    border: 1px solid color-mix(in oklch, var(--danger) 35%, var(--border)); }
+  .f-warn { display: none; margin: -3px 0 9px; font-size: 11px; line-height: 1.45; padding: 6px 8px; }
   .f-warn.show { display: block; }
   .f-hint { margin: -3px 0 9px; font-size: 10.5px; line-height: 1.45; color: var(--muted-fg); }
 
   /* ARP fallback: unverified dog card */
-  .dog.arp { border: 1px dashed color-mix(in oklch, var(--warn, #e2a23b) 45%, var(--border)); }
+  .dog.arp { border: 1px dashed color-mix(in oklch, var(--warn) 45%, var(--border)); }
   .av.arp-av { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; box-shadow: none;
-    color: color-mix(in oklch, var(--warn, #e2a23b) 88%, var(--fg));
-    background: color-mix(in oklch, var(--warn, #e2a23b) 22%, var(--card)); }
-  .arp-tag { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-left: 6px;
-    color: color-mix(in oklch, var(--warn, #e2a23b) 82%, var(--fg)); white-space: nowrap;
-    border: 1px solid color-mix(in oklch, var(--warn, #e2a23b) 42%, var(--border)); border-radius: 999px; padding: 1px 6px; }
-
-  /* inline glyphs that disambiguate dog→wifi vs computer→dog actions */
-  .ic { width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; flex: none; }
-  .menu button .ic { width: 12px; height: 12px; margin-right: 6px; }
+    color: color-mix(in oklch, var(--warn) 88%, var(--fg));
+    background: color-mix(in oklch, var(--warn) 22%, var(--card)); }
+  .arp-tag { margin-left: 6px; padding: 1px 6px; white-space: nowrap; }
 
   /* reopen tab (left edge, visible when panel is slid away) */
-  .reopen { writing-mode: vertical-rl; rotate: 180deg; cursor: pointer; padding: 14px 7px; font-size: 11px;
-    font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--primary-fg);
-    background: var(--primary); border-radius: var(--radius) 0 0 var(--radius);
-    box-shadow: 4px 0 14px -8px rgba(0,0,0,.5); display: none; }
+  .reopen { writing-mode: vertical-rl; rotate: 180deg; padding: 14px 7px; display: none; }
   .reopen.show { display: block; }
 
   /* collapsible "not connecting?" help at the bottom of the panel */
@@ -360,18 +267,18 @@
   .acct .a-email { color: var(--fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .acct .a-sub { font-size: 10.5px; color: var(--muted-fg); line-height: 1.4; }
   .acct .a-sub.err { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
-  .acct .btn { font-size: 11px; padding: 3px 9px; flex: none; }
-  .acct .a-rm { appearance: none; cursor: pointer; font: inherit; font-size: 13px; color: var(--muted-fg); background: none; border: 0; padding: 2px 4px; flex: none; }
+  .acct .dim-btn { flex: none; }
+  .acct .a-rm { width: 24px; height: 24px; padding: 0; color: var(--muted-fg); }
   .acct .a-rm:hover { color: color-mix(in oklch, var(--danger) 82%, var(--fg)); }
   .p-accounts .form.cloud { margin-top: 6px; padding-top: 8px; }
   .p-accounts .form.cloud .actions { margin-top: 2px; }
   .acct-empty { font-size: 11.5px; color: var(--muted-fg); padding: 4px 0; }
-  .ctl-err .btn { margin-left: 8px; font-size: 11px; padding: 2px 8px; vertical-align: 1px; }
+  .ctl-err .dim-btn { margin-left: 8px; vertical-align: 1px; }
   .p-help { flex: none; border-top: 1px solid var(--border); padding: 7px 14px 11px; }
-  .help-toggle { appearance: none; cursor: pointer; font: inherit; font-size: 11.5px; color: var(--muted-fg);
-    background: transparent; border: 0; padding: 4px 0; display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; }
-  .help-toggle:hover { color: var(--fg); }
-  .help-toggle .hc { transition: transform .15s; font-size: 9px; }
+  .help-toggle.dim-btn { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 100%;
+    text-align: left; padding: 6px 4px; color: var(--muted-fg); }
+  .help-toggle.dim-btn:hover { color: var(--fg); }
+  .help-toggle .hc { display: inline-flex; transition: transform .15s; }
   .p-help.open .help-toggle .hc { transform: rotate(90deg); }
   .help-body { display: none; font-size: 11.5px; line-height: 1.5; color: var(--muted-fg); margin-top: 3px; }
   .p-help.open .help-body { display: block; }
@@ -379,7 +286,7 @@
   .help-body b { color: var(--fg); font-weight: 600; }
   .help-body ul { margin: 6px 0; padding-left: 15px; }
   .help-body li { margin: 5px 0; }
-  .help-body code { font-family: var(--mono); font-size: 10.5px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  .help-body code { font-family: var(--mono); font-size: 10.5px; background: var(--bg); padding: 1px 4px; border-radius: var(--radius-sm); }
   .help-cmd { font-family: var(--mono); font-size: 10.5px; color: var(--fg); background: var(--bg);
     border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; margin: 5px 0; overflow-x: auto;
     white-space: pre; cursor: pointer; transition: border-color .12s; }
@@ -392,44 +299,44 @@
   <script type="module" src="dim-icons.js"></script>
   <div class="stage" id="stage">
     <div class="empty">
-      <div class="glyph" id="stage-glyph">🐾</div>
+      <div class="glyph" id="stage-glyph"><i data-dim-icon="robot" data-dim-icon-size="44"></i></div>
       <h1 id="stage-title">No dog connected yet</h1>
       <p id="stage-msg">Scan for nearby Go2s, then send wifi credentials to bring one onto your network. Battery, camera &amp; controls will live here.</p>
     </div>
   </div>
 
-  <div class="panel" id="panel">
+  <div class="panel dim-panel" id="panel">
     <div class="p-head">
-      <span class="t">Go2 Setup</span>
+      <span class="t dim-label">Go2 Setup</span>
       <span class="spacer"></span>
       <span class="kbd-hint"><kbd>J</kbd> toggle</span>
-      <button class="icon-btn" id="slide" title="Slide panel away">‹</button>
+      <button class="icon-btn dim-btn ghost icon" id="slide" title="Slide panel away"><i data-dim-icon="chevron-left" data-dim-icon-size="16"></i></button>
     </div>
     <div class="p-manual" id="p-manual">
-      <input id="manual-ip" placeholder="Know the IP? Drive it directly…" autocomplete="off" spellcheck="false" inputmode="decimal" />
-      <button class="btn primary" id="manual-drive" title="Drive this IP live">Drive</button>
+      <input class="dim-input" id="manual-ip" placeholder="Know the IP? Drive it directly…" autocomplete="off" spellcheck="false" inputmode="decimal" />
+      <button class="dim-btn primary sm" id="manual-drive" title="Drive this IP live">Drive</button>
     </div>
     <div class="p-scan">
-      <button class="btn primary" id="scan">Scan</button>
+      <button class="dim-btn primary sm" id="scan">Scan</button>
       <span class="status"><span class="dot" id="dot"></span><span id="status">Ready</span></span>
     </div>
     <div class="list" id="list">
       <div class="none">No Go2s found yet.<br />Power on a Go2 nearby and press <b>Scan</b>.</div>
     </div>
     <div class="p-accounts" id="p-accounts">
-      <button class="help-toggle" id="acct-toggle"><span class="hc">▸</span><span id="acct-title">Unitree accounts (AES keys)</span></button>
+      <button class="help-toggle dim-btn ghost sm" id="acct-toggle"><span class="hc"><i data-dim-icon="chevron-right" data-dim-icon-size="12"></i></span><span id="acct-title">Unitree accounts (AES keys)</span></button>
       <div class="acct-body">
         <div class="acct-hint">Dogs on firmware ≥ 1.1.15 need a per-device AES key, which only Unitree's cloud hands out. Sign in with the Go2/G1 app account each dog is paired to; <b>Pull</b> tries every region and saves the key of every robot bound to it.</div>
         <div id="acct-list"></div>
         <div class="form cloud">
-          <div class="fld"><label>Unitree account email</label><input class="c-email" id="acct-email" autocomplete="off" spellcheck="false" placeholder="you@example.com" /></div>
-          <div class="fld"><label>Password</label><input class="c-pass" id="acct-pass" type="password" placeholder="••••••" /></div>
-          <div class="actions"><button class="btn primary" id="acct-add">Add &amp; pull</button><span class="acct-hint" style="margin:0">Saved on this computer only.</span></div>
+          <div class="fld"><label class="dim-label">Unitree account email</label><input class="c-email dim-input" id="acct-email" autocomplete="off" spellcheck="false" placeholder="you@example.com" /></div>
+          <div class="fld"><label class="dim-label">Password</label><input class="c-pass dim-input" id="acct-pass" type="password" placeholder="••••••" /></div>
+          <div class="actions"><button class="dim-btn primary sm" id="acct-add">Add &amp; pull</button><span class="acct-hint" style="margin:0">Saved on this computer only.</span></div>
         </div>
       </div>
     </div>
     <div class="p-help" id="p-help">
-      <button class="help-toggle" id="help-toggle"><span class="hc">▸</span>A dog shows but never gets an IP?</button>
+      <button class="help-toggle dim-btn ghost sm" id="help-toggle"><span class="hc"><i data-dim-icon="chevron-right" data-dim-icon-size="12"></i></span>A dog shows but never gets an IP?</button>
       <div class="help-body">
         <p><b>Try disabling your VPN (including tailscale) if you have one.</b> Note: once you know the IP you can connect manually without disabling your VPN, its just needed for scanning.</p>
         <p>A Go2 is found over <b>Bluetooth</b>, but its IP only appears once it's discovered on your <b>network</b>. If the IP never shows:</p>
@@ -446,19 +353,20 @@
     </div>
   </div>
 
-  <div class="edge-tabs" id="edge-tabs">
-    <div class="reopen" id="reopen">Go2 Setup</div>
+  <div class="edge-tabs dim-tabs vertical" id="edge-tabs">
+    <button class="reopen dim-tab active" id="reopen">Go2 Setup</button>
   </div>
 
   <div class="ctl" id="ctl" style="display:none"></div>
 
-  <div class="toast" id="toast"></div>
+  <div class="dim-toasts"><div class="toast dim-toast warn" id="toast" role="status"></div></div>
 
 <script type="module">
 import { DimAppFrontend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.5.0/frontend.js"
 // In-browser WebRTC control of one Go2. Vendored rather than pulled from esm.sh,
 // so the panel still works behind the robot's VPN with no CDN reachable.
 import { UnitreeConnection, SPORT_CMD } from "./vendor/unitree.js"
+import { dimIcon } from "./dim-icons.js"
 
 
 const dimApp = new DimAppFrontend()
@@ -528,8 +436,9 @@ let dogMode = ""               // local mode: resting | rising | stand | pose (s
 // Two different "connects" live in this panel, so each gets its own glyph:
 //   • dog → wifi  (provision the robot onto a network)  → wifi waves
 //   • computer → dog (open this machine's link to the robot) → link/chain
-const ICON_WIFI = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 11.5a12 12 0 0 1 16 0"/><path d="M7.5 15a7 7 0 0 1 9 0"/><circle cx="12" cy="18.5" r="1.15" fill="currentColor" stroke="none"/></svg>'
-const ICON_DRIVE = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="10" rx="4"/><path d="M7 12h3M8.5 10.5v3"/><circle cx="16" cy="11" r=".6" fill="currentColor"/><circle cx="18" cy="13.5" r=".6" fill="currentColor"/></svg>'
+const ICON_WIFI = dimIcon("signal", 13)
+const ICON_DRIVE = dimIcon("gamepad", 14)
+const ICON_COPY = `<span class="cp">${dimIcon("copy", 11)}</span>`
 
 // Last-used wifi creds, kept in localStorage so the next dog autofills.
 const WIFI_LS = "go2dash.wifi"
@@ -599,7 +508,7 @@ async function copyText(text) {
 // Details panel: every field we know about this dog, each click-to-copy.
 function detailRow(label, value) {
   if (!value) return ""
-  return `<div class="d-row"><span class="d-k">${label}</span><span class="d-v copyable" data-copy="${esc(value)}" title="Click to copy">${esc(value)}<span class="cp">⧉</span></span></div>`
+  return `<div class="d-row"><span class="d-k">${label}</span><span class="d-v copyable" data-copy="${esc(value)}" title="Click to copy">${esc(value)}${ICON_COPY}</span></div>`
 }
 function detailsHtml(d) {
   // lan_mac is the real 48-bit network MAC (from LAN discovery/ARP); it only appears
@@ -612,8 +521,8 @@ function detailsHtml(d) {
   // Firmware ≥ 1.1.15 encrypts the WebRTC handshake with a per-device key that only
   // the Unitree cloud hands out: paste it, or sign in and fetch it right here.
   const key = keyOf(d)
-  const aesRow = `<div class="d-row"><span class="d-k">AES key</span><input class="aes" value="${esc(aesOf(d))}" placeholder="32 hex chars — needed on firmware ≥ 1.1.15" maxlength="32" spellcheck="false" autocomplete="off" /></div>`
-  const cloud = `<button class="btn mini d-fetch">Fetch key from Unitree…</button>`
+  const aesRow = `<div class="d-row"><span class="d-k">AES key</span><input class="aes dim-input" value="${esc(aesOf(d))}" placeholder="32 hex chars — needed on firmware ≥ 1.1.15" maxlength="32" spellcheck="false" autocomplete="off" /></div>`
+  const cloud = `<button class="dim-btn sm mini d-fetch">Fetch key from Unitree…</button>`
   return `<div class="details">${rows}${aesRow}${cloud}</div>`
 }
 function aesOf(d) { return d.aesKey || (ipCache[keyOf(d)] && ipCache[keyOf(d)].aes) || "" }
@@ -622,7 +531,7 @@ function aesOf(d) { return d.aesKey || (ipCache[keyOf(d)] && ipCache[keyOf(d)].a
 // this dog — with its AES key — and puts the Drive button on the card.
 function ipRowHtml(d) {
   if (d.ip) return detailRow("IP address", d.ip) // live from discovery: authoritative
-  return `<div class="d-row"><span class="d-k">IP address</span><input class="ipin" value="${esc(effIp(d))}" placeholder="not seen on this network — type it to drive anyway" spellcheck="false" autocomplete="off" inputmode="decimal" /></div>`
+  return `<div class="d-row"><span class="d-k">IP address</span><input class="ipin dim-input" value="${esc(effIp(d))}" placeholder="not seen on this network — type it to drive anyway" spellcheck="false" autocomplete="off" inputmode="decimal" /></div>`
 }
 function commitIp(input) {
   const key = input.closest(".dog")?.dataset.key
@@ -647,11 +556,11 @@ function dogHtml(d) {
   if (detailsKey === key) classes.push("details-open", "active")
   if (controlKey === key) classes.push("driving", "active")
   const nameCell = (editKey === key)
-    ? `<input class="rename" value="${esc(nameOf(d))}" />`
+    ? `<input class="rename dim-input" value="${esc(nameOf(d))}" />`
     : `<div class="nm">${esc(nameOf(d))}</div>`
   // sub-line: IP as a click-to-copy chip (always fully visible); serial on hover.
   // A remembered IP renders dotted until the fresh scan confirms it.
-  const ip = eff ? `<span class="ip${stale ? " cached" : ""}" data-ip="${esc(eff)}" title="${stale ? "Last known IP — waiting for fresh scan" : "Click to copy IP"}">${esc(eff)}<span class="cp">⧉</span></span>` : ""
+  const ip = eff ? `<span class="ip${stale ? " cached" : ""}" data-ip="${esc(eff)}" title="${stale ? "Last known IP — waiting for fresh scan" : "Click to copy IP"}">${esc(eff)}${ICON_COPY}</span>` : ""
   const serial = d.serial ? `<span class="serial">${esc(d.serial)}</span>` : ""
   // after provisioning, show we're waiting for it to appear on the network
   const waiting = (!eff && awaitingIp.has(key)) ? `<span class="waiting"><span class="wd"></span>waiting for IP…</span>` : ""
@@ -670,25 +579,25 @@ function dogHtml(d) {
     <div class="row">
       <span class="av" style="background:${colorFor(btId(d))}"></span>
       <div class="meta">${nameCell}<div class="sub">${ip}${waiting}${serial}${(!ip && !waiting && !serial) ? "—" : ""}</div></div>
-      ${eff ? `<button class="drive" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>` : ""}
-      <button class="rowbtn kebab" title="More">⋯</button>
+      ${eff ? `<button class="drive dim-btn sm icon${controlKey === key ? " primary" : ""}" title="Drive this dog live (camera + keyboard control)">${controlKey === key ? "Disconnect" : ICON_DRIVE + "Drive"}</button>` : ""}
+      <button class="rowbtn kebab dim-btn ghost icon" title="More">${dimIcon("menu", 15)}</button>
     </div>
     ${detailsKey === key ? detailsHtml(d) : ""}
     <div class="menu">
-      <button class="mi-details"><span class="mi-ic">ⓘ</span>Details</button>
-      <button class="mi-rename"><span class="mi-ic">✎</span>Rename</button>
+      <button class="mi-details"><span class="mi-ic">${dimIcon("info", 13)}</span>Details</button>
+      <button class="mi-rename"><span class="mi-ic">${dimIcon("file", 13)}</span>Rename</button>
       <button class="mi-connect"${canConnect ? "" : " disabled style=\"opacity:.45;cursor:default\""}>${ICON_WIFI}Connect to Wi-Fi…</button>
     </div>
     <div class="form">
       ${canConnect ? "" : '<div class="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>'}
-      <div class="fld"><label>Wifi SSID — connect the dog to a network</label><input class="f-ssid" placeholder="network name" value="${esc(ssidVal)}" ${canConnect ? "" : "disabled"} /></div>
-      <div class="f-warn"></div>
+      <div class="fld"><label class="dim-label">Wifi SSID — connect the dog to a network</label><input class="f-ssid dim-input" placeholder="network name" value="${esc(ssidVal)}" ${canConnect ? "" : "disabled"} /></div>
+      <div class="f-warn dim-alert danger"></div>
       ${ssidHint}
       <div class="two">
-        <div class="fld"><label>Password</label><input class="f-pass" type="password" placeholder="••••••" value="${esc(passVal)}" ${canConnect ? "" : "disabled"} /></div>
-        <div class="fld" style="flex:0 0 76px"><label>Country</label><input class="f-country" value="${esc(countryVal)}" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
+        <div class="fld"><label class="dim-label">Password</label><input class="f-pass dim-input" type="password" placeholder="••••••" value="${esc(passVal)}" ${canConnect ? "" : "disabled"} /></div>
+        <div class="fld" style="flex:0 0 76px"><label class="dim-label">Country</label><input class="f-country dim-input" value="${esc(countryVal)}" maxlength="2" ${canConnect ? "" : "disabled"} /></div>
       </div>
-      <div class="actions"><button class="btn primary f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button><button class="btn f-cancel">Cancel</button></div>
+      <div class="actions"><button class="dim-btn primary sm f-go" ${canConnect ? "" : "disabled"}>${ICON_WIFI}Connect</button><button class="dim-btn sm f-cancel">Cancel</button></div>
       <div class="log f-log"></div>
     </div>
   </div>`
@@ -701,10 +610,10 @@ function arpDogHtml(d) {
   const key = keyOf(d)
   return `<div class="dog arp" data-key="${esc(key)}">
     <div class="row">
-      <span class="av arp-av" title="Found via ARP — unverified">⚠</span>
+      <span class="av arp-av" title="Found via ARP — unverified">${dimIcon("warn", 14)}</span>
       <div class="meta">
-        <div class="nm">Possible Go2 <span class="arp-tag">ARP · unverified</span></div>
-        <div class="sub"><span class="ip" data-ip="${esc(d.ip)}" title="Click to copy IP">${esc(d.ip)}<span class="cp">⧉</span></span>${d.lan_mac ? `<span class="serial">${esc(d.lan_mac)}</span>` : ""}</div>
+        <div class="nm">Possible Go2 <span class="arp-tag dim-badge warn">ARP · unverified</span></div>
+        <div class="sub"><span class="ip" data-ip="${esc(d.ip)}" title="Click to copy IP">${esc(d.ip)}${ICON_COPY}</span>${d.lan_mac ? `<span class="serial">${esc(d.lan_mac)}</span>` : ""}</div>
       </div>
     </div>
   </div>`
@@ -892,7 +801,7 @@ function onConnected() {
   const d = devices.find(x => keyOf(x) === formKey)
   const nm = d ? nameOf(d) : "Go2"
   els.stage.classList.add("connected")
-  els.stageGlyph.textContent = "📡"
+  els.stageGlyph.innerHTML = dimIcon("signal", 44)
   // not "connected" — we've only handed it Wi-Fi creds; it isn't reachable until
   // it shows up on the network with an IP.
   els.stageTitle.textContent = "Wi-Fi sent to " + nm + " — waiting for it on the network"
@@ -1071,6 +980,10 @@ async function doAction(name) {
   if (RESTING_ACTIONS.has(name)) setMode("resting")
 }
 
+// status / mode → badge tone
+const PILL_TONE = { connecting: "info", reconnecting: "info", ready: "ok", error: "danger" }
+const MODE_TONE = { stand: "ok", pose: "ok", rising: "info" }
+
 function renderControl() {
   const host = els.ctl
   if (controlKey === null) { host.style.display = "none"; els.stage.style.display = ""; return }
@@ -1084,32 +997,32 @@ function renderControl() {
   const phMsg = controlStatus === "ready" ? "Waiting for video…"
     : controlStatus === "reconnecting" ? ("Reconnecting to " + esc(nm) + "…")
     : ("Connecting to " + esc(nm) + "…")
-  const actions = CTL_ACTIONS.map(a => `<button class="act${a.primary ? " primary" : ""}" data-name="${esc(a.name)}">${esc(a.label)}</button>`).join("")
+  const actions = CTL_ACTIONS.map(a => `<button class="act dim-btn sm${a.primary ? " primary" : ""}" data-name="${esc(a.name)}">${esc(a.label)}</button>`).join("")
   host.innerHTML = `
     <div class="cam-wrap" id="cam-wrap">
       <video id="cam" autoplay muted playsinline></video>
-      <div class="cam-ph"><div class="glyph">📷</div><div>${phMsg}</div></div>
+      <div class="cam-ph"><div class="glyph">${dimIcon("camera", 40)}</div><div>${phMsg}</div></div>
       <div class="ctl-top">
         <span class="nm">${esc(nm)}</span>
-        <span class="ctl-ip">${esc(ip)}</span>
-        <span class="ctl-pill ${controlStatus}"><span class="d"></span>${label}</span>
+        <span class="ctl-ip dim-mono">${esc(ip)}</span>
+        <span class="ctl-pill dim-badge ${PILL_TONE[controlStatus] || ""}"><span class="dot"></span>${label}</span>
         <span class="spacer"></span>
-        <button class="ctl-close" title="Disconnect">✕ Disconnect</button>
+        <button class="ctl-close dim-btn sm" title="Disconnect">${dimIcon("close", 14)}Disconnect</button>
       </div>
-      ${controlStatus === "error" ? `<div class="ctl-err">${esc(controlError)}${/AES|data2=3/i.test(controlError) ? ` This dog needs its AES key from Unitree's cloud.<button class="btn ctl-signin">Sign in to Unitree…</button>` : ""}</div>` : ""}
-      <div class="vel" id="vel">fwd 0.00 · str 0.00 · yaw 0.00  ·  shift = run</div>
+      ${controlStatus === "error" ? `<div class="ctl-err dim-alert danger">${esc(controlError)}${/AES|data2=3/i.test(controlError) ? ` This dog needs its AES key from Unitree's cloud.<button class="dim-btn sm ctl-signin">Sign in to Unitree…</button>` : ""}</div>` : ""}
+      <div class="vel dim-panel glass dim-mono" id="vel">fwd 0.00 · str 0.00 · yaw 0.00  ·  shift = run</div>
       <div class="dpad">
-        <button class="dbtn sl" data-k="q" title="Strafe left">⟲</button>
-        <button class="dbtn fwd" data-k="w" title="Forward">▲</button>
-        <button class="dbtn left" data-k="a" title="Turn left">◀</button>
-        <button class="dbtn back" data-k="s" title="Backward">▼</button>
-        <button class="dbtn right" data-k="d" title="Turn right">▶</button>
-        <button class="dbtn sr" data-k="e" title="Strafe right">⟳</button>
+        <button class="dbtn dim-btn icon sl" data-k="q" title="Strafe left">${dimIcon("rotate-left", 18)}</button>
+        <button class="dbtn dim-btn icon fwd" data-k="w" title="Forward">${dimIcon("arrow-up", 18)}</button>
+        <button class="dbtn dim-btn icon left" data-k="a" title="Turn left">${dimIcon("arrow-left", 18)}</button>
+        <button class="dbtn dim-btn icon back" data-k="s" title="Backward">${dimIcon("arrow-down", 18)}</button>
+        <button class="dbtn dim-btn icon right" data-k="d" title="Turn right">${dimIcon("arrow-right", 18)}</button>
+        <button class="dbtn dim-btn icon sr" data-k="e" title="Strafe right">${dimIcon("rotate-right", 18)}</button>
       </div>
       <div class="cmd-dock">
-        <span class="mode-badge ${esc(dogMode)}" title="Current dog mode">Mode: ${esc(modeLabel)}</span>
+        <span class="mode-badge dim-badge ${MODE_TONE[dogMode] || ""}" title="Current dog mode">Mode: ${esc(modeLabel)}</span>
         <div class="cmd-bar${cmdSearching ? " searching" : ""}" id="cmd-bar">
-          <div class="cmd-search"><span class="ico">⌕</span><input id="cmd-search-input" type="text" placeholder="Search commands…" autocomplete="off" spellcheck="false" /></div>
+          <div class="cmd-search dim-panel glass"><span class="ico">${dimIcon("target", 13)}</span><input class="dim-input" id="cmd-search-input" type="text" placeholder="Search commands…" autocomplete="off" spellcheck="false" /></div>
           <div class="cmd-scroll" id="cmd-scroll">${actions}</div>
         </div>
       </div>
@@ -1163,7 +1076,7 @@ function velFromKeys() {
 function updateVel(v) {
   const el = document.getElementById("vel")
   if (!el) return
-  el.textContent = `fwd ${v.forward.toFixed(2)} · str ${v.strafe.toFixed(2)} · yaw ${v.turn.toFixed(2)}` + (boost ? "  ·  ⚡ run" : "  ·  shift = run")
+  el.textContent = `fwd ${v.forward.toFixed(2)} · str ${v.strafe.toFixed(2)} · yaw ${v.turn.toFixed(2)}` + (boost ? "  ·  run" : "  ·  shift = run")
   el.classList.toggle("on", !!(v.forward || v.strafe || v.turn))
 }
 function reflectKeys() {
@@ -1288,9 +1201,9 @@ els.list.addEventListener("click", (e) => {
     copyText(copyEl.dataset.copy ?? copyEl.dataset.ip ?? "").then((ok) => {
       if (!ok) return
       copyEl.classList.add("copied")
-      const cp = copyEl.querySelector(".cp"); const was = cp ? cp.textContent : ""
-      if (cp) cp.textContent = "✓"
-      setTimeout(() => { copyEl.classList.remove("copied"); if (cp) cp.textContent = was }, 1100)
+      const cp = copyEl.querySelector(".cp"); const was = cp ? cp.innerHTML : ""
+      if (cp) cp.innerHTML = dimIcon("check", 11)
+      setTimeout(() => { copyEl.classList.remove("copied"); if (cp) cp.innerHTML = was }, 1100)
     })
     return
   }
@@ -1386,8 +1299,8 @@ function accountHtml(a) {
   const names = robots.map(r => (r.alias ? `${r.alias} (${r.sn})` : r.sn) + (r.hasKey ? "" : " — no key (old firmware)")).join("\n")
   return `<div class="acct" data-email="${esc(a.email)}">
       <div class="a-main"><div class="a-email">${esc(a.email)}</div><div class="a-sub ${cls}" title="${esc(names)}">${esc(sub)}</div></div>
-      <button class="btn a-pull" ${a.pulling ? "disabled" : ""}>${a.pulling ? "Pulling…" : "Pull"}</button>
-      <button class="a-rm" title="Forget this account (keys already pulled stay)">✕</button>
+      <button class="dim-btn sm a-pull" ${a.pulling ? "disabled" : ""}>${a.pulling ? "Pulling…" : "Pull"}</button>
+      <button class="a-rm dim-btn ghost icon" title="Forget this account (keys already pulled stay)">${dimIcon("close", 13)}</button>
     </div>`
 }
 function renderAccounts() {
