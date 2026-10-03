@@ -1,8 +1,8 @@
-<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- dog paw print (Go2 is a robot dog) -->
-  <ellipse cx="6.7" cy="11" rx="1.7" ry="2.1" fill="#45e0ff"/>
-  <ellipse cx="10.1" cy="8.4" rx="1.8" ry="2.3" fill="#45e0ff"/>
-  <ellipse cx="13.9" cy="8.4" rx="1.8" ry="2.3" fill="#45e0ff"/>
-  <ellipse cx="17.3" cy="11" rx="1.7" ry="2.1" fill="#45e0ff"/>
-  <path d="M12 11.3 C15.1 11.3 17.3 13.4 17.3 15.9 C17.3 18.8 14.8 20 12 20 C9.2 20 6.7 18.8 6.7 15.9 C6.7 13.4 8.9 11.3 12 11.3 Z" fill="#45e0ff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" color="#d06b26" role="img" aria-label="Go2 Dashboard">
+  <!-- dimOS app icon set: 24 grid, 2px round strokes, one hue per app at equal lightness, 24% tint for the duotone fill -->
+  <path d="M4.5 7h10a2 2 0 0 1 2 2v2.5a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" fill="currentColor" fill-opacity=".24" stroke="none"/>
+  <rect x="2.5" y="7" width="14" height="6.5" rx="2"/>
+  <path d="M16.5 8.5l1.2-3h2.6a1.2 1.2 0 0 1 1.2 1.2v2.1a1.2 1.2 0 0 1-1.2 1.2h-3.8"/>
+  <path d="M5.5 13.5l-2 3.5 2 4M13.5 13.5l-2 3.5 2 4"/>
+  <path d="M8.5 13.5l-1.5 3.5 1.5 4M16.5 13.5l-1.5 3.5 1.5 4" stroke-opacity=".5"/>
 </svg>
