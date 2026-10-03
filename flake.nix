@@ -2,7 +2,7 @@
     description = "dim-go2-dash: Unitree Go2 discovery + wifi provisioning, as a dimOS Desktop app";
 
     inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-    inputs.dim-app.url = "github:jeff-hykin/dim-app/v0.6.0";
+    inputs.dim-app.url = "github:jeff-hykin/dim-app/v0.6.1";
 
     outputs = { self, nixpkgs, dim-app }: {
         # the Go2 helper is a shipped prebuilt per system (go2_helper_rs/bin), which main.js finds beside itself in the store

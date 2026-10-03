@@ -12,7 +12,7 @@
 // across scans and restarts.
 
 import { TextLineStream } from "https://deno.land/std@0.224.0/streams/text_line_stream.ts"
-import { DimAppBackend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.6.0/backend.js"
+import { DimAppBackend } from "https://esm.sh/gh/jeff-hykin/dim-app@v0.6.1/backend.js"
 import { fetchBoundRobots } from "./unitree_cloud.js"
 
 // The discovery/provisioning helper is a standalone Rust binary (BLE via
