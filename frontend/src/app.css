@@ -40,6 +40,15 @@ body {
     line-height: 1.5;
     margin: 0;
 }
+/* Research: titles in the display serif (the doc: "Instrument Serif · titles, greetings, the clock, card names") */
+body.science:not(.dark) .stage .empty h1,
+body.science:not(.dark) .ctl-top .nm {
+    font: 400 26px/1.15 var(--display);
+    letter-spacing: -0.01em;
+}
+body.science:not(.dark) .ctl-top .nm {
+    font-size: 22px;
+}
 .stage.connected .glyph {
     opacity: 1;
 }
@@ -83,6 +92,12 @@ body {
 }
 .ctl-top > * {
     pointer-events: auto;
+}
+/* Research: a paper bar over the video (a paper-colored fade over black read as a grey smear) */
+body.science:not(.dark) .ctl-top {
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    padding: 8px 14px;
 }
 .ctl-top .nm {
     font-size: 16px;
@@ -201,6 +216,13 @@ body {
     width: 120px;
     padding: 6px 9px 6px 0;
 }
+/* the box around it shows focus; the field itself stays bare (beats the theme's input focus ring) */
+body.science .cmd-search .dim-input:focus,
+body.science.dark .cmd-search .dim-input:focus {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+}
 .f-go .dim-icon, .ctl-close .dim-icon {
     margin-right: 5px;
 }
@@ -214,7 +236,7 @@ body {
 }
 .act.err {
     border-color: var(--danger);
-    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+    color: var(--danger);
 }
 .act.nomatch {
     display: none;
@@ -432,11 +454,12 @@ body {
    A ring on the currently-focused control; the focused dog reveals its
    normally-hover-only action buttons so they can be reached. */
 .nav-focus {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
+    outline: none;
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px var(--ring-soft);
 }
-.dim-btn.primary.nav-focus {
-    outline: 2px solid color-mix(in oklch, var(--primary) 45%, var(--fg));
+body.science.dark .nav-focus {
+    box-shadow: 0 0 0 1px var(--primary), 0 0 14px rgba(124, 200, 236, 0.25);
 }
 .dog.nav-dog {
     background: var(--accent);
@@ -458,10 +481,10 @@ body {
     padding: 32px 18px;
 }
 .list .none.err {
-    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+    color: var(--danger);
 }
 .list .none.warn {
-    color: color-mix(in oklch, var(--warn) 82%, var(--fg));
+    color: var(--warn);
     padding: 14px 18px 0;
 }
 
@@ -782,10 +805,10 @@ body {
     white-space: pre-wrap;
 }
 .log .ok {
-    color: color-mix(in oklch, var(--ok) 80%, var(--fg));
+    color: var(--ok);
 }
 .log .err {
-    color: color-mix(in oklch, var(--danger) 80%, var(--fg));
+    color: var(--danger);
 }
 
 /* "you're on a different network" warning under the SSID field */
@@ -808,7 +831,7 @@ body {
 
 /* ARP fallback: unverified dog card */
 .dog.arp {
-    border: 1px dashed color-mix(in oklch, var(--warn) 45%, var(--border));
+    border: 1px dashed color-mix(in srgb, var(--warn) 45%, transparent);
 }
 .av.arp-av {
     display: inline-flex;
@@ -816,8 +839,8 @@ body {
     justify-content: center;
     font-size: 13px;
     box-shadow: none;
-    color: color-mix(in oklch, var(--warn) 88%, var(--fg));
-    background: color-mix(in oklch, var(--warn) 22%, var(--card));
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
 .arp-tag {
     margin-left: 6px;
@@ -897,7 +920,7 @@ body {
     line-height: 1.4;
 }
 .acct .a-sub.err {
-    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+    color: var(--danger);
 }
 .acct .dim-btn {
     flex: none;
@@ -909,7 +932,7 @@ body {
     color: var(--muted-fg);
 }
 .acct .a-rm:hover {
-    color: color-mix(in oklch, var(--danger) 82%, var(--fg));
+    color: var(--danger);
 }
 .p-accounts .form.cloud {
     margin-top: 6px;

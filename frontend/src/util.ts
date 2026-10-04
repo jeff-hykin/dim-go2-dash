@@ -30,7 +30,8 @@ export function colorFor(id: string): string {
     for (const c of id) {
         h = (h * 31 + c.charCodeAt(0)) >>> 0
     }
-    return `hsl(${h % 360} 62% 55%)`
+    // the theme's categorical colors, so an avatar never brings in a hue the design docs don't have
+    return `var(--cat-${(h % 4) + 1})`
 }
 
 export function validIp(text: string): boolean {
