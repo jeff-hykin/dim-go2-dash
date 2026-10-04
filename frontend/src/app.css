@@ -1034,4 +1034,30 @@ body.science.dark .nav-focus {
         right: 16px;
         width: auto;
     }
+    /* driving on a phone: commands along the bottom, the d-pad and the velocity readout above them, nothing overlapping */
+    .cmd-dock {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        transform: none;
+        max-width: none;
+    }
+    .cmd-bar {
+        max-width: 100%;
+    }
+    .dpad {
+        right: 8px;
+        bottom: 84px;
+    }
+    .vel {
+        left: 8px;
+        bottom: 188px; /* above the d-pad (two 44px rows) */
+    }
+    /* the robot's name stays; its IP (in the setup panel too) gives way */
+    .ctl-top .nm {
+        flex: none;
+    }
+    .ctl-top .ctl-ip {
+        display: none;
+    }
 }
