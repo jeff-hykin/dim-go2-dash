@@ -1027,3 +1027,11 @@ body.science.dark .nav-focus {
     border-color: var(--ok);
     color: var(--ok);
 }
+
+/* phone: the panel takes the width (the stage's empty-state text showed through beside it) */
+@media (max-width: 600px) {
+    .panel {
+        right: 16px;
+        width: auto;
+    }
+}
