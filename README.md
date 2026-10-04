@@ -1,4 +1,4 @@
-# dim-go2-dash
+# Go2 Ctrl (dim-go2-dash)
 
 A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for **Unitree Go2** robot dogs:
 

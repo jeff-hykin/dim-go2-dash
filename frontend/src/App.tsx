@@ -1,4 +1,4 @@
-// Go2 Dash: discover nearby Unitree Go2s (BLE + LAN), put them on Wi-Fi over Bluetooth, and drive one live. A floating
+// Go2 Ctrl: discover nearby Unitree Go2s (BLE + LAN), put them on Wi-Fi over Bluetooth, and drive one live. A floating
 // setup panel on the left; the stage fills with the camera and controls while driving (the panel slides away, J
 // toggles it). All state is the backend's (state.ts); every button is an endpoint call.
 import { useCallback, useEffect, useRef, useState } from "react"
