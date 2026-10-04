@@ -335,6 +335,9 @@ body {
 .p-head .spacer {
     flex: 1;
 }
+.p-head .t {
+    white-space: nowrap;
+}
 .p-head .icon-btn {
     width: 26px;
     height: 26px;

@@ -7,6 +7,7 @@ import { Control } from "./Control.tsx"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus } from "./Panel.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
+import { ThemeToggle } from "./ThemeToggle.tsx"
 
 type Open = { key: string; what: "menu" | "form" | "details" | "edit" } | null
 
@@ -280,6 +281,7 @@ export function App() {
                     <span className="t dim-label">Go2 Setup</span>
                     {state?.network.mock && <span className="dim-badge warn">Mock</span>}
                     <span className="spacer" />
+                    <ThemeToggle />
                     <span className="kbd-hint">
                         <kbd>J</kbd> toggle
                     </span>
