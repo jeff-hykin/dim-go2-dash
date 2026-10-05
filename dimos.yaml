@@ -1,5 +1,11 @@
 title: Go2 Ctrl
 dimos-desktop-api: ">=2 <3"
+dimos-api:
+    - GET /dimos/runs
+    - POST /dimos/runs
+    - POST /dimos/runs/stop
+    - GET /dimos/global-config
+    - PUT /dimos/global-config
 caches:
     - url: "https://dimos-desktop.cachix.org"
       key: "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ="
@@ -204,6 +210,68 @@ agent:
                   type: string
           path: "api/accounts/{email}"
         - description: >-
+              The first-run guide: its step (welcome, find, wifi, address, launch, done), mode (robot or replay) and the robot
+              picked (key, name, ip, whether its AES key is saved)
+          method: GET
+          path: api/setup
+        - description: >-
+              Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it), ip (that robot's IP,
+              saved for it; with no robot, the robot is that IP) and mode
+          method: PUT
+          params:
+              ip:
+                  description: the picked robot's IPv4 address
+                  type: string
+              mode:
+                  description: "robot, or replay (no robot: try a recording)"
+                  type: string
+              robot:
+                  description: a key from GET api/robots; empty forgets the picked robot
+                  type: string
+              step:
+                  description: "welcome, find, wifi, address, launch or done"
+                  type: string
+          path: api/setup
+        - description: "Start the first-run guide over (robots, names and keys stay)"
+          method: DELETE
+          path: api/setup
+        - description: "Whether a Go2 answers at an IP: opens and closes a connection to its WebRTC signaling port (9991), sends nothing"
+          method: POST
+          params:
+              ip:
+                  required: true
+                  type: string
+          path: api/check-ip
+        - description: >-
+              {launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems), or
+              null
+          method: GET
+          path: api/launch
+        - description: >-
+              Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one launch at
+              a time (a running one answers 409: POST api/launch/stop first). dryRun: true says what it would send
+          method: POST
+          params:
+              blueprint:
+                  description: default unitree-go2-basic
+                  type: string
+              default:
+                  description: 'also save robot_ip in Desktop''s global config, for the Launcher''s launches'
+                  type: boolean
+              dryRun:
+                  description: "true: say what would be launched, launch nothing"
+                  type: boolean
+              ip:
+                  description: 'the robot''s IP (default: the guide''s robot)'
+                  type: string
+              replay:
+                  description: play a recording instead of connecting to a robot
+                  type: boolean
+          path: api/launch
+        - description: Stop Desktop's dimos launch
+          method: POST
+          path: api/launch/stop
+        - description: >-
               Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first (on the
               robot of the open drive session)
           method: POST
@@ -305,7 +373,6 @@ agent:
                   description: "true: check everything and say what would be sent, without touching the robot"
                   type: boolean
           path: api/drive/finger_heart
-# prebuilt cross builds Desktop downloads (if a cache above has them) before building dimosApp, per machine type
 nix:
     cache:
         aarch64-linux:

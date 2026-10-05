@@ -7,6 +7,7 @@ import { Control } from "./Control.tsx"
 import { EmptyState } from "./dim-app/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus } from "./Panel.tsx"
+import { Setup } from "./Setup.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
 import { ThemeToggle } from "./ThemeToggle.tsx"
 
@@ -60,9 +61,12 @@ export function App() {
 
     const drive = state?.drive ?? { active: false as const }
     const driving = drive.active
+    // the first-run guide owns the stage until it's done (or skipped)
+    const setup = state?.setup
+    const guiding = !!setup && setup.step !== "done" && !driving
 
-    // the panel slides away when a drive starts and comes back when it ends
-    useEffect(() => setSlid(driving), [driving])
+    // the panel slides away while driving or being guided, and comes back after
+    useEffect(() => setSlid(driving || guiding), [driving, guiding])
     useEffect(() => {
         call<{ multicast?: { fix: string } }>("GET", "api/network").then(
             (n) => n.multicast && setRouteFix(n.multicast.fix),
@@ -262,8 +266,26 @@ export function App() {
     const sent = wifi?.status === "ok" ? robots.find((r) => r.key === wifi.robot) : undefined
     return (
         <>
-            <div className={`stage${sent ? " connected" : ""}`} style={driving ? { display: "none" } : undefined}>
-                {sent || (state && robots.length > 0)
+            <div
+                className={`stage${sent ? " connected" : ""}${guiding ? " guiding" : ""}`}
+                style={driving ? { display: "none" } : undefined}
+            >
+                {guiding && state
+                    ? (
+                        <Setup
+                            setup={state.setup}
+                            robots={robots}
+                            scan={state.scan}
+                            wifi={state.wifi}
+                            network={state.network}
+                            onOpenAccounts={openAccounts}
+                            onShowHelp={() => {
+                                setSlid(false)
+                                setHelpRequest((n) => n + 1)
+                            }}
+                        />
+                    )
+                    : sent || (state && robots.length > 0)
                     ? (
                         <div className="empty">
                             <div className="glyph">
@@ -340,12 +362,12 @@ export function App() {
 
             <div className={`panel dim-panel${slid ? " slid" : ""}`}>
                 <div className="p-head">
-                    <span className="t dim-label">Go2 Setup</span>
+                    <span className="t dim-label">Robots</span>
                     {state?.network.mock && <span className="dim-badge warn">Mock</span>}
                     <span className="spacer" />
                     <ThemeToggle />
-                    <span className="kbd-hint">
-                        <kbd>J</kbd> toggle
+                    <span className="kbd-hint" title="J shows and hides this panel">
+                        <kbd>J</kbd>
                     </span>
                     <button
                         type="button"
@@ -377,6 +399,19 @@ export function App() {
                         <span className={`dot ${status.cls}`} />
                         <span>{status.text}</span>
                     </span>
+                    <span className="spacer" />
+                    <button
+                        type="button"
+                        className="dim-btn ghost sm guide-btn"
+                        title="Walk through finding a Go2, putting it on Wi-Fi and launching dimos for it"
+                        disabled={!state}
+                        onClick={() =>
+                            call("PUT", "api/setup", { step: state?.setup.robot?.ip ? "launch" : "welcome" }).catch(
+                                () => {},
+                            )}
+                    >
+                        Setup guide
+                    </button>
                 </div>
                 <div className="list" ref={list}>
                     {state?.scan.notice && <div className="none warn">{state.scan.notice}</div>}
@@ -432,7 +467,7 @@ export function App() {
                     className={`reopen dim-tab active${slid ? " show" : ""}`}
                     onClick={() => setSlid(false)}
                 >
-                    Go2 Setup
+                    Robots
                 </button>
             </div>
 

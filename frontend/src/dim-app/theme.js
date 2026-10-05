@@ -181,7 +181,9 @@ export function initInsets() {
 /** The current insets in px, `{ top, bottom, left, right }` (all 0 outside Desktop). */
 export function insets() {
     const style = document.documentElement.style
-    return Object.fromEntries(INSET_SIDES.map((side) => [side, parseFloat(style.getPropertyValue(`--dim-inset-${side}`)) || 0]))
+    return Object.fromEntries(
+        INSET_SIDES.map((side) => [side, parseFloat(style.getPropertyValue(`--dim-inset-${side}`)) || 0]),
+    )
 }
 
 /** Saves this app's choice ("dark" | "light" | "auto") and applies it. */

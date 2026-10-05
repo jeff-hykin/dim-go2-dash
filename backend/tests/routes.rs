@@ -243,3 +243,194 @@ async fn browser_offer() -> String {
     pc.close().await.unwrap();
     sdp
 }
+
+#[tokio::test]
+async fn first_run_guide_walks_and_resumes() {
+    let t = setup();
+    let setup = t.ok("GET", "api/setup", None).await;
+    assert_eq!(setup["step"], "welcome", "nothing saved yet: a first run opens the guide");
+    assert_eq!(t.ok("GET", "api/state", None).await["setup"]["step"], "welcome");
+    assert_eq!(t.status("PUT", "api/setup", Some(json!({ "step": "nowhere" }))).await, 400);
+    assert_eq!(t.status("PUT", "api/setup", Some(json!({ "mode": "boat" }))).await, 400);
+    assert_eq!(t.status("PUT", "api/setup", Some(json!({ "robot": "nobody" }))).await, 404);
+    t.ok("PUT", "api/setup", Some(json!({ "step": "find", "mode": "robot" }))).await;
+    t.scanned().await;
+    // the Bluetooth-only dog (a new Go2): picked, given Wi-Fi, then seen on the network
+    let picked = t.ok("PUT", "api/setup", Some(json!({ "robot": BLE_ONLY, "step": "wifi" }))).await;
+    assert_eq!(picked["robot"]["key"], BLE_ONLY);
+    assert_eq!(picked["robot"]["ip"], Value::Null);
+    let sent = t.ok("POST", &format!("api/robots/{BLE_ONLY}/wifi"), Some(json!({ "ssid": "MockNet", "password": "pw" }))).await;
+    assert_eq!(sent["sent"], true);
+    t.scanned().await;
+    assert_eq!(t.ok("GET", &format!("api/robots/{BLE_ONLY}"), None).await["ip"], Value::Null, "not on the network yet");
+    tokio::time::sleep(std::time::Duration::from_millis(go2_dash::app::MOCK_JOIN_MS + 100)).await;
+    t.scanned().await;
+    let joined = t.ok("GET", &format!("api/robots/{BLE_ONLY}"), None).await;
+    assert_eq!(joined["ip"], "192.0.2.11");
+    // the IP confirmed (or edited) on the address step is saved with the robot
+    assert_eq!(t.status("PUT", "api/setup", Some(json!({ "ip": "300.1.1.1" }))).await, 400);
+    let confirmed = t.ok("PUT", "api/setup", Some(json!({ "ip": "192.0.2.11", "step": "launch" }))).await;
+    assert_eq!(confirmed["robot"]["ip"], "192.0.2.11");
+    assert_eq!(confirmed["robot"]["hasAesKey"], false);
+    // a reload, or the app restarting, resumes where it was
+    let again = App::new(t._dir.0.clone(), true);
+    assert_eq!(again.setup_state()["step"], "launch");
+    assert_eq!(again.setup_state()["robot"]["key"], BLE_ONLY);
+    assert_eq!(t.ok("DELETE", "api/setup", None).await["step"], "welcome");
+}
+
+#[tokio::test]
+async fn guide_without_a_scan_and_for_returning_users() {
+    let t = setup();
+    // no robot picked: the IP typed in is the robot
+    let typed = t.ok("PUT", "api/setup", Some(json!({ "ip": "192.0.2.50" }))).await;
+    assert_eq!(typed["robot"]["key"], "192.0.2.50");
+    assert_eq!(typed["robot"]["name"], "Go2 at 192.0.2.50");
+    assert_eq!(t.ok("PUT", "api/setup", Some(json!({ "robot": "" }))).await["robot"], Value::Null);
+    // someone with saved robots already isn't walked through it again
+    let dir = std::env::temp_dir().join(format!("go2_dash_test_returning_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("go2_dash_names.json"), r#"{"X":"Rex"}"#).unwrap();
+    assert_eq!(App::new(dir.clone(), true).setup_state()["step"], "done");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn check_ip() {
+    let t = setup();
+    assert_eq!(t.ok("POST", "api/check-ip", Some(json!({ "ip": "192.0.2.10" }))).await["reachable"], true);
+    let away = t.ok("POST", "api/check-ip", Some(json!({ "ip": "10.9.9.9" }))).await;
+    assert_eq!(away["reachable"], false);
+    assert!(away["error"].is_string());
+    assert_eq!(t.status("POST", "api/check-ip", Some(json!({ "ip": "dog" }))).await, 400);
+}
+
+#[tokio::test]
+async fn launch_in_mock_and_dry_run() {
+    let t = setup();
+    // nothing to launch for yet
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "dryRun": true }))).await, 400);
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "blueprint": "--help", "replay": true, "dryRun": true }))).await, 400);
+    t.scanned().await;
+    t.ok("PUT", &format!("api/robots/{DOG}/aes-key"), Some(json!({ "aesKey": "00112233445566778899aabbccddeeff" }))).await;
+    t.ok("PUT", "api/setup", Some(json!({ "robot": DOG }))).await;
+    let dry = t.ok("POST", "api/launch", Some(json!({ "dryRun": true }))).await;
+    assert_eq!(dry["sent"], false);
+    assert_eq!(dry["request"]["blueprint"], "unitree-go2-basic");
+    assert_eq!(dry["request"]["overrides"]["robot_ip"], "192.0.2.10");
+    assert_eq!(dry["request"]["overrides"]["unitree_aes_128_key"], "(saved key)", "the key is sent, never shown");
+    // what really goes to Desktop carries the key
+    let request = t.app.launch_request(false, None, None).unwrap();
+    assert_eq!(request["overrides"]["unitree_aes_128_key"], "00112233445566778899aabbccddeeff");
+    assert_eq!(t.app.launch_request(true, None, None).unwrap(), json!({ "blueprint": "unitree-go2-basic", "replay": true, "overrides": {} }));
+    // mock: a robot launch is simulated, step by step
+    assert_eq!(t.ok("GET", "api/launch", None).await["launch"], Value::Null);
+    let launch = t.ok("POST", "api/launch", Some(json!({}))).await;
+    assert_eq!(launch["phase"], "starting");
+    assert_eq!(launch["mock"], true);
+    tokio::time::sleep(std::time::Duration::from_millis(3700)).await;
+    assert_eq!(t.ok("GET", "api/launch", None).await["launch"]["phase"], "running");
+    assert_eq!(t.ok("POST", "api/launch/stop", None).await["stopped"], true);
+    assert_eq!(t.ok("GET", "api/launch", None).await["launch"], Value::Null);
+    // a replay needs Desktop
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "replay": true }))).await, 409);
+}
+
+/// A stand-in for Desktop's /dimos endpoints: records what it's sent.
+async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+    use axum::routing::{get, post};
+    let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> = Default::default();
+    let (s1, s2, s3) = (seen.clone(), seen.clone(), seen.clone());
+    let router = axum::Router::new()
+        .route(
+            "/dimos/runs",
+            post(move |body: axum::Json<Value>| {
+                let seen = s1.clone();
+                async move {
+                    seen.lock().unwrap().push(("launch".into(), body.0.clone()));
+                    if busy {
+                        return (axum::http::StatusCode::BAD_REQUEST, axum::Json(json!({ "error": "unitree-go2 is still running; stop it first" })));
+                    }
+                    let flags = body.0["overrides"].as_object().unwrap().iter().map(|(k, v)| format!("--{} {}", k.replace('_', "-"), v.as_str().unwrap_or(""))).collect::<Vec<_>>().join(" ");
+                    (axum::http::StatusCode::OK, axum::Json(json!({ "blueprint": body.0["blueprint"], "phase": "starting", "overrides": body.0["overrides"], "output": format!("$ dimos {flags} run x"), "steps": [] })))
+                }
+            })
+            .get(|| async { axum::Json(json!({ "runs": [], "launch": { "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
+        )
+        .route(
+            "/dimos/runs/stop",
+            post(move |body: String| {
+                let seen = s2.clone();
+                async move {
+                    seen.lock().unwrap().push(("stop".into(), serde_json::from_str(&body).unwrap_or(Value::Null)));
+                    axum::Json(json!({ "output": "" }))
+                }
+            }),
+        )
+        .route(
+            "/dimos/global-config",
+            get(|| async { axum::Json(json!({ "overrides": { "zenoh_mode": "peer" } })) }).put(move |body: axum::Json<Value>| {
+                let seen = s3.clone();
+                async move {
+                    seen.lock().unwrap().push(("global-config".into(), body.0));
+                    axum::Json(json!({}))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (url, seen)
+}
+
+#[tokio::test]
+async fn launch_through_desktop() {
+    let dir = std::env::temp_dir().join(format!("go2_dash_test_desktop_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = TempDir(dir.clone());
+    // a real (not mock) app: nothing here scans or reaches a robot, it only talks to the fake Desktop
+    let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused")) };
+    let (url, seen) = fake_desktop(false).await;
+    t.app.desktop_url.set(url).unwrap();
+    t.ok("PUT", "api/setup", Some(json!({ "ip": "10.0.0.7" }))).await;
+    let launch = t.ok("POST", "api/launch", Some(json!({ "default": true }))).await;
+    assert_eq!(launch["phase"], "starting");
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0].0, "global-config");
+        assert_eq!(seen[0].1["overrides"], json!({ "zenoh_mode": "peer", "robot_ip": "10.0.0.7" }), "Desktop's other settings are kept");
+        assert_eq!(seen[1], ("launch".to_string(), json!({ "blueprint": "unitree-go2-basic", "replay": false, "overrides": { "robot_ip": "10.0.0.7" } })));
+    }
+    let state = t.ok("GET", "api/launch", None).await["launch"].clone();
+    assert_eq!(state["phase"], "running");
+    assert_eq!(state["overrides"]["unitree_aes_128_key"], "(saved key)");
+    t.ok("POST", "api/launch", Some(json!({ "replay": true, "blueprint": "unitree-go2" }))).await;
+    assert_eq!(seen.lock().unwrap()[2].1, json!({ "blueprint": "unitree-go2", "replay": true, "overrides": {} }));
+    t.ok("POST", "api/launch/stop", None).await;
+    assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "stop"));
+    // Desktop already running something: a 409 that says so
+    let (busy_url, _) = fake_desktop(true).await;
+    let busy = Test { app: App::new(dir.join("busy"), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused2")) };
+    busy.app.desktop_url.set(busy_url).unwrap();
+    let (status, body) = busy.call("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await;
+    assert_eq!(status, 409);
+    assert!(body["error"].as_str().unwrap().contains("stop it first"));
+}
+
+#[test]
+fn data_dir_and_migration() {
+    use go2_dash::app::{data_dir, migrate_legacy};
+    use std::path::PathBuf;
+    let home = PathBuf::from("/home/u");
+    assert_eq!(data_dir(None, None, home.clone(), false), PathBuf::from("/home/u/.local/share/dim"));
+    assert_eq!(data_dir(None, Some("/d/app".into()), home.clone(), false), PathBuf::from("/d/app"));
+    assert_eq!(data_dir(Some("/x".into()), Some("/d/app".into()), home.clone(), true), PathBuf::from("/x/mock"));
+    let root = std::env::temp_dir().join(format!("go2_dash_test_migrate_{}", std::process::id()));
+    let _cleanup = TempDir(root.clone());
+    let (old, new) = (root.join("old"), root.join("new"));
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("go2_dash_names.json"), "{}").unwrap();
+    assert_eq!(migrate_legacy(&old, &new), 1);
+    std::fs::write(old.join("go2_dash_ips.json"), "{}").unwrap();
+    assert_eq!(migrate_legacy(&old, &new), 0, "only once: the new folder already has saved files");
+}

@@ -14,4 +14,5 @@ pub mod relay;
 pub mod robot_rtc;
 pub mod routes;
 pub mod server;
+pub mod setup;
 mod video;

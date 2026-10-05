@@ -1030,7 +1030,292 @@ body.science.dark .nav-focus {
 }
 
 /* phone: the panel takes the width (the stage's empty-state text showed through beside it) */
+
+/* ── first-run guide (Setup.tsx): a dim-empty card on the stage, one step at a time ── */
+.stage.guiding {
+    overflow-y: auto;
+    align-items: safe center;
+    padding: 32px 24px;
+}
+.setup.dim-empty {
+    width: min(560px, 100%);
+    gap: 12px;
+}
+.su-top {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+}
+.su-steps {
+    display: flex;
+    gap: 14px;
+    margin: 0 0 0 auto;
+    padding: 0;
+    list-style: none;
+    font-size: 12px;
+    color: var(--muted-fg);
+}
+.su-steps li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.su-steps .n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-round);
+    font: 11px/1 var(--mono);
+}
+.su-steps li.now {
+    color: var(--fg);
+    font-weight: 600;
+}
+.su-steps li.now .n {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.su-steps li.done .n {
+    border-color: var(--ok);
+    color: var(--ok);
+}
+.su-choices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.su-choice {
+    appearance: none;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    text-align: left;
+    padding: 14px;
+    color: var(--fg);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    font: inherit;
+    transition: border-color 0.12s ease, background 0.12s ease;
+}
+.su-choice:hover,
+.su-choice:focus-visible {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+    outline: none;
+}
+.su-choice svg {
+    flex: none;
+    color: var(--primary);
+}
+.su-choice b,
+.su-robot b {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+}
+.su-choice small,
+.su-robot small {
+    display: block;
+    margin-top: 3px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--muted-fg);
+}
+.setup .spacer {
+    flex: 1;
+}
+.setup button.dim-link {
+    appearance: none;
+    cursor: pointer;
+    padding: 0;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--primary-soft);
+    font: inherit;
+    font-size: 13px;
+    color: var(--primary);
+}
+.setup .dim-empty-actions {
+    align-items: center;
+}
+.su-list {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--fg);
+}
+.su-note {
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: none;
+}
+.su-hint {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--muted-fg);
+}
+.su-busy {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted-fg);
+}
+.dim-progress.indeterminate > span {
+    width: 30%;
+    animation: su-sweep 1.3s ease-in-out infinite;
+}
+@keyframes su-sweep {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(340%);
+    }
+}
+.su-robots {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.su-robot {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--card);
+}
+.su-robot.on {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+}
+.su-robot input {
+    accent-color: var(--primary);
+    margin: 0;
+}
+.su-robot-main {
+    flex: 1;
+    min-width: 0;
+}
+.su-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.su-two {
+    display: flex;
+    gap: 10px;
+}
+.su-two > :first-child {
+    flex: 1;
+}
+.su-country {
+    flex: 0 0 80px;
+}
+.su-log {
+    max-height: 120px;
+    overflow-y: auto;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted-fg);
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.su-ip {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+.su-ip .dim-field {
+    flex: 1;
+}
+.su-summary {
+    display: flex;
+    flex-direction: column;
+}
+.su-default {
+    font-size: 13px;
+}
+.su-launch {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.su-launch-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted-fg);
+}
+.su-launch-steps li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.su-launch-steps .st {
+    width: 16px;
+    text-align: center;
+    font-family: var(--mono);
+}
+.su-launch-steps li.done {
+    color: var(--fg);
+}
+.su-launch-steps li.done .st {
+    color: var(--ok);
+}
+.su-launch-steps li.failed .st {
+    color: var(--danger);
+}
+.su-launch-steps li.now {
+    color: var(--fg);
+    font-weight: 600;
+}
+.su-launch-steps li.now .st::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-round);
+    background: var(--primary);
+    animation: pulse 1.2s ease-in-out infinite;
+}
+.su-skip {
+    align-self: flex-start;
+}
+.su-alt {
+    margin-top: -4px;
+}
+.p-scan .spacer {
+    flex: 1;
+}
+
 @media (max-width: 600px) {
+    .stage.guiding {
+        padding: 16px;
+    }
+    .su-choices {
+        grid-template-columns: 1fr;
+    }
+    .su-steps {
+        margin-left: 0;
+    }
+
     .panel {
         right: 16px;
         width: auto;

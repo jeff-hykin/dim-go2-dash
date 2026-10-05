@@ -34,7 +34,7 @@ use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::TrackLocalWriter;
 
-const SIGNALING_PORT: u16 = 9991;
+pub const SIGNALING_PORT: u16 = 9991;
 const SIGNALING_TIMEOUT: Duration = Duration::from_secs(4);
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(8);
 const SPORT_TOPIC: &str = "rt/api/sport/request";

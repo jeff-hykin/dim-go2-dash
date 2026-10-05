@@ -65,6 +65,33 @@ export type Command = { name: string; label: string; description: string }
 
 export type Network = { ssid: string | null; ssidStatus: "ok" | "redacted" | "unknown"; mock: boolean }
 
+export type SetupStep = "welcome" | "find" | "wifi" | "address" | "launch" | "done"
+
+export type SetupState = {
+    step: SetupStep
+    mode: "robot" | "replay" | null
+    robot: {
+        key: string
+        name: string
+        ip: string | null
+        serial: string | null
+        bleId: string | null
+        hasAesKey: boolean
+    } | null
+}
+
+/** Desktop's launch (docs/api.md `Launch`), as api/launch passes it on */
+export type Launch = {
+    blueprint: string
+    phase: "starting" | "running" | "stopped" | "failed"
+    error: string | null
+    overrides: Record<string, unknown>
+    steps?: { label: string; state: "done" | "now" | "todo" | "failed"; detail: string | null }[]
+    problems?: { level: string; text: string; fix: string | null }[]
+    output?: string
+    mock?: boolean
+}
+
 export type State = {
     robots: Robot[]
     scan: Scan
@@ -73,6 +100,7 @@ export type State = {
     network: Network
     accounts: Account[]
     commands: Command[]
+    setup: SetupState
 }
 
 /** The backend's state, or an error string when it can't be reached. `onCommand` sees every robot command, whoever sent it. */
@@ -101,6 +129,7 @@ export function useBackend(onCommand: (command: CommandRecord) => void): [State 
                 drive: "drive",
                 network: "network",
                 accounts: "accounts",
+                setup: "setup",
             }[
                 event.type as string
             ] as keyof State | undefined

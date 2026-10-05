@@ -16,11 +16,20 @@ fn flag(name: &str) -> Option<String> {
 
 #[tokio::main]
 async fn main() {
-    let data_dir = std::env::var("GO2_DASH_DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".local/share/dim"));
     let mock = std::env::var("GO2_DASH_MOCK").is_ok_and(|v| v == "1" || v == "true");
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
+    let desktop_dir = dimos_app::get().and_then(|given| given.data_dir.clone()).map(PathBuf::from);
+    let data_dir = go2_dash::app::data_dir(std::env::var("GO2_DASH_DATA_DIR").ok().map(PathBuf::from), desktop_dir.clone(), home.clone(), mock);
+    if desktop_dir.is_some() && !mock && std::env::var_os("GO2_DASH_DATA_DIR").is_none() {
+        let copied = go2_dash::app::migrate_legacy(&home.join(".local/share/dim"), &data_dir);
+        if copied > 0 {
+            eprintln!("copied {copied} saved files from ~/.local/share/dim into {}", data_dir.display());
+        }
+    }
     let app = App::new(data_dir, mock);
+    if let Some(url) = dimos_app::get().and_then(|given| given.desktop_url.clone()) {
+        let _ = app.desktop_url.set(url);
+    }
     if std::env::args().any(|arg| arg == "--agent-json") {
         println!("{}", serde_json::to_string_pretty(&go2_dash::api::describe(go2_dash::routes::DESCRIPTION, &app.routes)).unwrap());
         return;

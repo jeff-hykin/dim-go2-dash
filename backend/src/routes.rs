@@ -34,6 +34,7 @@ async fn state(app: &std::sync::Arc<crate::app::App>) -> Value {
         "network": app.network_basic(),
         "accounts": app.accounts(),
         "commands": commands_json(),
+        "setup": app.setup_state(),
     })
 }
 
@@ -284,6 +285,58 @@ pub fn routes() -> Vec<Route> {
             Some(json!({ "email": { "type": "string", "required": true } })),
             handler(|app, args| async move { app.remove_account(&text(&args, "email").unwrap_or_default()) }),
         ),
+        route(
+            "GET",
+            "api/setup",
+            "The first-run guide: its step (welcome, find, wifi, address, launch, done), mode (robot or replay) and the robot picked (key, name, ip, whether its AES key is saved)",
+            None,
+            handler(|app, _| async move { Ok(app.setup_state()) }),
+        ),
+        route(
+            "PUT",
+            "api/setup",
+            "Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it), ip (that robot's IP, saved for it; with no robot, the robot is that IP) and mode",
+            Some(json!({
+                "step": { "type": "string", "description": "welcome, find, wifi, address, launch or done" },
+                "robot": { "type": "string", "description": "a key from GET api/robots; empty forgets the picked robot" },
+                "ip": { "type": "string", "description": "the picked robot's IPv4 address" },
+                "mode": { "type": "string", "description": "robot, or replay (no robot: try a recording)" },
+            })),
+            handler(|app, args| async move {
+                app.update_setup(text(&args, "step").as_deref(), text(&args, "robot").as_deref(), text(&args, "ip").as_deref(), text(&args, "mode").as_deref())
+            }),
+        ),
+        route("DELETE", "api/setup", "Start the first-run guide over (robots, names and keys stay)", None, handler(|app, _| async move { Ok(app.reset_setup()) })),
+        route(
+            "POST",
+            "api/check-ip",
+            "Whether a Go2 answers at an IP: opens and closes a connection to its WebRTC signaling port (9991), sends nothing",
+            Some(json!({ "ip": { "type": "string", "required": true } })),
+            handler(|app, args| async move { app.check_ip(&text(&args, "ip").unwrap_or_default()).await }),
+        ),
+        route(
+            "GET",
+            "api/launch",
+            "{launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems), or null",
+            None,
+            handler(|app, _| async move { Ok(json!({ "launch": app.launch_state().await? })) }),
+        ),
+        route(
+            "POST",
+            "api/launch",
+            "Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one launch at a time (a running one answers 409: POST api/launch/stop first). dryRun: true says what it would send",
+            Some(json!({
+                "blueprint": { "type": "string", "description": "default unitree-go2-basic" },
+                "replay": { "type": "boolean", "description": "play a recording instead of connecting to a robot" },
+                "ip": { "type": "string", "description": "the robot's IP (default: the guide's robot)" },
+                "default": { "type": "boolean", "description": "also save robot_ip in Desktop's global config, for the Launcher's launches" },
+                "dryRun": { "type": "boolean", "description": "true: say what would be launched, launch nothing" },
+            })),
+            handler(|app, args| async move {
+                app.launch(flag(&args, "replay")?, text(&args, "blueprint").as_deref(), text(&args, "ip").as_deref(), flag(&args, "dryRun")?, flag(&args, "default")?).await
+            }),
+        ),
+        route("POST", "api/launch/stop", "Stop Desktop's dimos launch", None, handler(|app, _| async move { app.stop_launch().await })),
     ];
     routes.extend(COMMANDS.iter().map(command_route));
     routes

@@ -68,6 +68,13 @@ pub struct App {
     scan_done: watch::Sender<u64>,
     wifi_task: tokio::sync::Mutex<Option<tokio::task::AbortHandle>>,
     pub drive: tokio::sync::Mutex<Option<Arc<Drive>>>,
+    /// the first-run guide's step and robot (setup.rs)
+    pub(crate) setup: Mutex<Value>,
+    pub(crate) mock_launch: crate::setup::MockLaunch,
+    /// Desktop's URL (DIMOS_APP's desktopUrl): where dimos is launched
+    pub desktop_url: std::sync::OnceLock<String>,
+    /// mock only: when each robot given Wi-Fi shows up on the network (ms), as a real one does ~30 s later
+    mock_joined: Mutex<BTreeMap<String, u64>>,
 }
 
 pub fn now_ms() -> u64 {
@@ -81,6 +88,30 @@ fn device_key(device: &Value) -> String {
         }
     }
     device.to_string()
+}
+
+const SAVED_FILES: [&str; 5] = [NAMES_FILE, AES_KEYS_FILE, ACCOUNTS_FILE, IPS_FILE, crate::setup::SETUP_FILE];
+
+/// Where the app keeps what it saves: GO2_DASH_DATA_DIR, else the data folder Desktop gives it (DIMOS_APP's dataDir:
+/// each Desktop, and each DIMOS_HOME, its own), else ~/.local/share/dim. Mock mode keeps its own `mock/` beside it, so
+/// a simulation never writes into a real robot list.
+pub fn data_dir(explicit: Option<PathBuf>, desktop: Option<PathBuf>, home: PathBuf, mock: bool) -> PathBuf {
+    let dir = explicit.or(desktop).unwrap_or_else(|| home.join(".local/share/dim"));
+    if mock {
+        dir.join("mock")
+    } else {
+        dir
+    }
+}
+
+/// Before Desktop gave apps a data folder everything lived in ~/.local/share/dim: copy it over once, so an update
+/// keeps someone's robot names, IPs, AES keys and accounts. Nothing happens once `to` has any of them.
+pub fn migrate_legacy(from: &std::path::Path, to: &std::path::Path) -> usize {
+    if from == to || SAVED_FILES.iter().any(|file| to.join(file).exists()) {
+        return 0;
+    }
+    let _ = std::fs::create_dir_all(to);
+    SAVED_FILES.iter().filter(|file| std::fs::copy(from.join(file), to.join(file)).is_ok()).count()
 }
 
 pub fn valid_ipv4(text: &str) -> bool {
@@ -110,6 +141,13 @@ impl App {
                 },
             );
         }
+        // a first run: nothing saved yet (no names, IPs, keys or accounts)
+        let first_run = state.names.is_empty() && state.ips.is_empty() && state.aes_keys.is_empty() && state.accounts.is_empty();
+        let setup = std::fs::read_to_string(data_dir.join(crate::setup::SETUP_FILE))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .filter(|setup| setup["step"].is_string())
+            .unwrap_or_else(|| crate::setup::initial(first_run));
         let (events, _) = broadcast::channel(256);
         Arc::new(App {
             routes: crate::routes::routes(),
@@ -122,6 +160,10 @@ impl App {
             scan_done: watch::channel(0).0,
             wifi_task: tokio::sync::Mutex::new(None),
             drive: tokio::sync::Mutex::new(None),
+            setup: Mutex::new(setup),
+            mock_launch: Default::default(),
+            desktop_url: Default::default(),
+            mock_joined: Default::default(),
         })
     }
 
@@ -138,6 +180,10 @@ impl App {
     fn publish_robots(&self) {
         let robots = self.robots();
         self.publish(json!({ "type": "robots", "robots": robots }));
+    }
+
+    pub(crate) fn save_file(&self, file: &str, data: Value) {
+        self.save(file, data, false)
     }
 
     fn save(&self, file: &str, data: Value, private: bool) {
@@ -251,6 +297,11 @@ impl App {
         self.remember_ip(key, ip);
         self.publish_robots();
         self.robot(key)
+    }
+
+    pub(crate) fn remember_ip_public(&self, key: &str, ip: &str) {
+        self.remember_ip(key, ip);
+        self.publish_robots();
     }
 
     fn remember_ip(&self, key: &str, ip: &str) {
@@ -389,7 +440,9 @@ impl App {
                     Arc::new(move |event| app.on_discovery(event))
                 };
                 if app.mock {
-                    mock_scan(sink, timeout_secs).await;
+                    let joined: Vec<String> =
+                        app.mock_joined.lock().unwrap().iter().filter(|(_, at)| **at <= now_ms()).map(|(key, _)| key.clone()).collect();
+                    mock_scan(sink, timeout_secs, &joined).await;
                 } else {
                     let adapter = app.adapter_for_scan().await;
                     discovery::do_scan(adapter, app.registry.clone(), timeout_secs, sink).await;
@@ -529,13 +582,17 @@ impl App {
         self.set_wifi(|wifi| *wifi = json!({ "status": "running", "robot": key, "ssid": ssid, "country": country, "log": [format!("Connecting {name} → “{ssid}” …")], "warning": warning }));
         let app = self.clone();
         let (ssid_task, password, country_task) = (ssid.clone(), password.to_string(), country.clone());
+        let robot_serial = robot["serial"].as_str().map(str::to_string);
         let task = tokio::spawn(async move {
             if app.mock {
                 for step in ["handshake", "read serial", "init STA mode", "set SSID", "set password", "set country"] {
                     app.wifi_log(step.to_string());
                     tokio::time::sleep(Duration::from_millis(30)).await;
                 }
-                return Ok(Some("MOCKSERIAL".to_string()));
+                // the mock robot shows up on the network a few seconds later (a real Go2: ~30 s)
+                let serial = robot_serial.clone().unwrap_or_else(|| "MOCKSERIAL".to_string());
+                app.mock_joined.lock().unwrap().insert(serial.clone(), now_ms() + MOCK_JOIN_MS);
+                return Ok(Some(serial));
             }
             let peripheral =
                 app.registry.lock().await.get(&ble_id).cloned().ok_or_else(|| format!("device {ble_id} not found — scan again first"))?;
@@ -735,16 +792,25 @@ impl App {
     }
 }
 
-async fn mock_scan(sink: Sink, timeout_secs: f64) {
+/// How long after the mock's Wi-Fi provisioning the robot is seen on the network.
+pub const MOCK_JOIN_MS: u64 = 4000;
+
+/// The mock's two robots: one already on the network, one only over Bluetooth (a new Go2) until it's given Wi-Fi
+/// (`joined`: the serials that have joined since). Found one after another, as a real scan finds them.
+async fn mock_scan(sink: Sink, timeout_secs: f64, joined: &[String]) {
+    let pause = Duration::from_secs_f64((timeout_secs / 10.0).min(0.6));
     sink(json!({ "type": "scan_start" }));
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(pause).await;
+    let second = "MOCK0000GO2A0002";
+    let second_ip = joined.iter().any(|s| s == second).then_some("192.0.2.11");
+    sink(
+        json!({ "type": "device", "serial": second, "name": "Go2_MOCK2", "ble_mac": "mock-ble-2", "ip": second_ip, "lan_mac": second_ip.map(|_| "94:ba:06:00:00:02"), "arp_only": false }),
+    );
+    tokio::time::sleep(pause).await;
     sink(
         json!({ "type": "device", "serial": "MOCK0000GO2A0001", "name": "Go2_MOCK1", "ble_mac": "mock-ble-1", "ip": "192.0.2.10", "lan_mac": "94:ba:06:00:00:01", "arp_only": false }),
     );
-    sink(
-        json!({ "type": "device", "serial": "MOCK0000GO2A0002", "name": "Go2_MOCK2", "ble_mac": "mock-ble-2", "ip": null, "lan_mac": null, "arp_only": false }),
-    );
-    tokio::time::sleep(Duration::from_secs_f64((timeout_secs / 20.0).min(0.3))).await;
+    tokio::time::sleep(pause).await;
     sink(json!({ "type": "scan_done", "count": 2 }));
 }
 
