@@ -1316,6 +1316,10 @@ body.science.dark .nav-focus {
     .stage.guiding {
         padding: 16px;
     }
+    /* on a phone the panel's edge tab would sit on the guide's card; "Skip setup" brings the panel back */
+    .stage.guiding ~ .edge-tabs {
+        display: none;
+    }
     .su-choices {
         grid-template-columns: 1fr;
     }
