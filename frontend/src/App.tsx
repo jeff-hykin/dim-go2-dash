@@ -263,7 +263,8 @@ export function App() {
     )
     const robots: Robot[] = state?.robots ?? []
     const wifi = state?.wifi
-    const sent = wifi?.status === "ok" ? robots.find((r) => r.key === wifi.robot) : undefined
+    // Wi-Fi was just sent to a robot the scan hasn't seen on the network yet
+    const sent = wifi?.status === "ok" ? robots.find((r) => r.key === wifi.robot && r.ipSource !== "scan") : undefined
     return (
         <>
             <div

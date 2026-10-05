@@ -700,7 +700,9 @@ function LaunchStep(props: Props & { go: Go }) {
                     {shown.phase === "running" && (
                         <div className="dim-alert ok su-note">
                             dimos is running {BLUEPRINT.title}
-                            {replay ? " on the recording" : ` for ${robot?.name}`}. Open Controller to see it and drive.
+                            {replay
+                                ? " on the recording. Open Controller to look around."
+                                : ` for ${robot?.name}. Open Controller to see it and drive.`}
                         </div>
                     )}
                     {shown.phase === "failed" && (
