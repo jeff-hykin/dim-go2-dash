@@ -169,7 +169,8 @@ function Find(props: Props & { go: Go }) {
     const chosen = visible.find((r) => r.key === picked) ?? (visible.length === 1 ? visible[0] : undefined)
     const never = scan.lastCount === null && !scan.scanning
     const none = !scan.scanning && scan.lastCount === 0
-    const next = () => chosen && go({ robot: chosen.key, step: chosen.ip ? "address" : "wifi" })
+    const next = () =>
+        chosen && go({ robot: chosen.key, step: chosen.ip && chosen.ipSource === "scan" ? "address" : "wifi" })
     return (
         <>
             <div className="dim-empty-title">Find your Go2</div>
@@ -215,10 +216,17 @@ function Find(props: Props & { go: Go }) {
                                 <small>
                                     {robot.bleId ? "Bluetooth ✓" : "No Bluetooth"}
                                     {" · "}
-                                    {robot.ip
+                                    {robot.ip && robot.ipSource === "scan"
                                         ? (
                                             <>
                                                 on this network at <span className="dim-mono">{robot.ip}</span>
+                                            </>
+                                        )
+                                        : robot.ip
+                                        ? (
+                                            <>
+                                                not seen on this network now (last at{" "}
+                                                <span className="dim-mono">{robot.ip}</span>)
                                             </>
                                         )
                                         : "not on Wi-Fi yet"}
