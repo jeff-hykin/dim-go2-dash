@@ -10,6 +10,7 @@ mod discovery;
 pub mod drive;
 mod lan;
 mod protocol;
+pub mod relay;
 pub mod robot_rtc;
 pub mod routes;
 pub mod server;

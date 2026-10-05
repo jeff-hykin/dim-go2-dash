@@ -1,7 +1,7 @@
 // Everything the app knows and does, behind the routes: discovered robots (BLE + LAN + ARP scans), the names / AES keys
 // / last-known IPs the user gave them (persisted), Wi-Fi provisioning over Bluetooth, Unitree cloud accounts (for AES
-// keys), this computer's network, and the live drive session (drive.rs). Every change is published on api/events/ws so
-// open pages follow what the agent does and vice versa.
+// keys), this computer's network, and the live drive session (drive.rs). Every change is published as an event (to the
+// page's zenoh topic `events`, through Desktop's relay: relay.rs) so open pages follow what the agent does and vice versa.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

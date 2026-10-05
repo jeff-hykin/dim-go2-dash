@@ -1,11 +1,10 @@
-// The HTTP server: the routes (api.rs), the `api/events/ws` event stream, and the built frontend.
+// The HTTP server: the routes (api.rs) and the built frontend. Events go to pages over zenoh (relay.rs).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{FromRequestParts, Request, State};
+use axum::extract::{Request, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
@@ -23,16 +22,7 @@ pub fn router(app: Arc<App>, frontend: Option<PathBuf>) -> Router {
 }
 
 async fn serve(State(server): State<Server>, request: Request) -> Response {
-    let (mut parts, body) = request.into_parts();
-    if parts.uri.path() == "/api/events/ws" {
-        return match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-            Ok(upgrade) => {
-                let app = server.app.clone();
-                upgrade.on_upgrade(move |socket| events(app, socket))
-            }
-            Err(rejection) => rejection.into_response(),
-        };
-    }
+    let (parts, body) = request.into_parts();
     let body: Bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
         Ok(bytes) => bytes,
         Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response(),
@@ -41,28 +31,6 @@ async fn serve(State(server): State<Server>, request: Request) -> Response {
         return response;
     }
     file(server.frontend.as_deref(), parts.uri.path()).await
-}
-
-/// One JSON event per message: whatever changed, from the UI or the agent.
-async fn events(app: Arc<App>, mut socket: WebSocket) {
-    let mut rx = app.subscribe();
-    loop {
-        tokio::select! {
-            event = rx.recv() => match event {
-                Ok(text) => {
-                    if socket.send(Message::Text(text.into())).await.is_err() {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(_) => break,
-            },
-            incoming = socket.recv() => match incoming {
-                Some(Ok(_)) => continue,
-                _ => break,
-            },
-        }
-    }
 }
 
 async fn file(frontend: Option<&std::path::Path>, path: &str) -> Response {

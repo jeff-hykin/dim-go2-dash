@@ -1,4 +1,5 @@
-// What the backend says (GET api/state), kept current by its events (api/events/ws). The page never computes robot or
+// What the backend says (GET api/state), kept current by its events (zenoh topic `events`, through
+// Desktop's relay; re-read after the zenoh-web connection comes back). The page never computes robot or
 // session state itself: whatever the UI or the agent changed arrives here the same way.
 import { useEffect, useState } from "react"
 import { call, events } from "./api.ts"

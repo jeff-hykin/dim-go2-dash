@@ -1,4 +1,6 @@
 // The app's backend API (backend/src/routes.rs), by relative URL: the page lives at Desktop's /apps/<name>/.
+import { appEvents } from "./dim-app/events.js"
+
 export class ApiError extends Error {}
 
 export async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
@@ -16,42 +18,9 @@ export async function call<T = unknown>(method: string, path: string, body?: unk
 
 export type BackendEvent = { type?: string; [key: string]: unknown }
 
-/** The backend's events (api/events/ws), reconnecting with backoff; `onReconnect` runs after a dropped link comes back
- * (events may have been missed). Returns an unsubscribe. */
-export function events(onEvent: (event: BackendEvent) => void, onReconnect?: () => void): () => void {
-    let socket: WebSocket | null = null
-    let delay = 500
-    let stopped = false
-    let dropped = false
-    const open = () => {
-        const url = new URL("api/events/ws", location.href)
-        url.protocol = url.protocol.replace("http", "ws")
-        socket = new WebSocket(url)
-        socket.onopen = () => {
-            delay = 500
-            if (dropped) {
-                dropped = false
-                onReconnect?.()
-            }
-        }
-        socket.onmessage = (message) => {
-            try {
-                onEvent(JSON.parse(message.data))
-            } catch {
-                // not JSON
-            }
-        }
-        socket.onclose = () => {
-            if (!stopped) {
-                dropped = true
-                setTimeout(open, delay)
-                delay = Math.min(delay * 2, 10_000)
-            }
-        }
-    }
-    open()
-    return () => {
-        stopped = true
-        socket?.close()
-    }
+/** The backend's events (its frontend zenoh topic `events`, on the page's one zenoh-web connection); `onConnect` runs
+ * each time that connection comes up (events sent before, or while it was down, are missed: re-GET). Returns an
+ * unsubscribe. */
+export function events(onEvent: (event: BackendEvent) => void, onConnect?: () => void): () => void {
+    return appEvents(onEvent, { onOpen: () => onConnect?.() })
 }
