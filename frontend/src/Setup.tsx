@@ -73,7 +73,7 @@ export function Setup(props: Props) {
                 </span>
                 <Progress setup={setup} />
             </div>
-            {step === "welcome" && <Welcome go={go} />}
+            {step === "welcome" && <Welcome go={go} robot={setup.robot} />}
             {step === "find" && <Find {...props} go={go} />}
             {step === "wifi" && <WifiStep {...props} go={go} />}
             {step === "address" && <Address {...props} go={go} />}
@@ -94,7 +94,7 @@ export function Setup(props: Props) {
 
 type Go = (body: Parameters<typeof put>[0]) => Promise<unknown>
 
-function Welcome({ go }: { go: Go }) {
+function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
     return (
         <>
             <div className="dim-empty-title">Let's get your Go2 running</div>
@@ -127,6 +127,22 @@ function Welcome({ go }: { go: Go }) {
                         <small>Play a recorded Go2 walk as if it were live</small>
                     </span>
                 </button>
+                {robot?.ip && (
+                    <button
+                        type="button"
+                        className="su-choice wide"
+                        data-testid="setup-continue"
+                        onClick={() => go({ step: "launch", mode: "robot" })}
+                    >
+                        <Icon name="arrow-right" size={22} />
+                        <span>
+                            <b>Continue with {robot.name}</b>
+                            <small>
+                                Saved at <span className="dim-mono">{robot.ip}</span>: launch dimos for it
+                            </small>
+                        </span>
+                    </button>
+                )}
             </div>
             <div className="dim-empty-actions">
                 <button type="button" className="dim-link" onClick={() => go({ step: "address", mode: "robot" })}>

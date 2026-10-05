@@ -406,7 +406,7 @@ export function App() {
                         title="Walk through finding a Go2, putting it on Wi-Fi and launching dimos for it"
                         disabled={!state}
                         onClick={() =>
-                            call("PUT", "api/setup", { step: state?.setup.robot?.ip ? "launch" : "welcome" }).catch(
+                            call("PUT", "api/setup", { step: "welcome" }).catch(
                                 () => {},
                             )}
                     >

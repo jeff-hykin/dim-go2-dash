@@ -1109,6 +1109,9 @@ body.science.dark .nav-focus {
     background: var(--primary-soft);
     outline: none;
 }
+.su-choice.wide {
+    grid-column: 1 / -1;
+}
 .su-choice svg {
     flex: none;
     color: var(--primary);
