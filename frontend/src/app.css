@@ -1244,6 +1244,10 @@ body.science.dark .nav-focus {
 .su-ip .dim-field {
     flex: 1;
 }
+.su-ip > .dim-btn {
+    align-self: flex-end;
+    height: 38px;
+}
 .su-summary {
     display: flex;
     flex-direction: column;

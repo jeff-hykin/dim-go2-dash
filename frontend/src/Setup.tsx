@@ -767,7 +767,7 @@ function LaunchStep(props: Props & { go: Go }) {
                         <button
                             type="button"
                             className="dim-btn primary sm"
-                            data-testid="setup-launch"
+                            data-testid="setup-launch-go"
                             disabled={busy || launch === undefined || (!replay && !robot?.ip)}
                             onClick={() => start(!!other || !!busyElsewhere)}
                         >
