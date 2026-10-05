@@ -2,6 +2,7 @@
 // accounts and the "never gets an IP?" help. Every action is an endpoint call; the list itself is the backend's.
 import { forwardRef, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
+import { runCommand } from "./dim-app/shell.js"
 import { Icon } from "./icons.tsx"
 import type { Account, Drive, Network, Robot, Scan, Wifi } from "./state.ts"
 import { agoText, colorFor, copyText, store, stored, validIp } from "./util.ts"
@@ -541,6 +542,28 @@ export function Accounts(
 /** `openRequest`: each new value opens it and scrolls it into view (the stage's "Help" button). */
 export function Help({ route, openRequest = 0 }: { route: string; openRequest?: number }) {
     const [open, setOpen] = useState(false)
+    // the route needs sudo: Desktop runs it (the user presses Run and types the password in its terminal)
+    const [fixing, setFixing] = useState<string | null>(null)
+    const fix = async () => {
+        setFixing("waiting for you to press Run in Desktop…")
+        try {
+            const result = await runCommand(route, {
+                title: "Route Go2 discovery over Wi-Fi",
+                note: "Send the Go2 discovery probe out the Wi-Fi interface (sudo)",
+                message: "A VPN took the route LAN discovery needs, so the probe never reaches the dog. This adds " +
+                    "a route for the Go2 discovery group (231.1.1.1) through your Wi-Fi. It asks for your password.",
+            })
+            setFixing(
+                result.status === "succeeded"
+                    ? "Done: press Scan again."
+                    : result.status === "unavailable"
+                    ? "Only inside dimOS Desktop: copy the command and run it in a terminal."
+                    : `Not done (${result.reason ?? result.status}).`,
+            )
+        } catch (error) {
+            setFixing(`Couldn't ask Desktop: ${error instanceof Error ? error.message : error}`)
+        }
+    }
     const box = useRef<HTMLDivElement>(null)
     useEffect(() => {
         if (openRequest) {
@@ -576,6 +599,12 @@ export function Help({ route, openRequest = 0 }: { route: string; openRequest?: 
                     </li>
                 </ul>
                 <Copyable className="help-cmd" value={route}>{route}</Copyable>
+                <div className="help-fix">
+                    <button type="button" className="dim-btn sm" onClick={fix} data-testid="route-fix">
+                        Run it for me
+                    </button>
+                    {fixing && <span className="help-fix-note">{fixing}</span>}
+                </div>
                 <ul>
                     <li>
                         If your VPN has a <b>kill-switch firewall</b>{" "}
