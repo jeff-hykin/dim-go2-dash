@@ -1,11 +1,13 @@
-// dimos-app-server: this app's API and its built frontend on the unix socket Desktop gives (--socket), else a port.
-// Desktop's flags: --socket --desktop-url --zenoh-web-url --zenoh-connect --dimos-dir --dimos-python (docs/apps.md).
+// dimos-app-server: this app's API and its built frontend on the unix socket Desktop gives (DIMOS_APP's `socket`; older
+// Desktops: --socket), else a port. What Desktop passes: the DIMOS_APP env var, one JSON object (docs/apps.md).
 // `--agent-json` prints the endpoints (what dimos.yaml's `agent:` must list) and exits. GO2_DASH_MOCK=1 simulates
 // every robot, Bluetooth and cloud interaction (for trying the UI without hardware).
 
 use std::path::PathBuf;
 
 use go2_dash::app::App;
+
+mod dimos_app;
 
 fn flag(name: &str) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
@@ -29,9 +31,9 @@ async fn main() {
     });
     let frontend = flag("frontend").map(PathBuf::from);
     let router = go2_dash::server::router(app, frontend);
-    if let Some(socket) = flag("socket") {
+    if let Some(socket) = dimos_app::get().and_then(|app| app.socket.clone()).or_else(|| flag("socket")) {
         let _ = std::fs::remove_file(&socket);
-        let listener = tokio::net::UnixListener::bind(&socket).expect("bind --socket");
+        let listener = tokio::net::UnixListener::bind(&socket).expect("bind the socket");
         eprintln!("listening on {socket}");
         axum::serve(listener, router).await.unwrap();
     } else {
