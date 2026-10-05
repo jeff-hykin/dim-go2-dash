@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
 import { Control } from "./Control.tsx"
+import { EmptyState } from "./dim-app/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus } from "./Panel.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
@@ -84,6 +85,7 @@ export function App() {
         }
     }, [state?.robots])
 
+    const [helpRequest, setHelpRequest] = useState(0)
     const openAccounts = () => {
         setSlid(false)
         setAccountsOpen(true)
@@ -261,19 +263,79 @@ export function App() {
     return (
         <>
             <div className={`stage${sent ? " connected" : ""}`} style={driving ? { display: "none" } : undefined}>
-                <div className="empty">
-                    <div className="glyph">
-                        <Icon name={sent ? "signal" : "robot"} size={44} />
-                    </div>
-                    <h1>
-                        {sent ? `Wi-Fi sent to ${sent.name} — waiting for it on the network` : "No dog connected yet"}
-                    </h1>
-                    <p>
-                        {sent
-                            ? `Credentials delivered over Bluetooth. Once ${sent.name} joins the network and we see its IP, press Drive for its camera & controls.`
-                            : "Scan for nearby Go2s, then send wifi credentials to bring one onto your network. Battery, camera & controls will live here."}
-                    </p>
-                </div>
+                {sent || (state && robots.length > 0)
+                    ? (
+                        <div className="empty">
+                            <div className="glyph">
+                                <Icon name={sent ? "signal" : "robot"} size={44} />
+                            </div>
+                            <h1>
+                                {sent
+                                    ? `Wi-Fi sent to ${sent.name} — waiting for it on the network`
+                                    : "No dog connected yet"}
+                            </h1>
+                            <p>
+                                {sent
+                                    ? `Credentials delivered over Bluetooth. Once ${sent.name} joins the network and we see its IP, press Drive for its camera & controls.`
+                                    : "Pick a Go2 in the list: Drive it if it has an IP, or send it Wi-Fi credentials over Bluetooth to bring it onto your network."}
+                            </p>
+                        </div>
+                    )
+                    : loadError && !state
+                    ? (
+                        <EmptyState
+                            testId="onboard-no-backend"
+                            tone="warn"
+                            label="Server not answering"
+                            title="Can't reach the Go2 Ctrl server"
+                            body={`It didn't answer (${loadError}). Restarting the app usually fixes it: try again, or stop and start Go2 Ctrl from Desktop's App Store.`}
+                            actions={[
+                                { label: "Try again", onClick: () => location.reload() },
+                                { label: "Open the App Store", app: "appstore", primary: false },
+                            ]}
+                        />
+                    )
+                    : state?.scan.scanning
+                    ? (
+                        <EmptyState
+                            testId="onboard-scanning"
+                            busy
+                            label="Scanning"
+                            title="Looking for Go2s nearby"
+                            body="Searching this network and Bluetooth. This takes a few seconds."
+                        />
+                    )
+                    : state && state.scan.lastCount === 0
+                    ? (
+                        <EmptyState
+                            testId="onboard-no-robot"
+                            tone="warn"
+                            label="No robot found"
+                            title="No Go2 found on this network"
+                            body="Power the Go2 on and wait about a minute for it to boot. Then put this computer on the same Wi-Fi as the dog (or on the dog's own hotspot), or stay close to it: a new Go2 shows up over Bluetooth, and you can send it your Wi-Fi from here."
+                            actions={[
+                                { label: "Scan again", onClick: scan },
+                                {
+                                    label: "Help: it shows but never gets an IP",
+                                    onClick: () => {
+                                        setSlid(false)
+                                        setHelpRequest((n) => n + 1)
+                                    },
+                                },
+                            ]}
+                        />
+                    )
+                    : state
+                    ? (
+                        <EmptyState
+                            testId="onboard-find-robot"
+                            label="Go2 Ctrl"
+                            title="Find your Go2"
+                            body="Scan this network and Bluetooth for Unitree Go2s nearby. Then put one on your Wi-Fi and drive it, with its camera, from here."
+                            actions={[{ label: "Scan for Go2s", onClick: scan }]}
+                        />
+                    )
+                    : null}
             </div>
 
             <div className={`panel dim-panel${slid ? " slid" : ""}`}>
@@ -320,15 +382,17 @@ export function App() {
                     {state?.scan.notice && <div className="none warn">{state.scan.notice}</div>}
                     {loadError && !state && (
                         <div className="none err">
-                            Can't reach the Go2 backend: {loadError}
-                            <br />Make sure the app's backend is running, then reload.
+                            Can't reach the Go2 Ctrl server: {loadError}
+                            <br />Restart the app (App Store), then reload.
                         </div>
                     )}
                     {state && robots.length === 0 && (
                         <div className="none">
                             {state.scan.scanning ? "Scanning for nearby Go2s…" : (
                                 <>
-                                    No Go2s found yet.
+                                    {state.scan.lastCount === null
+                                        ? "Not scanned yet."
+                                        : "No Go2 found on this network."}
                                     <br />Power on a Go2 nearby and press <b>Scan</b>.
                                 </>
                             )}
@@ -359,7 +423,7 @@ export function App() {
                     setOpen={setAccountsOpen}
                     flash={accountsFlash}
                 />
-                <Help route={routeFix} />
+                <Help route={routeFix} openRequest={helpRequest} />
             </div>
 
             <div className="edge-tabs dim-tabs vertical">

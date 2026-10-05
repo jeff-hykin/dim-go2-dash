@@ -538,10 +538,18 @@ export function Accounts(
     )
 }
 
-export function Help({ route }: { route: string }) {
+/** `openRequest`: each new value opens it and scrolls it into view (the stage's "Help" button). */
+export function Help({ route, openRequest = 0 }: { route: string; openRequest?: number }) {
     const [open, setOpen] = useState(false)
+    const box = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (openRequest) {
+            setOpen(true)
+            box.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+        }
+    }, [openRequest])
     return (
-        <div className={`p-help${open ? " open" : ""}`}>
+        <div ref={box} className={`p-help${open ? " open" : ""}`}>
             <button type="button" className="help-toggle dim-btn ghost sm" onClick={() => setOpen(!open)}>
                 <span className="hc">
                     <Icon name="chevron-right" size={12} />

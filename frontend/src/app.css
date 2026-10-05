@@ -13,6 +13,7 @@ body {
 .stage {
     position: fixed;
     inset: 0;
+    bottom: var(--dim-inset-bottom); /* above Desktop's dock */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -146,7 +147,7 @@ body.science:not(.dark) .ctl-top {
 .vel {
     position: absolute;
     left: 12px;
-    bottom: 60px; /* above the command bar */
+    bottom: calc(60px + var(--dim-inset-bottom)); /* above the command bar (and Desktop's dock) */
     font-size: 10.5px;
     padding: 6px 9px;
     min-width: 118px;
@@ -159,7 +160,7 @@ body.science:not(.dark) .ctl-top {
 .cmd-dock {
     position: absolute;
     left: 50%;
-    bottom: 12px;
+    bottom: calc(12px + var(--dim-inset-bottom));
     transform: translateX(-50%);
     z-index: 4;
     display: flex;
@@ -272,7 +273,7 @@ body.science.dark .cmd-search .dim-input:focus {
 .dpad {
     position: absolute;
     right: 12px;
-    bottom: 12px;
+    bottom: calc(12px + var(--dim-inset-bottom));
     z-index: 3;
     display: grid;
     grid-template-columns: repeat(3, 44px);
@@ -331,7 +332,7 @@ body.science.dark .cmd-search .dim-input:focus {
     position: fixed;
     left: 16px;
     top: 16px;
-    bottom: 16px;
+    bottom: calc(16px + var(--dim-inset-bottom));
     width: 312px;
     z-index: 40;
     display: flex;
@@ -1038,7 +1039,7 @@ body.science.dark .nav-focus {
     .cmd-dock {
         left: 8px;
         right: 8px;
-        bottom: 8px;
+        bottom: calc(8px + var(--dim-inset-bottom));
         transform: none;
         max-width: none;
     }
@@ -1047,11 +1048,11 @@ body.science.dark .nav-focus {
     }
     .dpad {
         right: 8px;
-        bottom: 84px;
+        bottom: calc(84px + var(--dim-inset-bottom));
     }
     .vel {
         left: 8px;
-        bottom: 188px; /* above the d-pad (two 44px rows) */
+        bottom: calc(188px + var(--dim-inset-bottom)); /* above the d-pad (two 44px rows) */
     }
     /* the robot's name stays; its IP (in the setup panel too) gives way */
     .ctl-top .nm {
