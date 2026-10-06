@@ -4,7 +4,7 @@ import { initTheme } from "./dim-app/theme.js"
 import "./dim-app/theme.css"
 import "./app.css"
 
-// Portal (dark) / Research (light): follows prefers-color-scheme, or the choice saved by the panel's toggle
+// Portal (dark) / Research (light), following dimOS Desktop's theme
 initTheme()
 
 createRoot(document.getElementById("root")!).render(<App />)

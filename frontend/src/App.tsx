@@ -9,7 +9,6 @@ import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus } from "./Panel.tsx"
 import { Setup } from "./Setup.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
-import { ThemeToggle } from "./ThemeToggle.tsx"
 
 type Open = { key: string; what: "menu" | "form" | "details" | "edit" } | null
 
@@ -366,7 +365,6 @@ export function App() {
                     <span className="t dim-label">Robots</span>
                     {state?.network.mock && <span className="dim-badge warn">Mock</span>}
                     <span className="spacer" />
-                    <ThemeToggle />
                     <span className="kbd-hint" title="J shows and hides this panel">
                         <kbd>J</kbd>
                     </span>
