@@ -38,7 +38,7 @@ async fn main() {
         let app = app.clone();
         async move { app.refresh_ssid().await }
     });
-    // backend → page: every event through Desktop's relay onto the page's zenoh-web connection
+    // backend → page: every event through Desktop's relay onto the page's zenoh-gateway connection
     match dimos_app::get().and_then(|given| Some((given.desktop_url.clone()?, given.name.clone()?))) {
         Some((desktop_url, name)) => go2_dash::relay::spawn(app.clone(), desktop_url, name),
         None => eprintln!("no Desktop URL or app name in DIMOS_APP: events reach no page"),

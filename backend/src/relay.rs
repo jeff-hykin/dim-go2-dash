@@ -1,6 +1,6 @@
 // Backend → page (Desktop's docs/events.md): every event the app publishes goes to Desktop's relay,
 // `POST <desktopUrl>/desktop/frontend/<name>/events`, which puts it on `<ns>/apps/<name>/frontend/events` for the page's
-// zenoh-web connection (dim-app's appEvents). One task sends them one at a time, so they arrive in order.
+// zenoh-gateway connection (dim-app's appEvents). One task sends them one at a time, so they arrive in order.
 
 use std::sync::Arc;
 

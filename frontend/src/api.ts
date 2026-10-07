@@ -18,7 +18,7 @@ export async function call<T = unknown>(method: string, path: string, body?: unk
 
 export type BackendEvent = { type?: string; [key: string]: unknown }
 
-/** The backend's events (its frontend zenoh topic `events`, on the page's one zenoh-web connection); `onConnect` runs
+/** The backend's events (its frontend zenoh topic `events`, on the page's one zenoh-gateway connection); `onConnect` runs
  * each time that connection comes up (events sent before, or while it was down, are missed: re-GET). Returns an
  * unsubscribe. */
 export function events(onEvent: (event: BackendEvent) => void, onConnect?: () => void): () => void {
