@@ -1,35 +1,37 @@
 title: Go2 Ctrl
 spec-version: v1.0 # the dimos.yaml spec version this file follows
-dimos-api:
-    - GET /dimos/runs
-    - POST /dimos/runs
-    - POST /dimos/runs/stop
-    - GET /dimos/global-config
-    - PUT /dimos/global-config
-    - GET /api/apps
-    - PUT /api/launcher/state
-    - POST /api/desktop/shell
-    - GET /api/desktop/shell/{id}
-    - POST /api/desktop/shell/{id}/cancel
-# the dim-app SDK's zenoh client (backend state, events): /zenoh-web and how it finds it
-zenoh-web: ">=0.4 <0.5"
-# what its server answers only its own pages (its agent: endpoints are the public API)
-private:
-    - api/state/*
-    - api/drive/*
-    - api/launch/*
-    - api/setup/*
-    - api/accounts/*
-    - api/robots/*
-    - api/wifi/*
-    - api/network/*
-    - api/scan/*
-    - api/check-ip
-    - api/events/*
+uses:
+    "@dimos-gateway":
+        - GET /runs
+        - POST /runs
+        - POST /runs/stop
+        - GET /global-config
+        - PUT /global-config
+    "@desktop-gateway":
+        - GET /api/apps
+        - PUT /api/launcher/state
+        - POST /api/desktop/shell
+        - GET /api/desktop/shell/{id}
+        - POST /api/desktop/shell/{id}/cancel
+    # the dim-app SDK's zenoh client (backend state, events): the zenoh bridge and how it finds it
+    "@zenoh-gateway": ">=0.4 <0.5"
 caches:
     - url: "https://dimos-desktop.cachix.org"
       key: "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ="
-agent:
+provides:
+    # what its server answers only its own pages (its endpoints: below are the public API)
+    private:
+        - api/state/*
+        - api/drive/*
+        - api/launch/*
+        - api/setup/*
+        - api/accounts/*
+        - api/robots/*
+        - api/wifi/*
+        - api/network/*
+        - api/scan/*
+        - api/check-ip
+        - api/events/*
     description: >-
         Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, and drive one live
         (stand, sit, jump, dance, walk) over WebRTC. Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
