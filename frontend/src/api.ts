@@ -1,5 +1,5 @@
 // The app's backend API (backend/src/routes.rs), by relative URL: the page lives at Desktop's /apps/<name>/.
-import { appEvents } from "./dim-app/events.js"
+import { appEvents } from "./dim-app/source/events.js"
 
 export class ApiError extends Error {}
 

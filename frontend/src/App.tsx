@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
 import { Control } from "./Control.tsx"
-import { EmptyState } from "./dim-app/react.js"
+import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus } from "./Panel.tsx"
 import { Setup } from "./Setup.tsx"

@@ -3,8 +3,8 @@
 // step and the robot picked are the backend's (api/setup), so a reload or another viewer resumes where it was.
 import { useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
-import { openApp } from "./dim-app/desktop.js"
-import { useAppInstalled } from "./dim-app/react.js"
+import { openApp } from "./dim-app/source/desktop.js"
+import { useAppInstalled } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
 import type { Launch, Network, Robot, Scan, SetupState, SetupStep, Wifi } from "./state.ts"
 import { store, stored, validIp } from "./util.ts"

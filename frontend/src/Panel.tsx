@@ -2,7 +2,7 @@
 // accounts and the "never gets an IP?" help. Every action is an endpoint call; the list itself is the backend's.
 import { forwardRef, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
-import { runCommand } from "./dim-app/shell.js"
+import { runCommand } from "./dim-app/source/shell.js"
 import { Icon } from "./icons.tsx"
 import type { Account, Drive, Network, Robot, Scan, Wifi } from "./state.ts"
 import { agoText, colorFor, copyText, store, stored, validIp } from "./util.ts"
