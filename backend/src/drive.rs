@@ -20,6 +20,7 @@ const SPORT_DAMP: u32 = 1001;
 const SPORT_BALANCE_STAND: u32 = 1002;
 const SPORT_STOP_MOVE: u32 = 1003;
 const SPORT_STAND_UP: u32 = 1004;
+const SPORT_STAND_DOWN: u32 = 1005;
 const SPORT_MOVE: u32 = 1008;
 const SPORT_POSE: u32 = 1028;
 /// after StandUp, wait before BalanceStand so joystick control latches (issued mid-rise it doesn't stick)
@@ -264,6 +265,16 @@ impl Drive {
                         ConnEvent::Lost => {
                             tokio::spawn(drive.reconnect());
                         }
+                        ConnEvent::Rtp(packet) => {
+                            if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
+                                active.on_rtp(packet);
+                            }
+                        }
+                        ConnEvent::Data(message) => {
+                            if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
+                                active.on_data(&message);
+                            }
+                        }
                     }
                 });
                 match RobotConn::connect(&self.ip, &self.aes_key, on_event).await {
@@ -277,6 +288,10 @@ impl Drive {
                             s.status = "ready";
                             s.error = None;
                         });
+                        // a recording that outlived a reconnect: subscribe the new link too
+                        if self.app.upgrade().is_some_and(|app| app.recording().is_some()) {
+                            self.start_streams().await;
+                        }
                         return Ok(());
                     }
                     // an AES problem won't fix itself by retrying
@@ -344,6 +359,13 @@ impl Drive {
                     }
                 };
                 let conn = if drive.dry { None } else { drive.conn.lock().await.clone() };
+                if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
+                    match tick {
+                        Tick::Move(x, y, z) => active.cmd_vel(x, y, z),
+                        Tick::Stop => active.cmd_vel(0.0, 0.0, 0.0),
+                        Tick::Idle => {}
+                    }
+                }
                 match tick {
                     Tick::Move(x, y, z) => {
                         if let Some(conn) = conn {
@@ -389,6 +411,9 @@ impl Drive {
         }
         let record = json!({ "name": command.name, "label": command.label, "at": now_ms(), "sent": !dry, "dryRun": dry });
         self.set(|s| s.last_command = Some(record.clone()));
+        if let Some(active) = self.app.upgrade().and_then(|app| app.recording()) {
+            active.command(&json!({ "name": command.name, "sends": sends, "sent": !dry, "dryRun": dry }));
+        }
         if let Some(app) = self.app.upgrade() {
             app.publish(json!({ "type": "command", "command": record }));
         }
@@ -476,10 +501,83 @@ impl Drive {
             s.moving = false;
             s.velocity = (0.0, 0.0, 0.0);
         });
+        if let Some(active) = self.app.upgrade().and_then(|app| app.recording()) {
+            active.cmd_vel(0.0, 0.0, 0.0);
+        }
         if !self.dry {
             self.conn().await?.sport(SPORT_STOP_MOVE, None).await;
         }
         Ok(json!({ "dryRun": self.dry, "sent": !self.dry, "stopped": true }))
+    }
+
+    /// The safe way down: stop moving, then StandDown (lie down, motors still holding: never Damp, which drops a
+    /// standing dog). For a low battery or a bad link, without closing the app.
+    pub async fn sit_down(&self, dry_run: bool) -> Result<Value, HttpError> {
+        self.ready()?;
+        let sends =
+            vec![json!({ "sport": "StopMove", "apiId": SPORT_STOP_MOVE }), json!({ "sport": "StandDown", "apiId": SPORT_STAND_DOWN })];
+        if dry_run && !self.dry {
+            return Ok(json!({ "dryRun": true, "sent": false, "sends": sends }));
+        }
+        let record = json!({ "name": "sit_down", "label": "Sit down", "at": now_ms(), "sent": !self.dry, "dryRun": self.dry });
+        self.set(|s| {
+            s.move_until = None;
+            s.moving = false;
+            s.velocity = (0.0, 0.0, 0.0);
+            s.mode = "resting";
+            s.last_command = Some(record.clone());
+        });
+        if let Some(app) = self.app.upgrade() {
+            app.publish(json!({ "type": "command", "command": record }));
+            if let Some(active) = app.recording() {
+                active.cmd_vel(0.0, 0.0, 0.0);
+                active.command(&json!({ "name": "sit_down", "sends": sends, "sent": !self.dry, "dryRun": self.dry }));
+            }
+        }
+        if !self.dry {
+            let conn = self.conn().await?;
+            conn.sport(SPORT_STOP_MOVE, None).await;
+            conn.sport(SPORT_STAND_DOWN, None).await;
+        }
+        Ok(json!({ "dryRun": self.dry, "sent": !self.dry, "sends": sends, "mode": "resting" }))
+    }
+
+    /// While recording: the sensor topics (sensors.rs), traffic saving off (else the robot holds the lidar back), and a
+    /// keyframe for the camera decoder. Read-only for the robot.
+    pub async fn start_streams(&self) {
+        let Some(conn) = self.conn.lock().await.clone() else { return };
+        conn.set_traffic_saving(false).await;
+        conn.lidar_on().await;
+        for topic in crate::sensors::TOPICS {
+            conn.subscribe(topic).await;
+        }
+        conn.request_keyframe().await;
+    }
+
+    pub async fn stop_streams(&self) {
+        let Some(conn) = self.conn.lock().await.clone() else { return };
+        for topic in crate::sensors::TOPICS {
+            conn.unsubscribe(topic).await;
+        }
+    }
+
+    pub async fn keyframe(&self) {
+        if let Some(conn) = self.conn.lock().await.clone() {
+            conn.request_keyframe().await;
+        }
+    }
+
+    /// The velocity being commanded now (m/s, m/s, rad/s), zero when not moving (the mock robot follows it).
+    pub fn commanded_velocity(&self) -> (f64, f64, f64) {
+        let state = self.state.lock().unwrap();
+        match state.move_until {
+            Some(until) if Instant::now() < until => {
+                let mult = if state.run { RUN_MULT } else { 1.0 };
+                let (f, s, t) = state.velocity;
+                (f * MAX_FORWARD * mult, s * MAX_LATERAL * mult, t * MAX_YAW * mult)
+            }
+            _ => (0.0, 0.0, 0.0),
+        }
     }
 
     /// A page's WebRTC offer for the camera → the answer that streams it.
@@ -521,6 +619,10 @@ impl Drive {
 
 /// Ends the current session, if any.
 pub async fn close(app: &Arc<App>) -> Option<Value> {
+    // a recording ends with its session (finished, so the file is complete)
+    if app.recording().is_some() {
+        let _ = app.record_stop().await;
+    }
     let drive = app.drive.lock().await.take()?;
     let last = drive.snapshot();
     drive.shutdown().await;

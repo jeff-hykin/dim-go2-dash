@@ -86,6 +86,15 @@ pub struct App {
     pub desktop_url: std::sync::OnceLock<String>,
     /// mock only: when each robot given Wi-Fi shows up on the network (ms), as a real one does ~30 s later
     mock_joined: Mutex<BTreeMap<String, u64>>,
+    /// the recording in progress (recording.rs)
+    pub(crate) recording: Mutex<Option<Arc<crate::recording::Active>>>,
+    /// Desktop's recordings folder (DIMOS_APP's recordingsDir); this app records into its `go2/`
+    pub recordings_root: Option<PathBuf>,
+    /// per recording: robot, times, upload (uploads.rs)
+    pub(crate) recordings_index: Mutex<serde_json::Map<String, Value>>,
+    /// {autoUpload}
+    pub(crate) settings: Mutex<Value>,
+    pub(crate) upload_watcher: std::sync::atomic::AtomicBool,
 }
 
 pub fn now_ms() -> u64 {
@@ -135,6 +144,14 @@ fn load<T: serde::de::DeserializeOwned + Default>(dir: &std::path::Path, file: &
 
 impl App {
     pub fn new(data_dir: PathBuf, mock: bool) -> Arc<App> {
+        Self::with_recordings(data_dir, mock, None)
+    }
+
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
+    pub fn with_recordings(data_dir: PathBuf, mock: bool, recordings_root: Option<PathBuf>) -> Arc<App> {
         let mut state = State { host_ssid_status: "unknown", wifi: json!({ "status": "idle" }), ..Default::default() };
         state.names = load(&data_dir, NAMES_FILE);
         state.aes_keys = load(&data_dir, AES_KEYS_FILE);
@@ -161,6 +178,11 @@ impl App {
             .filter(|setup| setup["step"].is_string())
             .unwrap_or_else(|| crate::setup::initial(first_run));
         let (events, _) = broadcast::channel(256);
+        let recordings_index: serde_json::Map<String, Value> = load(&data_dir, crate::uploads::INDEX_FILE);
+        let mut settings: Value = load::<Option<Value>>(&data_dir, crate::uploads::SETTINGS_FILE).unwrap_or(json!({}));
+        if !settings["autoUpload"].is_boolean() {
+            settings["autoUpload"] = json!(false);
+        }
         Arc::new(App {
             routes: crate::routes::routes(),
             mock,
@@ -176,6 +198,11 @@ impl App {
             mock_launch: Default::default(),
             desktop_url: Default::default(),
             mock_joined: Default::default(),
+            recording: Mutex::new(None),
+            recordings_root,
+            recordings_index: Mutex::new(recordings_index),
+            settings: Mutex::new(settings),
+            upload_watcher: Default::default(),
         })
     }
 
@@ -720,14 +747,22 @@ impl App {
     pub fn aes_keys_export(&self) -> Value {
         let state = self.state.lock().unwrap();
         let alias = |sn: &str| {
-            state.accounts.values().flat_map(|a| a.robots.iter()).find(|r| r["sn"] == sn).and_then(|r| r["alias"].as_str()).filter(|a| !a.is_empty())
+            state
+                .accounts
+                .values()
+                .flat_map(|a| a.robots.iter())
+                .find(|r| r["sn"] == sn)
+                .and_then(|r| r["alias"].as_str())
+                .filter(|a| !a.is_empty())
         };
         let keys: Vec<Value> = state
             .aes_keys
             .iter()
             .map(|(key, aes_key)| {
                 let device = state.devices.get(key);
-                let serial = device.and_then(|d| d["serial"].as_str()).or_else(|| (!valid_ipv4(key) && !key.contains([':', '-'])).then_some(key.as_str()));
+                let serial = device
+                    .and_then(|d| d["serial"].as_str())
+                    .or_else(|| (!valid_ipv4(key) && !key.contains([':', '-'])).then_some(key.as_str()));
                 let name = state
                     .names
                     .get(key)
@@ -887,7 +922,9 @@ async fn mock_scan(sink: Sink, timeout_secs: f64, joined: &[String], sweep: disc
         event
     };
     if sweep != discovery::SweepMode::Off {
-        sink(with(json!({ "status": "running", "phase": "subnet", "swept": "192.0.2.0/24", "partial": false, "sent": 127, "total": 253, "alive": 3 })));
+        sink(with(
+            json!({ "status": "running", "phase": "subnet", "swept": "192.0.2.0/24", "partial": false, "sent": 127, "total": 253, "alive": 3 }),
+        ));
     }
     tokio::time::sleep(pause).await;
     if stop.flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -906,7 +943,9 @@ async fn mock_scan(sink: Sink, timeout_secs: f64, joined: &[String], sweep: disc
     );
     tokio::time::sleep(pause).await;
     if sweep != discovery::SweepMode::Off {
-        sink(with(json!({ "status": "done", "phase": "done", "swept": "192.0.2.0/24", "partial": false, "method": "ping", "note": "swept 192.0.2.0/24", "known": 0 })));
+        sink(with(
+            json!({ "status": "done", "phase": "done", "swept": "192.0.2.0/24", "partial": false, "method": "ping", "note": "swept 192.0.2.0/24", "known": 0 }),
+        ));
     }
     sink(json!({ "type": "scan_done", "count": 2 }));
 }

@@ -140,7 +140,8 @@ mod tests {
         assert_eq!(ble_to_wifi_mac("C8:FE:0F:F7:F8:BC").as_deref(), Some("c8:fe:0f:f7:f8:bb"));
         assert_eq!(ble_to_wifi_mac("c8:fe:f:1:2:0").as_deref(), Some("c8:fe:0f:01:02:ff")); // wraps, like the script's & 0xff
         assert_eq!(ble_to_wifi_mac("00:00:00:00:00:00"), None); // CoreBluetooth's "no address"
-        assert_eq!(ble_to_wifi_mac("5E1B2C3D-0000-4000-8000-000000000000"), None); // a macOS peripheral UUID
+        assert_eq!(ble_to_wifi_mac("5E1B2C3D-0000-4000-8000-000000000000"), None);
+        // a macOS peripheral UUID
     }
 
     #[test]

@@ -35,6 +35,9 @@ async fn state(app: &std::sync::Arc<crate::app::App>) -> Value {
         "accounts": app.accounts(),
         "commands": commands_json(),
         "setup": app.setup_state(),
+        "record": app.record_state(),
+        "recordings": app.recordings_list(),
+        "settings": app.settings(),
     })
 }
 
@@ -347,6 +350,111 @@ pub fn routes() -> Vec<Route> {
             }),
         ),
         route("POST", "api/launch/stop", "Stop Desktop's dimos launch", None, handler(|app, _| async move { app.stop_launch().await })),
+        route(
+            "POST",
+            "api/drive/sit-down",
+            "Sit the dog down safely, without closing the app (a low battery, a bad link): stop moving, then StandDown (lies down, motors holding; never Damp)",
+            Some(json!({ "dryRun": { "type": "boolean", "description": DRY_RUN } })),
+            handler(|app, args| async move {
+                let dry_run = flag(&args, "dryRun")?;
+                let drive = app.drive.lock().await.clone();
+                match drive {
+                    Some(drive) => drive.sit_down(dry_run).await,
+                    None if dry_run => Ok(json!({ "dryRun": true, "sent": false, "note": "no drive session is open" })),
+                    None => Err(HttpError::conflict("no robot connected — POST api/drive/connect first")),
+                }
+            }),
+        ),
+        route(
+            "POST",
+            "api/drive/joy",
+            "For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as sensor_msgs/Joy on /joystick while recording. Drives nothing",
+            Some(json!({
+                "axes": { "type": "array", "required": true, "description": "raw axes, -1..1" },
+                "buttons": { "type": "array", "required": true, "description": "buttons, 0 or 1" },
+            })),
+            handler(|app, args| async move {
+                let numbers = |name: &str| -> Result<Vec<f64>, HttpError> {
+                    args.get(name)
+                        .and_then(|v| v.as_array())
+                        .ok_or_else(|| HttpError::bad(format!("{name} must be an array of numbers")))?
+                        .iter()
+                        .take(32)
+                        .map(|v| v.as_f64().filter(|n| n.is_finite()).ok_or_else(|| HttpError::bad(format!("{name} must be an array of numbers"))))
+                        .collect()
+                };
+                let axes = numbers("axes")?.into_iter().map(|a| ((a.clamp(-1.0, 1.0) * 1000.0).round() / 1000.0) as f32).collect();
+                let buttons = numbers("buttons")?.into_iter().map(|b| (b >= 0.5) as i32).collect();
+                Ok(app.joy(axes, buttons))
+            }),
+        ),
+        route(
+            "GET",
+            "api/record",
+            "The recording in progress: file, seconds, messages, bytes, dropped, messages per topic; or {active: false}",
+            None,
+            handler(|app, _| async move { Ok(app.record_state()) }),
+        ),
+        route(
+            "POST",
+            "api/record/start",
+            "Record the drive session to an mcap in Desktop's recordings folder (go2/<date>_<time>_<dog>.mcap): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs a drive session; ends with it",
+            None,
+            handler(|app, _| async move { app.record_start().await }),
+        ),
+        route(
+            "POST",
+            "api/record/stop",
+            "Stop recording and finish the file (then auto-upload it, when that's on)",
+            None,
+            handler(|app, _| async move { app.record_stop().await }),
+        ),
+        route(
+            "GET",
+            "api/recordings",
+            "This app's recordings, newest first: name, file, size, start, duration, robot, whether still recording, upload state",
+            None,
+            handler(|app, _| async move { Ok(json!(app.recordings_list())) }),
+        ),
+        route(
+            "PUT",
+            "api/recordings/{file}/name",
+            "Rename a recording (the file keeps .mcap)",
+            Some(json!({ "file": { "type": "string", "required": true }, "name": { "type": "string", "required": true } })),
+            handler(|app, args| async move { app.rename_recording(&text(&args, "file").unwrap_or_default(), &text(&args, "name").unwrap_or_default()) }),
+        ),
+        route(
+            "DELETE",
+            "api/recordings/{file}",
+            "Delete a recording (cancels its upload first)",
+            Some(json!({ "file": { "type": "string", "required": true } })),
+            handler(|app, args| async move { app.delete_recording(&text(&args, "file").unwrap_or_default()).await }),
+        ),
+        route(
+            "POST",
+            "api/recordings/{file}/upload",
+            "Upload a recording to the Dimensional cloud through Desktop's upload queue",
+            Some(json!({ "file": { "type": "string", "required": true } })),
+            handler(|app, args| async move { app.upload_recording(&text(&args, "file").unwrap_or_default(), false).await }),
+        ),
+        route(
+            "POST",
+            "api/recordings/{file}/upload/cancel",
+            "Cancel a recording's upload",
+            Some(json!({ "file": { "type": "string", "required": true } })),
+            handler(|app, args| async move { app.cancel_upload(&text(&args, "file").unwrap_or_default()).await }),
+        ),
+        route("GET", "api/settings", "This app's settings: {autoUpload}", None, handler(|app, _| async move { Ok(app.settings()) })),
+        route(
+            "PUT",
+            "api/settings",
+            "Change settings: autoUpload (upload each finished recording; retries failures, waits while offline)",
+            Some(json!({ "autoUpload": { "type": "boolean" } })),
+            handler(|app, args| async move {
+                let auto = if args.contains_key("autoUpload") { Some(flag(&args, "autoUpload")?) } else { None };
+                Ok(app.update_settings(auto))
+            }),
+        ),
     ];
     routes.extend(COMMANDS.iter().map(command_route));
     routes

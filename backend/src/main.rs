@@ -19,14 +19,16 @@ async fn main() {
     let mock = std::env::var("GO2_DASH_MOCK").is_ok_and(|v| v == "1" || v == "true");
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
     let desktop_dir = dimos_app::get().and_then(|given| given.data_dir.clone()).map(PathBuf::from);
-    let data_dir = go2_dash::app::data_dir(std::env::var("GO2_DASH_DATA_DIR").ok().map(PathBuf::from), desktop_dir.clone(), home.clone(), mock);
+    let data_dir =
+        go2_dash::app::data_dir(std::env::var("GO2_DASH_DATA_DIR").ok().map(PathBuf::from), desktop_dir.clone(), home.clone(), mock);
     if desktop_dir.is_some() && !mock && std::env::var_os("GO2_DASH_DATA_DIR").is_none() {
         let copied = go2_dash::app::migrate_legacy(&home.join(".local/share/dim"), &data_dir);
         if copied > 0 {
             eprintln!("copied {copied} saved files from ~/.local/share/dim into {}", data_dir.display());
         }
     }
-    let app = App::new(data_dir, mock);
+    let recordings_root = dimos_app::get().and_then(|given| given.recordings_dir.clone()).map(PathBuf::from);
+    let app = App::with_recordings(data_dir, mock, recordings_root);
     if let Some(url) = dimos_app::get().and_then(|given| given.desktop_url.clone()) {
         let _ = app.desktop_url.set(url);
     }
@@ -37,6 +39,28 @@ async fn main() {
     tokio::spawn({
         let app = app.clone();
         async move { app.refresh_ssid().await }
+    });
+    // a run killed mid-recording left a file without its summary: finish it, so every tool reads it
+    tokio::task::spawn_blocking({
+        let app = app.clone();
+        move || app.recover_recordings()
+    });
+    // uploads still open from the last run: follow them again
+    app.clone().watch_uploads();
+    // Desktop stops apps with SIGTERM: finish a recording first, so its file is complete
+    tokio::spawn({
+        let app = app.clone();
+        async move {
+            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("SIGTERM handler");
+            tokio::select! {
+                _ = term.recv() => {}
+                _ = tokio::signal::ctrl_c() => {}
+            }
+            if app.recording().is_some() {
+                let _ = app.record_stop().await;
+            }
+            std::process::exit(0);
+        }
     });
     // backend → page: every event through Desktop's relay onto the page's zenoh-gateway connection
     match dimos_app::get().and_then(|given| Some((given.desktop_url.clone()?, given.name.clone()?))) {

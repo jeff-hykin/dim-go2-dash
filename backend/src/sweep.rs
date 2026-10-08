@@ -197,7 +197,11 @@ fn echo_request(ident: u16, seq: u16) -> Vec<u8> {
 
 /// An ICMP datagram socket's packet is an echo reply: Linux hands over the ICMP message, macOS the IP packet around it.
 fn is_echo_reply(data: &[u8]) -> bool {
-    let icmp = if data.first().map(|b| b >> 4) == Some(4) && data.len() >= 20 { &data[((data[0] & 0x0f) as usize * 4).min(data.len())..] } else { data };
+    let icmp = if data.first().map(|b| b >> 4) == Some(4) && data.len() >= 20 {
+        &data[((data[0] & 0x0f) as usize * 4).min(data.len())..]
+    } else {
+        data
+    };
     icmp.first() == Some(&0)
 }
 
@@ -277,7 +281,12 @@ pub struct Swept {
 }
 
 /// Probe every target once, paced, then wait a moment for the stragglers' ARP. `cancel` stops it between batches.
-pub async fn sweep(targets: &[Ipv4Addr], iface: Option<&str>, cancel: &AtomicBool, mut on_progress: impl FnMut(Progress)) -> io::Result<Swept> {
+pub async fn sweep(
+    targets: &[Ipv4Addr],
+    iface: Option<&str>,
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(Progress),
+) -> io::Result<Swept> {
     let prober = Prober::open(iface)?;
     let rate = probe_rate();
     let mut alive = HashSet::new();

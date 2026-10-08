@@ -7,12 +7,17 @@ uses:
         - POST /runs/stop
         - GET /global-config
         - PUT /global-config
+        # recordings' uploads, through Desktop's queue (the backend calls these: backend/src/uploads.rs)
+        - GET /uploads
+        - POST /uploads
+        - "DELETE /uploads/{id}"
+        - "POST /uploads/{id}/retry"
     "@desktop-gateway":
         - GET /api/apps
         - PUT /api/launcher/state
         - POST /api/desktop/shell
-        - GET /api/desktop/shell/{id}
-        - POST /api/desktop/shell/{id}/cancel
+        - "GET /api/desktop/shell/{id}"
+        - "POST /api/desktop/shell/{id}/cancel"
     # the dim-app SDK's zenoh client (backend state, events): the zenoh bridge and how it finds it
     "@zenoh-gateway": ">=0.5 <0.6"
 caches:
@@ -63,12 +68,12 @@ provides:
               sweep:
                   description: >-
                       the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24
-                      around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most
-                      every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~6 min on Linux),
-                      known (remembered IPs only) or off
+                      around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most every 10
+                      minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~6 min on Linux), known
+                      (remembered IPs only) or off
                   type: string
               timeout:
-                  description: "seconds to scan (default 7; a sweep can run longer)"
+                  description: seconds to scan (default 7; a sweep can run longer)
                   type: number
               wait:
                   description: answer when the scan ends with the robots found (default true); false answers right away
@@ -79,7 +84,7 @@ provides:
               this app's pages can read it)
           method: GET
           path: api/aes-keys
-        - description: "Stop the running scan (and its sweep) now; what it found so far stays"
+        - description: Stop the running scan (and its sweep) now; what it found so far stays
           method: POST
           path: api/scan/stop
         - description: Rename a robot (saved on this computer); an empty name goes back to its Bluetooth name
@@ -310,6 +315,86 @@ provides:
         - description: Stop Desktop's dimos launch
           method: POST
           path: api/launch/stop
+        - description: >-
+              Sit the dog down safely, without closing the app (a low battery, a bad link): stop moving, then StandDown (lies
+              down, motors holding; never Damp)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/sit-down
+        - description: >-
+              For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as
+              sensor_msgs/Joy on /joystick while recording. Drives nothing
+          method: POST
+          params:
+              axes:
+                  description: "raw axes, -1..1"
+                  required: true
+                  type: array
+              buttons:
+                  description: "buttons, 0 or 1"
+                  required: true
+                  type: array
+          path: api/drive/joy
+        - description: "The recording in progress: file, seconds, messages, bytes, dropped, messages per topic; or {active: false}"
+          method: GET
+          path: api/record
+        - description: >-
+              Record the drive session to an mcap in Desktop's recordings folder (go2/<date>_<time>_<dog>.mcap): camera,
+              lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs
+              a drive session; ends with it
+          method: POST
+          path: api/record/start
+        - description: 'Stop recording and finish the file (then auto-upload it, when that''s on)'
+          method: POST
+          path: api/record/stop
+        - description: >-
+              This app's recordings, newest first: name, file, size, start, duration, robot, whether still recording, upload
+              state
+          method: GET
+          path: api/recordings
+        - description: Rename a recording (the file keeps .mcap)
+          method: PUT
+          params:
+              file:
+                  required: true
+                  type: string
+              name:
+                  required: true
+                  type: string
+          path: "api/recordings/{file}/name"
+        - description: Delete a recording (cancels its upload first)
+          method: DELETE
+          params:
+              file:
+                  required: true
+                  type: string
+          path: "api/recordings/{file}"
+        - description: Upload a recording to the Dimensional cloud through Desktop's upload queue
+          method: POST
+          params:
+              file:
+                  required: true
+                  type: string
+          path: "api/recordings/{file}/upload"
+        - description: Cancel a recording's upload
+          method: POST
+          params:
+              file:
+                  required: true
+                  type: string
+          path: "api/recordings/{file}/upload/cancel"
+        - description: 'This app''s settings: {autoUpload}'
+          method: GET
+          path: api/settings
+        - description: "Change settings: autoUpload (upload each finished recording; retries failures, waits while offline)"
+          method: PUT
+          params:
+              autoUpload:
+                  type: boolean
+          path: api/settings
         - description: >-
               Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first (on the
               robot of the open drive session)

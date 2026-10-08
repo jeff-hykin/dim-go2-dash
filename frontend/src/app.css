@@ -502,7 +502,17 @@ body.science.dark .nav-focus {
 .dog .row {
     display: flex;
     align-items: center;
-    gap: 11px;
+    flex-wrap: wrap;
+    gap: 6px 11px;
+}
+/* Use this IP / Drive / ⋯: one group that moves under the name when the card is too narrow for both, instead of
+   squeezing the name and IP chip into the buttons */
+.dog .acts {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
 }
 /* per-robot id colour comes from the Bluetooth id (inline style) */
 .av {
@@ -513,7 +523,8 @@ body.science.dark .nav-focus {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 18%, transparent), var(--shadow-xs);
 }
 .meta {
-    flex: 1;
+    /* room for the name and the IP chip before the buttons wrap below */
+    flex: 1 1 150px;
     min-width: 0;
 }
 .nm {
@@ -532,6 +543,7 @@ body.science.dark .nav-focus {
     align-items: center;
     gap: 6px;
     min-height: 16px;
+    min-width: 0;
 }
 /* IP shows as a click-to-copy chip that never shrinks (the Connect button used
    to crowd it into an ellipsis). The serial stays hover-revealed + truncating. */
@@ -1411,4 +1423,223 @@ body.science.dark .nav-focus {
     height: 100%;
     background: var(--accent, var(--warn));
     transition: width 0.25s;
+}
+
+/* ── recording, gamepad, sit down ── */
+.rec-btn {
+    gap: 6px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.rec-btn .rec-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--danger);
+    flex: none;
+}
+.rec-btn.on {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+.rec-btn.on .rec-dot {
+    border-radius: 2px;
+    animation: pulse 1s ease-in-out infinite;
+}
+.pad-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+/* apart from the command bar, bottom left: it's the way down, not a trick */
+.sit-down {
+    position: absolute;
+    left: 14px;
+    bottom: calc(14px + var(--dim-inset-bottom));
+    z-index: 4;
+    gap: 6px;
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+    background: linear-gradient(
+        to right,
+        color-mix(in srgb, var(--warn) 35%, transparent) calc(var(--hold, 0) * 100%),
+        var(--card) calc(var(--hold, 0) * 100%)
+    );
+}
+
+/* ── the recordings list ── */
+.rec-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.rec-dialog {
+    width: min(680px, 100%);
+    max-height: min(640px, 100%);
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+}
+.rec-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+}
+.rec-head .spacer {
+    flex: 1;
+}
+.rec-title {
+    font-weight: 600;
+    font-size: 15px;
+}
+.rec-count {
+    color: var(--muted-fg);
+    font-size: 12px;
+}
+.rec-auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.rec-error {
+    margin: 8px 14px 0;
+    cursor: pointer;
+}
+.rec-list {
+    overflow-y: auto;
+    padding: 6px;
+}
+.rec-empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--muted-fg);
+}
+.rec-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 9px 10px;
+    border-radius: var(--radius);
+}
+.rec-row:hover {
+    background: var(--accent);
+}
+.rec-row.live .rec-name::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--danger);
+    animation: pulse 1s ease-in-out infinite;
+}
+.rec-meta {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+.rec-name {
+    font-weight: 600;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rec-rename {
+    width: 100%;
+}
+.rec-sub {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--muted-fg);
+}
+.rec-err {
+    margin-top: 3px;
+    font-size: 11.5px;
+    color: var(--danger);
+}
+.rec-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+.rec-state.uploading {
+    background: linear-gradient(
+        to right,
+        color-mix(in srgb, var(--primary) 30%, transparent) var(--p),
+        transparent var(--p)
+    );
+    font-variant-numeric: tabular-nums;
+}
+.rec-more {
+    position: relative;
+    flex: none;
+}
+.rec-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 3;
+    min-width: 190px;
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+}
+.rec-menu button,
+.rec-menu a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+.rec-menu button:hover:not(:disabled),
+.rec-menu a:hover {
+    background: var(--accent);
+}
+.rec-menu button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+.rec-menu .danger {
+    color: var(--danger);
+}
+.rec-confirm {
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12.5px;
 }

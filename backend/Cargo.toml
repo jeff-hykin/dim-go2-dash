@@ -29,6 +29,15 @@ webrtc = "0.12"
 socket2 = { version = "0.5", features = ["all"] }
 if-addrs = "0.13"
 libc = "0.2"
+# recordings: chunked, zstd-compressed mcap (ROS2 CDR messages, like Controller's recorder)
+mcap = { version = "0.25.0", default-features = false, features = ["zstd"] }
+memmap2 = "0.9"
+# the lidar's voxel map arrives LZ4-compressed
+lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode", "std"] }
+# the camera arrives as H.264: decoded and stored as JPEG CompressedImage
+openh264 = { version = "0.9.8", features = ["source"] }
+jpeg-encoder = "0.6"
+bytes = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus = { version = "0.9", optional = true }

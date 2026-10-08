@@ -7,6 +7,7 @@ import { Control } from "./Control.tsx"
 import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
+import { Recordings } from "./Recordings.tsx"
 import { Setup } from "./Setup.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
 
@@ -32,6 +33,7 @@ export function App() {
     }, [])
     const [state, loadError] = useBackend(onCommand)
     const [slid, setSlid] = useState(false)
+    const [recordingsOpen, setRecordingsOpen] = useState(false)
     const [open, setOpen] = useState<Open>(null)
     const [accountsOpen, setAccountsOpen] = useState(false)
     const [accountsFlash, setAccountsFlash] = useState(0)
@@ -413,6 +415,15 @@ export function App() {
                     >
                         Setup guide
                     </button>
+                    <button
+                        type="button"
+                        className="dim-btn ghost sm"
+                        title="This app's recordings: upload, rename, open in Recordings"
+                        disabled={!state}
+                        onClick={() => setRecordingsOpen(true)}
+                    >
+                        Recordings
+                    </button>
                 </div>
                 <div className="list" ref={list}>
                     {state?.scan.notice && <div className="none warn">{state.scan.notice}</div>}
@@ -489,6 +500,15 @@ export function App() {
                     onFlash={showFlash}
                     onToast={showToast}
                     onSignIn={openAccounts}
+                    record={state.record}
+                    onRecordings={() => setRecordingsOpen(true)}
+                />
+            )}
+            {recordingsOpen && state && (
+                <Recordings
+                    recordings={state.recordings}
+                    settings={state.settings}
+                    onClose={() => setRecordingsOpen(false)}
                 />
             )}
 

@@ -346,7 +346,9 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                             {robot.lanMac && <span className="serial">{robot.lanMac}</span>}
                         </div>
                     </div>
-                    <UseIp robot={robot} using={using} />
+                    <div className="acts">
+                        <UseIp robot={robot} using={using} />
+                    </div>
                 </div>
             </div>
         )
@@ -427,30 +429,32 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                         {!robot.ip && !awaitingIp && !robot.serial && "—"}
                     </div>
                 </div>
-                <UseIp robot={robot} using={using} />
-                {robot.ip && (
+                <div className="acts">
+                    <UseIp robot={robot} using={using} />
+                    {robot.ip && (
+                        <button
+                            type="button"
+                            className={`drive dim-btn sm icon${driving ? " primary" : ""}`}
+                            title="Drive this dog live (camera + keyboard control)"
+                            onClick={toggleDrive}
+                        >
+                            {driving ? "Disconnect" : (
+                                <>
+                                    <Icon name="gamepad" size={14} />
+                                    Drive
+                                </>
+                            )}
+                        </button>
+                    )}
                     <button
                         type="button"
-                        className={`drive dim-btn sm icon${driving ? " primary" : ""}`}
-                        title="Drive this dog live (camera + keyboard control)"
-                        onClick={toggleDrive}
+                        className="rowbtn kebab dim-btn ghost icon"
+                        title="More"
+                        onClick={() => setOpen(open.menu ? null : "menu")}
                     >
-                        {driving ? "Disconnect" : (
-                            <>
-                                <Icon name="gamepad" size={14} />
-                                Drive
-                            </>
-                        )}
+                        <Icon name="more-horizontal" size={15} />
                     </button>
-                )}
-                <button
-                    type="button"
-                    className="rowbtn kebab dim-btn ghost icon"
-                    title="More"
-                    onClick={() => setOpen(open.menu ? null : "menu")}
-                >
-                    <Icon name="more-horizontal" size={15} />
-                </button>
+                </div>
             </div>
             {open.details && (
                 <div className="details">

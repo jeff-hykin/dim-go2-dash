@@ -48,6 +48,37 @@ pub enum ConnEvent {
     Video(Arc<TrackLocalStaticRTP>),
     /// the peer link died (robot off Wi-Fi, out of range, rebooted)
     Lost,
+    /// a camera RTP packet (H.264), as it arrived
+    Rtp(webrtc::rtp::packet::Packet),
+    /// a message on a subscribed topic (`rt/lf/lowstate`, `rt/utlidar/voxel_map_compressed`, …): its JSON, and the
+    /// binary part binary messages carry (the lidar's compressed voxels)
+    Data(DataMessage),
+}
+
+pub struct DataMessage {
+    pub topic: String,
+    pub json: Value,
+    pub binary: Option<Vec<u8>>,
+}
+
+/// A binary data-channel message: a little JSON header, then raw bytes. Two framings: `02 00 00 00` + u32 JSON length
+/// + 4 reserved bytes (the lidar's), else a u16 JSON length + 2 reserved bytes.
+pub fn parse_binary(buf: &[u8]) -> Option<DataMessage> {
+    if buf.len() < 4 {
+        return None;
+    }
+    let h1 = u16::from_le_bytes([buf[0], buf[1]]);
+    let h2 = u16::from_le_bytes([buf[2], buf[3]]);
+    let (json, binary) = if h1 == 2 && h2 == 0 {
+        let rest = &buf[4..];
+        let len = u32::from_le_bytes(rest.get(0..4)?.try_into().ok()?) as usize;
+        (rest.get(8..8 + len)?, rest.get(8 + len..)?)
+    } else {
+        let len = h1 as usize;
+        (buf.get(4..4 + len)?, buf.get(4 + len..)?)
+    };
+    let json: Value = serde_json::from_slice(json).ok()?;
+    Some(DataMessage { topic: json["topic"].as_str().unwrap_or("").to_string(), json, binary: Some(binary.to_vec()) })
 }
 
 pub type OnEvent = Arc<dyn Fn(ConnEvent) + Send + Sync>;
@@ -219,13 +250,18 @@ impl RobotConn {
         let validated_tx = Arc::new(std::sync::Mutex::new(Some(validated_tx)));
         let last_key = Arc::new(std::sync::Mutex::new(String::new()));
         {
+            let on_data = on_event.clone();
             let channel_for_reply = channel.clone();
             channel.on_message(Box::new(move |message: DataChannelMessage| {
                 let channel = channel_for_reply.clone();
                 let validated_tx = validated_tx.clone();
                 let last_key = last_key.clone();
+                let on_event = on_data.clone();
                 Box::pin(async move {
                     if !message.is_string {
+                        if let Some(data) = parse_binary(&message.data) {
+                            on_event(ConnEvent::Data(data));
+                        }
                         return;
                     }
                     let Ok(message) = serde_json::from_slice::<Value>(&message.data) else {
@@ -242,6 +278,9 @@ impl RobotConn {
                             *last_key.lock().unwrap() = data.clone();
                             send(&channel, "validation", "", Some(json!(validation_reply(&data)))).await;
                         }
+                    } else if kind == "msg" {
+                        let topic = message["topic"].as_str().unwrap_or("").to_string();
+                        on_event(ConnEvent::Data(DataMessage { topic, json: message, binary: None }));
                     } else if kind == "err" && message["info"] == "Validation Needed." {
                         let key = last_key.lock().unwrap().clone();
                         send(&channel, "validation", "", Some(json!(validation_reply(&key)))).await;
@@ -266,12 +305,14 @@ impl RobotConn {
                     *video_ssrc.lock().await = Some(track.ssrc());
                     let local = Arc::new(TrackLocalStaticRTP::new(track.codec().capability.clone(), "video".into(), "go2".into()));
                     on_event(ConnEvent::Video(local.clone()));
+                    let on_event = on_event.clone();
                     tokio::spawn(async move {
                         while let Ok((packet, _)) = track.read_rtp().await {
                             if closed.load(Ordering::Relaxed) {
                                 break;
                             }
                             let _ = local.write_rtp(&packet).await;
+                            on_event(ConnEvent::Rtp(packet));
                         }
                     });
                 })
@@ -349,6 +390,26 @@ impl RobotConn {
 
     pub async fn set_motion_mode(&self, name: &str) {
         self.request(MOTION_SWITCHER_TOPIC, 1002, Some(json!({ "name": name }))).await;
+    }
+
+    /// Start receiving a topic's messages (ConnEvent::Data). Read-only: nothing on the robot changes.
+    pub async fn subscribe(&self, topic: &str) {
+        send(&self.channel, "subscribe", topic, None).await;
+    }
+
+    pub async fn unsubscribe(&self, topic: &str) {
+        send(&self.channel, "unsubscribe", topic, None).await;
+    }
+
+    /// The robot holds back big messages (the lidar) unless traffic saving is off (what dimos does on connect).
+    pub async fn set_traffic_saving(&self, on: bool) {
+        let data = json!({ "req_type": "disable_traffic_saving", "instruction": if on { "off" } else { "on" } });
+        send(&self.channel, "rtc_inner_req", "", Some(data)).await;
+    }
+
+    /// Turns the lidar's publishing on (`rt/utlidar/switch` "on"); a sensor switch, not a motion.
+    pub async fn lidar_on(&self) {
+        send(&self.channel, "msg", "rt/utlidar/switch", Some(json!("on"))).await;
     }
 
     /// Ask the robot for a fresh keyframe, so a page that just subscribed doesn't wait for the next one.

@@ -357,7 +357,10 @@ async fn launch_in_mock_and_dry_run() {
     // what really goes to Desktop carries the key
     let request = t.app.launch_request(false, None, None).unwrap();
     assert_eq!(request["overrides"]["unitree_aes_128_key"], "00112233445566778899aabbccddeeff");
-    assert_eq!(t.app.launch_request(true, None, None).unwrap(), json!({ "blueprint": "unitree-go2-basic", "replay": true, "overrides": {} }));
+    assert_eq!(
+        t.app.launch_request(true, None, None).unwrap(),
+        json!({ "blueprint": "unitree-go2-basic", "replay": true, "overrides": {} })
+    );
     // mock: a robot launch is simulated, step by step
     assert_eq!(t.ok("GET", "api/launch", None).await["launch"], Value::Null);
     let launch = t.ok("POST", "api/launch", Some(json!({}))).await;
@@ -434,7 +437,10 @@ async fn launch_through_desktop() {
         let seen = seen.lock().unwrap();
         assert_eq!(seen[0].0, "global-config");
         assert_eq!(seen[0].1["overrides"], json!({ "zenoh_mode": "peer", "robot_ip": "10.0.0.7" }), "Desktop's other settings are kept");
-        assert_eq!(seen[1], ("launch".to_string(), json!({ "blueprint": "unitree-go2-basic", "replay": false, "overrides": { "robot_ip": "10.0.0.7" } })));
+        assert_eq!(
+            seen[1],
+            ("launch".to_string(), json!({ "blueprint": "unitree-go2-basic", "replay": false, "overrides": { "robot_ip": "10.0.0.7" } }))
+        );
     }
     let state = t.ok("GET", "api/launch", None).await["launch"].clone();
     assert_eq!(state["phase"], "running");

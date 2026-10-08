@@ -115,6 +115,56 @@ export type Launch = {
     mock?: boolean
 }
 
+/** The recording in progress (GET api/record) */
+export type RecordState =
+    | { active: false }
+    | {
+        active: true
+        file: string
+        path: string
+        startedAt: number
+        seconds: number
+        messages: number
+        bytes: number
+        dropped: number
+        topics: Record<string, number>
+        robot: string
+        dryRun: boolean
+    }
+
+/** Desktop's upload of a recording, as this app follows it */
+export type Upload = {
+    id?: string
+    state: "queued" | "uploading" | "done" | "failed" | "cancelled" | "offline" | "signin" | "waiting"
+    phase?: string | null
+    bytesDone?: number | null
+    bytesTotal?: number | null
+    etaSeconds?: number | null
+    error?: string | null
+    link?: string | null
+    auto?: boolean
+    attempts?: number
+    retryAt?: number
+}
+
+export type Recording = {
+    file: string
+    name: string
+    path: string
+    /** Desktop's id (its path under the recordings folder), for Recordings' #/replay/<id> */
+    id: string | null
+    bytes: number
+    startedAt: number
+    seconds: number | null
+    robot: string | null
+    recording: boolean
+    recovered: boolean
+    mock: boolean
+    upload: Upload | null
+}
+
+export type Settings = { autoUpload: boolean }
+
 export type State = {
     robots: Robot[]
     scan: Scan
@@ -124,6 +174,9 @@ export type State = {
     accounts: Account[]
     commands: Command[]
     setup: SetupState
+    record: RecordState
+    recordings: Recording[]
+    settings: Settings
 }
 
 /** The backend's state, or an error string when it can't be reached. `onCommand` sees every robot command, whoever sent it. */
@@ -153,6 +206,9 @@ export function useBackend(onCommand: (command: CommandRecord) => void): [State 
                 network: "network",
                 accounts: "accounts",
                 setup: "setup",
+                record: "record",
+                recordings: "recordings",
+                settings: "settings",
             }[
                 event.type as string
             ] as keyof State | undefined

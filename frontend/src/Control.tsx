@@ -3,8 +3,18 @@
 // agent sends flashes here too.
 import { useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
+import {
+    activePad,
+    type Axes,
+    GAMEPAD_BINDINGS,
+    GamepadDriver,
+    type GamepadStatus,
+    joySample,
+    noPad,
+    type PadLike,
+} from "./gamepad.ts"
 import { Icon } from "./icons.tsx"
-import type { Command, Drive } from "./state.ts"
+import type { Command, Drive, RecordState } from "./state.ts"
 
 type Active = Extract<Drive, { active: true }>
 
@@ -105,16 +115,137 @@ function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null
     return live && want
 }
 
+/** The page has the user's focus: this document, or Desktop's shell around it (a Steam Deck user never clicks in). */
+function pageHasFocus(): boolean {
+    if (document.hasFocus()) {
+        return true
+    }
+    try {
+        return globalThis.top !== globalThis.self && !!globalThis.top?.document.hasFocus()
+    } catch {
+        return false
+    }
+}
+
+const PAD_POLL_MS = 30
+/** Joy samples go to the recording when they change, at most this often (Stash's cockpit: 15 Hz) */
+const JOY_MIN_MS = 66
+const ZERO_AXES: Axes = { forward: 0, strafe: 0, turn: 0 }
+
+/** The gamepad (gamepad.ts has the rules): polled while one is connected; zeroed on blur, a hidden page, disconnect. */
+function useGamepad(handlers: {
+    stop: () => void
+    sitDown: () => void
+    setBoost: (boost: boolean) => void
+}): [GamepadStatus, Axes] {
+    const [status, setStatus] = useState<GamepadStatus>(noPad())
+    const [axes, setAxes] = useState<Axes>(ZERO_AXES)
+    const latest = useRef(handlers)
+    latest.current = handlers
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !navigator.getGamepads) {
+            return
+        }
+        const driver = new GamepadDriver({
+            setAxes,
+            setBoost: (boost) => latest.current.setBoost(boost),
+            stop: () => latest.current.stop(),
+            sitDown: () => latest.current.sitDown(),
+        }, setStatus)
+        const pads = () => [...navigator.getGamepads()] as (PadLike | null)[]
+        let lastJoy = ""
+        let lastJoyAt = 0
+        const poll = () => {
+            const now = performance.now()
+            if (document.hidden || !pageHasFocus()) {
+                driver.release()
+            } else {
+                driver.poll(pads(), now)
+            }
+            // the raw pad for the recording (never velocities): on change, ≤ 15 Hz;
+            const pad = activePad(pads())
+            // sent whether or not a recording runs (it may be started from elsewhere); the backend keeps them only while one does
+            if (pad && now - lastJoyAt >= JOY_MIN_MS) {
+                const sample = joySample(pad)
+                const key = JSON.stringify(sample)
+                if (key !== lastJoy) {
+                    lastJoy = key
+                    lastJoyAt = now
+                    call("POST", "api/drive/joy", sample).catch(() => {})
+                }
+            }
+        }
+        const timer = setInterval(poll, PAD_POLL_MS)
+        const release = () => driver.release()
+        const hidden = () => document.hidden && driver.release()
+        addEventListener("blur", release)
+        document.addEventListener("visibilitychange", hidden)
+        return () => {
+            clearInterval(timer)
+            removeEventListener("blur", release)
+            document.removeEventListener("visibilitychange", hidden)
+            driver.release()
+        }
+    }, [])
+    return [status, axes]
+}
+
+function clock(seconds: number): string {
+    const s = Math.floor(seconds)
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+}
+
+export function megabytes(bytes: number): string {
+    return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${(bytes / 1e6).toFixed(bytes >= 1e7 ? 0 : 1)} MB`
+}
+
+/** Record / stop, with the time and size while it runs. */
+function RecordButton({ record, onToast }: { record: RecordState; onToast: (text: string) => void }) {
+    const [busy, setBusy] = useState(false)
+    const [, tick] = useState(0)
+    useEffect(() => {
+        if (!record.active) {
+            return
+        }
+        const timer = setInterval(() => tick((n) => n + 1), 1000)
+        return () => clearInterval(timer)
+    }, [record.active])
+    const toggle = () => {
+        setBusy(true)
+        call("POST", record.active ? "api/record/stop" : "api/record/start")
+            .then((r) => !record.active || onToast(`Saved ${(r as { file?: string })?.file ?? "the recording"}`))
+            .catch((e) => onToast(e.message))
+            .finally(() => setBusy(false))
+    }
+    const seconds = record.active ? (Date.now() - record.startedAt) / 1000 : 0
+    return (
+        <button
+            type="button"
+            className={`rec-btn dim-btn sm${record.active ? " on" : ""}`}
+            disabled={busy}
+            title={record.active
+                ? `Recording to ${record.file} — click to stop and save`
+                : "Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to an mcap"}
+            onClick={toggle}
+        >
+            <span className="rec-dot" />
+            {record.active ? `${clock(seconds)} · ${megabytes(record.bytes)}` : busy ? "Starting…" : "Record"}
+        </button>
+    )
+}
+
 export function Control(props: {
     drive: Active
     commands: Command[]
+    record: RecordState
     keyboardActive: boolean
     flash: { name: string; ok: boolean; n: number } | null
     onFlash: (name: string, ok: boolean) => void
     onToast: (text: string) => void
     onSignIn: () => void
+    onRecordings: () => void
 }) {
-    const { drive, commands, keyboardActive, flash, onFlash, onToast, onSignIn } = props
+    const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn, onRecordings } = props
     const video = useRef<HTMLVideoElement>(null)
     const live = useCamera(drive, video)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
@@ -159,10 +290,24 @@ export function Control(props: {
             return next
         })
 
+    const sitDown = () => {
+        setPressed(new Set())
+        call("POST", "api/drive/sit-down").then(
+            () => onToast("Sitting down (stop, then StandDown)"),
+            (e) => onToast(e.message),
+        )
+    }
+    const stopNow = () => {
+        setPressed(new Set())
+        call("POST", "api/drive/stop").catch(() => {})
+    }
+    const [pad, padAxes] = useGamepad({ stop: stopNow, sitDown, setBoost })
+    const padMoving = !!(padAxes.forward || padAxes.strafe || padAxes.turn) && standing
+    const clamp = (v: number) => Math.max(-1, Math.min(1, v))
     const vector = {
-        forward: (pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0),
-        strafe: (pressed.has("q") ? 1 : 0) - (pressed.has("e") ? 1 : 0),
-        turn: (pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0),
+        forward: clamp((pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0) + (padMoving ? padAxes.forward : 0)),
+        strafe: clamp((pressed.has("q") ? 1 : 0) - (pressed.has("e") ? 1 : 0) + (padMoving ? padAxes.strafe : 0)),
+        turn: clamp((pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0) + (padMoving ? padAxes.turn : 0)),
     }
     const anyAxis = !!(vector.forward || vector.strafe || vector.turn)
 
@@ -291,7 +436,18 @@ export function Control(props: {
                         {STATUS_LABEL[drive.status] ?? drive.status}
                     </span>
                     {drive.dryRun && <span className="dim-badge warn">Dry run</span>}
+                    <PadChip pad={pad} />
                     <span className="spacer" />
+                    <RecordButton record={record} onToast={onToast} />
+                    <button
+                        type="button"
+                        className="dim-btn sm"
+                        title="This app's recordings: upload, rename, open"
+                        onClick={onRecordings}
+                    >
+                        <Icon name="folder" size={14} />
+                        Recordings
+                    </button>
                     <button
                         type="button"
                         className="ctl-close dim-btn sm"
@@ -390,7 +546,38 @@ export function Control(props: {
                         </div>
                     </div>
                 </div>
+                <button
+                    type="button"
+                    className={`sit-down dim-btn sm${pad.sitHold > 0 ? " holding" : ""}`}
+                    style={{ "--hold": pad.sitHold } as React.CSSProperties}
+                    disabled={!ready}
+                    title="Sit the dog down safely without closing the app (low battery, bad link): stop, then lie down. Gamepad: hold B for 1 s"
+                    onClick={sitDown}
+                >
+                    <Icon name="power" size={13} />
+                    Sit down
+                </button>
             </div>
         </div>
+    )
+}
+
+function PadChip({ pad }: { pad: GamepadStatus }) {
+    if (!pad.connected) {
+        return null
+    }
+    const [tone, label] = pad.stopped
+        ? ["warn", "Stopped — press A"]
+        : pad.ready
+        ? ["ok", "Gamepad"]
+        : ["warn", "Center the sticks"]
+    return (
+        <span
+            className={`pad-chip dim-badge ${tone}`}
+            title={`Gamepad: ${pad.id}\n${GAMEPAD_BINDINGS.map(([b, a]) => `${b}: ${a}`).join("\n")}`}
+        >
+            <Icon name="gamepad" size={12} />
+            {label}
+        </span>
     )
 }

@@ -36,11 +36,7 @@ pub fn sanitize_launch(mut launch: Value) -> Value {
     }
     if let Some(output) = launch["output"].as_str() {
         let lines: Vec<&str> = output.lines().collect();
-        let tail = lines[lines.len().saturating_sub(12)..]
-            .iter()
-            .map(|line| redact_flag(line))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let tail = lines[lines.len().saturating_sub(12)..].iter().map(|line| redact_flag(line)).collect::<Vec<_>>().join("\n");
         launch["output"] = json!(tail);
     }
     launch
@@ -183,7 +179,9 @@ impl App {
             tokio::time::sleep(Duration::from_millis(600)).await;
             // the mock's robots live in TEST-NET-1; anything else is "not there"
             let reachable = ip.starts_with("192.0.2.");
-            return Ok(json!({ "ip": ip, "port": port, "reachable": reachable, "ms": if reachable { json!(4) } else { Value::Null }, "error": if reachable { Value::Null } else { json!("no answer (mock)") }, "mock": true }));
+            return Ok(
+                json!({ "ip": ip, "port": port, "reachable": reachable, "ms": if reachable { json!(4) } else { Value::Null }, "error": if reachable { Value::Null } else { json!("no answer (mock)") }, "mock": true }),
+            );
         }
         let started = std::time::Instant::now();
         let attempt = tokio::time::timeout(Duration::from_millis(2500), tokio::net::TcpStream::connect((ip, port))).await;
@@ -192,7 +190,9 @@ impl App {
             Ok(Err(err)) => (false, Some(err.to_string())),
             Err(_) => (false, Some("no answer in 2.5 s".to_string())),
         };
-        Ok(json!({ "ip": ip, "port": port, "reachable": reachable, "ms": reachable.then(|| started.elapsed().as_millis() as u64), "error": error }))
+        Ok(
+            json!({ "ip": ip, "port": port, "reachable": reachable, "ms": reachable.then(|| started.elapsed().as_millis() as u64), "error": error }),
+        )
     }
 
     // ── launching dimos through Desktop ──
@@ -204,7 +204,7 @@ impl App {
             .ok_or_else(|| HttpError::conflict("Go2 Ctrl isn't running inside dimOS Desktop, so it can't launch dimos"))
     }
 
-    async fn desktop_call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, HttpError> {
+    pub(crate) async fn desktop_call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, HttpError> {
         let url = format!("{}{path}", self.desktop()?);
         let mut request = reqwest::Client::new().request(method, &url).timeout(Duration::from_secs(20));
         if let Some(body) = body {
@@ -230,9 +230,11 @@ impl App {
             return Ok(json!({ "blueprint": blueprint, "replay": true, "overrides": {} }));
         }
         let setup = self.setup_state();
-        let ip = ip.filter(|ip| !ip.trim().is_empty()).map(|ip| ip.trim().to_string()).or_else(|| setup["robot"]["ip"].as_str().map(str::to_string)).ok_or_else(|| {
-            HttpError::bad("no robot IP: give ip, or pick a robot with an IP first (PUT api/setup)")
-        })?;
+        let ip = ip
+            .filter(|ip| !ip.trim().is_empty())
+            .map(|ip| ip.trim().to_string())
+            .or_else(|| setup["robot"]["ip"].as_str().map(str::to_string))
+            .ok_or_else(|| HttpError::bad("no robot IP: give ip, or pick a robot with an IP first (PUT api/setup)"))?;
         if !valid_ipv4(&ip) {
             return Err(HttpError::bad(format!("{ip} isn't an IPv4 address")));
         }
@@ -252,7 +254,14 @@ impl App {
     /// Launches dimos (Desktop runs one launch at a time: a running one answers 409 with what to stop). In mock mode a
     /// robot launch is simulated; a replay really starts. `as_default` also saves robot_ip in Desktop's global config,
     /// so the Launcher's launches reach this robot too.
-    pub async fn launch(&self, replay: bool, blueprint: Option<&str>, ip: Option<&str>, dry_run: bool, as_default: bool) -> Result<Value, HttpError> {
+    pub async fn launch(
+        &self,
+        replay: bool,
+        blueprint: Option<&str>,
+        ip: Option<&str>,
+        dry_run: bool,
+        as_default: bool,
+    ) -> Result<Value, HttpError> {
         let request = self.launch_request(replay, blueprint, ip)?;
         let mut shown = request.clone();
         if shown["overrides"].get(AES_FLAG).is_some() {

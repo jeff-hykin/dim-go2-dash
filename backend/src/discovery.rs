@@ -140,7 +140,8 @@ impl Merger {
                 if let Some(old_key) = self.mac_key.get(mac).cloned() {
                     if old_key != key && self.merged.contains_key(&old_key) {
                         let old = self.merged.remove(&old_key).unwrap();
-                        let base = self.merged.entry(key.clone()).or_insert_with(|| Record { serial: serial.clone(), ..Default::default() });
+                        let base =
+                            self.merged.entry(key.clone()).or_insert_with(|| Record { serial: serial.clone(), ..Default::default() });
                         base.name = base.name.take().or(old.name);
                         base.ble_mac = base.ble_mac.take().or(old.ble_mac);
                         base.ble_hw_mac = base.ble_hw_mac.take().or(old.ble_hw_mac);
@@ -251,8 +252,10 @@ impl Merger {
             }
         }
 
-        let candidates: Vec<(Ipv4Addr, String)> =
-            pairs.into_iter().filter(|(ip, mac)| is_unitree_oui(mac) && !self.ip_known(&ip.to_string()) && !self.probed.contains_key(ip)).collect();
+        let candidates: Vec<(Ipv4Addr, String)> = pairs
+            .into_iter()
+            .filter(|(ip, mac)| is_unitree_oui(mac) && !self.ip_known(&ip.to_string()) && !self.probed.contains_key(ip))
+            .collect();
         let alive = futures::future::join_all(candidates.iter().map(|(ip, _)| go2_alive_v4(*ip))).await;
         for ((ip, mac), alive) in candidates.into_iter().zip(alive) {
             self.probed.insert(ip, alive);
@@ -267,7 +270,8 @@ impl Merger {
     /// No Bluetooth MAC to join by (macOS): when exactly one Go2 on Bluetooth has no IP and exactly one unclaimed
     /// Unitree MAC answers on the network, they are probably the same dog. Labelled a guess.
     fn guess_by_elimination(&mut self) {
-        let unplaced: Vec<&Record> = self.merged.values().filter(|r| !r.arp_only && r.ip.is_none() && r.ble_hw_mac.is_none() && r.ble_mac.is_some()).collect();
+        let unplaced: Vec<&Record> =
+            self.merged.values().filter(|r| !r.arp_only && r.ip.is_none() && r.ble_hw_mac.is_none() && r.ble_mac.is_some()).collect();
         let loose: Vec<&Record> = self.merged.values().filter(|r| r.arp_only).collect();
         if let ([dog], [possible]) = (unplaced.as_slice(), loose.as_slice()) {
             let sighting = Sighting {
@@ -290,7 +294,10 @@ async fn go2_alive_v4(ip: Ipv4Addr) -> bool {
 fn spawn_lan_loop(tx: mpsc::Sender<LanDevice>, broadcast: bool, tick: Duration, probe_timeout: Duration) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let devices = tokio::task::spawn_blocking(move || if broadcast { discover_broadcast(probe_timeout) } else { discover_multicast(probe_timeout) })
+            let devices =
+                tokio::task::spawn_blocking(
+                    move || if broadcast { discover_broadcast(probe_timeout) } else { discover_multicast(probe_timeout) },
+                )
                 .await
                 .unwrap_or_default();
             for device in devices {
@@ -439,7 +446,9 @@ async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen:
     let note = match (cancelled, target, found_all) {
         (true, ..) => "stopped".to_string(),
         (_, Some(_), _) if widened => format!("swept {widest} (a dog on Bluetooth wasn't in the quick sweep)"),
-        (_, None, true) => format!("the {} remembered IP{} found every dog on Bluetooth", known.len(), if known.len() == 1 { "" } else { "s" }),
+        (_, None, true) => {
+            format!("the {} remembered IP{} found every dog on Bluetooth", known.len(), if known.len() == 1 { "" } else { "s" })
+        }
         (_, None, false) => "remembered IPs only".to_string(),
         (_, Some(target), _) => format!("swept {target}"),
     };

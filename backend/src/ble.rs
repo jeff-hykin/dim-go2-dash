@@ -50,7 +50,10 @@ pub fn bluetooth_off_reason() -> Option<String> {
                 return Some("Bluetooth is switched off in hardware (a key or BIOS setting); scanning the network only.".into());
             }
             if read("soft") == "1" {
-                return Some("Bluetooth is off (rfkill soft-block): turn it on, or run `rfkill unblock bluetooth`; scanning the network only.".into());
+                return Some(
+                    "Bluetooth is off (rfkill soft-block): turn it on, or run `rfkill unblock bluetooth`; scanning the network only."
+                        .into(),
+                );
             }
         }
         None

@@ -28,7 +28,9 @@ async fn main() {
         Arc::new(move |event: Value| match event["type"].as_str().unwrap_or("") {
             "device" => {
                 let mut devices = devices.lock().unwrap();
-                devices.retain(|d| !(same(d, &event, "serial") || same(d, &event, "ble_mac") || (d["arp_only"] == true && same(d, &event, "ip"))));
+                devices.retain(|d| {
+                    !(same(d, &event, "serial") || same(d, &event, "ble_mac") || (d["arp_only"] == true && same(d, &event, "ip")))
+                });
                 devices.push(event);
             }
             "drop" => devices.lock().unwrap().retain(|d| d["ip"] != event["key"] && d["ble_mac"] != event["key"]),
@@ -37,7 +39,10 @@ async fn main() {
                 let mut last = last_progress.lock().unwrap();
                 if sent >= *last + 2000 || sent < *last || event["sent"] == event["total"] {
                     *last = sent;
-                    eprintln!("   sweep {} on {}: {}/{} ({} answered)", event["phase"], event["iface"], sent, event["total"], event["alive"]);
+                    eprintln!(
+                        "   sweep {} on {}: {}/{} ({} answered)",
+                        event["phase"], event["iface"], sent, event["total"], event["alive"]
+                    );
                 }
             }
             "sweep" | "warn" | "seen" => eprintln!("   {event}"),
@@ -48,10 +53,27 @@ async fn main() {
     let options = ScanOptions { timeout_secs, sweep: mode, known, widen: true, stop: Arc::new(Stop::default()) };
     do_scan(adapter, Default::default(), options, sink).await;
 
-    println!("\nscan took {:.1}s\n{:<14} {:<15} {:<19} {:<19} {:<18} {}", started.elapsed().as_secs_f64(), "NAME", "IP", "WIFI-MAC", "BLE-MAC", "SERIAL", "MATCHED");
+    println!(
+        "\nscan took {:.1}s\n{:<14} {:<15} {:<19} {:<19} {:<18} {}",
+        started.elapsed().as_secs_f64(),
+        "NAME",
+        "IP",
+        "WIFI-MAC",
+        "BLE-MAC",
+        "SERIAL",
+        "MATCHED"
+    );
     for d in devices.lock().unwrap().iter() {
         let get = |k: &str| d[k].as_str().unwrap_or("-").to_string();
-        println!("{:<14} {:<15} {:<19} {:<19} {:<18} {}", get("name"), get("ip"), get("lan_mac"), get("ble_hw_mac"), get("serial"), get("matched"));
+        println!(
+            "{:<14} {:<15} {:<19} {:<19} {:<18} {}",
+            get("name"),
+            get("ip"),
+            get("lan_mac"),
+            get("ble_hw_mac"),
+            get("serial"),
+            get("matched")
+        );
     }
 }
 
