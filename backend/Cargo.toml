@@ -35,7 +35,7 @@ memmap2 = "0.9"
 # the lidar's voxel map arrives LZ4-compressed
 lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode", "std"] }
 # the camera arrives as H.264: decoded and stored as JPEG CompressedImage
-openh264 = { version = "0.9.8", features = ["source"] }
+openh264 = { version = "=0.9.3", features = ["source"] }
 jpeg-encoder = "0.6"
 bytes = "1"
 
