@@ -312,7 +312,7 @@ pub enum SweepMode {
     /// small (≤ 1024 addresses) or else the /24 around this computer, widened to the whole subnet when a dog on
     /// Bluetooth is still missing (`widen`)
     Quick,
-    /// the remembered IPs, then the whole subnet (up to a /16): a /17 takes ~1 min on macOS, ~3 min on Linux (its neighbour table caps the rate)
+    /// the remembered IPs, then the whole subnet (up to a /16): a /17 takes ~1 min on macOS, ~6 min on Linux (its neighbour table caps the rate)
     Full,
     /// only the remembered IPs
     Known,
@@ -504,6 +504,8 @@ pub async fn do_scan(adapter: Option<Adapter>, registry: Registry, options: Scan
     let mut arp_tick = interval_at(Instant::now() + TokioDuration::from_secs(1), TokioDuration::from_secs(1));
     let deadline = Instant::now() + TokioDuration::from_secs_f64(options.timeout_secs);
     let mut deadline_passed = false;
+    // a channel whose producer ended (Bluetooth failed to start) answers None at once forever: stop selecting on it
+    let (mut ble_open, mut lan_open) = (true, true);
 
     // until the timeout has passed and the sweep is done, or POST api/scan/stop
     while !(deadline_passed && sweep_task.is_none()) {
@@ -511,12 +513,14 @@ pub async fn do_scan(adapter: Option<Adapter>, registry: Registry, options: Scan
             _ = tokio::time::sleep_until(deadline), if !deadline_passed => deadline_passed = true,
             _ = options.stop.notify.notified() => break,
             _ = async { sweep_task.as_mut().unwrap().await }, if sweep_task.is_some() => sweep_task = None,
-            maybe = ble_rx.recv() => {
+            maybe = ble_rx.recv(), if ble_open => {
+                ble_open = maybe.is_some();
                 if let Some(device) = maybe {
                     merger.upsert(Sighting { serial: device.serial, name: Some(device.name), ble_mac: Some(device.address), ble_hw_mac: device.mac, ..Default::default() });
                 }
             }
-            maybe = lan_rx.recv() => {
+            maybe = lan_rx.recv(), if lan_open => {
+                lan_open = maybe.is_some();
                 if let Some(device) = maybe {
                     let lan_mac = device.mac.as_deref().and_then(crate::arp::norm_mac);
                     merger.upsert(Sighting { serial: Some(device.serial), ip: Some(device.ip), lan_mac, via: Some("lan"), ..Default::default() });

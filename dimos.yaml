@@ -64,7 +64,7 @@ provides:
                   description: >-
                       the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24
                       around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most
-                      every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~3 min on Linux),
+                      every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~6 min on Linux),
                       known (remembered IPs only) or off
                   type: string
               timeout:

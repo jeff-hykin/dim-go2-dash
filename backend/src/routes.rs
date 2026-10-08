@@ -94,7 +94,7 @@ pub fn routes() -> Vec<Route> {
             Some(json!({
                 "timeout": { "type": "number", "description": "seconds to scan (default 7; a sweep can run longer)" },
                 "wait": { "type": "boolean", "description": "answer when the scan ends with the robots found (default true); false answers right away" },
-                "sweep": { "type": "string", "description": "the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24 around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~3 min on Linux), known (remembered IPs only) or off" },
+                "sweep": { "type": "string", "description": "the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24 around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~6 min on Linux), known (remembered IPs only) or off" },
             })),
             handler(|app, args| async move {
                 let wait = if args.contains_key("wait") { flag(&args, "wait")? } else { true };
