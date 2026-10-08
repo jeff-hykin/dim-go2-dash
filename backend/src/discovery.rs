@@ -477,7 +477,8 @@ pub async fn do_scan(adapter: Option<Adapter>, registry: Registry, options: Scan
             let emit = emit.clone();
             ble_task = Some(tokio::spawn(async move {
                 if let Err(err) = scan_ble(ble_adapter, registry, ble_tx).await {
-                    emit(json!({ "type": "warn", "msg": format!("ble: {err}") }));
+                    let why = crate::ble::bluetooth_off_reason().unwrap_or(err);
+                    emit(json!({ "type": "warn", "msg": format!("ble: {why}") }));
                 }
             }));
             _ble_keepalive = None;

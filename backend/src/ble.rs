@@ -37,6 +37,30 @@ pub async fn first_adapter() -> Result<Adapter, String> {
     adapters.into_iter().next().ok_or_else(|| "no bluetooth adapter found".to_string())
 }
 
+/// Why scanning can't start, in words, when the radio is switched off: Linux's rfkill (BlueZ just says "Failed").
+pub fn bluetooth_off_reason() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        for entry in std::fs::read_dir("/sys/class/rfkill").ok()?.flatten() {
+            let read = |file: &str| std::fs::read_to_string(entry.path().join(file)).unwrap_or_default().trim().to_string();
+            if read("type") != "bluetooth" {
+                continue;
+            }
+            if read("hard") == "1" {
+                return Some("Bluetooth is switched off in hardware (a key or BIOS setting); scanning the network only.".into());
+            }
+            if read("soft") == "1" {
+                return Some("Bluetooth is off (rfkill soft-block): turn it on, or run `rfkill unblock bluetooth`; scanning the network only.".into());
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 fn name_matches(name: &str) -> bool {
     UNITREE_NAME_PREFIXES.iter().any(|p| name.starts_with(p))
 }
