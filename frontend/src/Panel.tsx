@@ -515,6 +515,28 @@ export const RobotCard = forwardRef<HTMLDivElement, {
     )
 })
 
+/** Save the AES keys this computer already has as a .json file (built in the page; the keys go nowhere else). */
+async function downloadAesKeys(): Promise<string | null> {
+    try {
+        const data = await call<{ keys: unknown[] }>("GET", "api/aes-keys")
+        if (!data.keys.length) {
+            return "No AES keys saved yet."
+        }
+        const blob = new Blob([JSON.stringify(data, null, 4)], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `go2-aes-keys-${new Date().toISOString().slice(0, 10)}.json`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+        return null
+    } catch (error) {
+        return `Couldn't read the keys: ${error instanceof Error ? error.message : error}`
+    }
+}
+
 export function Accounts(
     { accounts, open, setOpen, flash }: {
         accounts: Account[]
@@ -648,6 +670,16 @@ export function Accounts(
                     <div className="actions">
                         <button type="button" className="dim-btn primary sm" onClick={add}>Add &amp; pull</button>
                         <span className="acct-hint" style={{ margin: 0 }}>Saved on this computer only.</span>
+                        <button
+                            type="button"
+                            className="dim-btn ghost sm a-download"
+                            style={{ marginLeft: "auto" }}
+                            title="Download the AES keys saved on this computer (name, serial, key) as a .json file"
+                            onClick={() => downloadAesKeys().then(setError)}
+                        >
+                            <Icon name="download" size={13} />
+                            Download keys
+                        </button>
                     </div>
                     {error && <div className="acct-hint" style={{ color: "var(--danger)" }}>{error}</div>}
                 </div>

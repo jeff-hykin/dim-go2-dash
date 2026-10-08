@@ -31,6 +31,7 @@ provides:
         - api/network/*
         - api/scan/*
         - api/check-ip
+        - api/aes-keys
         - api/events/*
     description: >-
         Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, and drive one live
@@ -62,8 +63,9 @@ provides:
               sweep:
                   description: >-
                       the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24
-                      around this computer), full (the whole subnet up to a /16; a /17 takes ~35 s on macOS, minutes on
-                      Linux), known (remembered IPs only) or off
+                      around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most
+                      every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~35 s on macOS, minutes on Linux),
+                      known (remembered IPs only) or off
                   type: string
               timeout:
                   description: "seconds to scan (default 7; a sweep can run longer)"
@@ -72,6 +74,11 @@ provides:
                   description: answer when the scan ends with the robots found (default true); false answers right away
                   type: boolean
           path: api/scan
+        - description: >-
+              Every saved AES key with its robot (key, name, serial, aesKey): for the page's download button (private: only
+              this app's pages can read it)
+          method: GET
+          path: api/aes-keys
         - description: "Stop the running scan (and its sweep) now; what it found so far stays"
           method: POST
           path: api/scan/stop

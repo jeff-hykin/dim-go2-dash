@@ -309,9 +309,10 @@ fn spawn_lan_loop(tx: mpsc::Sender<LanDevice>, broadcast: bool, tick: Duration, 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SweepMode {
     /// the IPs dogs were seen at before; then, unless they account for every dog on Bluetooth, the subnet when it is
-    /// small (≤ 1024 addresses) or else the /24 around this computer
+    /// small (≤ 1024 addresses) or else the /24 around this computer, widened to the whole subnet when a dog on
+    /// Bluetooth is still missing (`widen`)
     Quick,
-    /// the remembered IPs, then the whole subnet (up to a /16): a /17 takes a few minutes on Linux, ~35 s on macOS
+    /// the remembered IPs, then the whole subnet (up to a /16): a /17 takes ~35 s on macOS, a few minutes on Linux
     Full,
     /// only the remembered IPs
     Known,
@@ -364,7 +365,9 @@ fn sweep_event(lan: &Lan, status: &str, phase: &str, swept: Option<Subnet>, extr
     event
 }
 
-async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, ble_seen: Arc<AtomicUsize>, stop: Arc<Stop>, emit: Sink) {
+/// `widen`: in quick mode, sweep the whole subnet too when a dog seen on Bluetooth is still missing from it (app.rs
+/// allows that once every few minutes, so the guide's repeated rescans don't sweep a big network back to back).
+async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen: Arc<AtomicUsize>, stop: Arc<Stop>, emit: Sink) {
     let Some(lan) = local_lan().await else {
         emit(json!({ "type": "sweep", "status": "error", "error": "no network interface with an IPv4 address" }));
         return;
@@ -419,8 +422,23 @@ async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, ble_seen: Arc<AtomicUs
             }
         }
     }
+    // a dog on Bluetooth still has no Unitree MAC on the network: the quick sweep missed it, widen to the whole subnet
+    let widest = lan.subnet.at_most(lan.ip, WIDEST_PREFIX);
+    let mut widened = false;
+    if let (true, Some(narrow), false) = (mode == SweepMode::Quick && widen, swept_subnet, cancelled) {
+        let hits = read_neighbors().await.iter().filter(|(ip, mac)| is_unitree_oui(mac) && lan.subnet.contains(*ip)).count();
+        if narrow != widest && ble_seen.load(Ordering::Relaxed) > hits {
+            let rest: Vec<Ipv4Addr> = sweep_order(widest, lan.ip).into_iter().filter(|ip| !narrow.contains(*ip)).collect();
+            if let Ok(swept) = sweep(&rest, iface.as_deref(), &stop.flag, progress("widen", Some(widest))).await {
+                cancelled = swept.cancelled;
+                swept_subnet = (!swept.cancelled).then_some(widest);
+                widened = true;
+            }
+        }
+    }
     let note = match (cancelled, target, found_all) {
         (true, ..) => "stopped".to_string(),
+        (_, Some(_), _) if widened => format!("swept {widest} (a dog on Bluetooth wasn't in the quick sweep)"),
         (_, None, true) => format!("the {} remembered IP{} found every dog on Bluetooth", known.len(), if known.len() == 1 { "" } else { "s" }),
         (_, None, false) => "remembered IPs only".to_string(),
         (_, Some(target), _) => format!("swept {target}"),
@@ -439,6 +457,8 @@ pub struct ScanOptions {
     pub sweep: SweepMode,
     /// IPs dogs were seen at before (the sweep's quick path)
     pub known: Vec<Ipv4Addr>,
+    /// quick mode may widen to the whole subnet when a dog on Bluetooth wasn't found (see run_sweep)
+    pub widen: bool,
     pub stop: Arc<Stop>,
 }
 
@@ -478,7 +498,7 @@ pub async fn do_scan(adapter: Option<Adapter>, registry: Registry, options: Scan
     let mut sweep_task = if options.sweep == SweepMode::Off {
         None
     } else {
-        Some(tokio::spawn(run_sweep(options.sweep, options.known, ble_seen, options.stop.clone(), emit.clone())))
+        Some(tokio::spawn(run_sweep(options.sweep, options.known, options.widen, ble_seen, options.stop.clone(), emit.clone())))
     };
     let mut arp_tick = interval_at(Instant::now() + TokioDuration::from_secs(1), TokioDuration::from_secs(1));
     let deadline = Instant::now() + TokioDuration::from_secs_f64(options.timeout_secs);

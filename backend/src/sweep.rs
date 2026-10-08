@@ -280,22 +280,22 @@ pub struct Swept {
 pub async fn sweep(targets: &[Ipv4Addr], iface: Option<&str>, cancel: &AtomicBool, mut on_progress: impl FnMut(Progress)) -> io::Result<Swept> {
     let prober = Prober::open(iface)?;
     let rate = probe_rate();
-    let tick = Duration::from_millis(50);
-    let per_tick = (rate / 20).max(1);
     let mut alive = HashSet::new();
     let mut sent = 0;
     let mut last_report = Instant::now();
     let mut cancelled = false;
-    for (batch_index, batch) in targets.chunks(per_tick).enumerate() {
+    // paced by the clock, not by sleeps: macOS coalesces a background process's short timers (a 50 ms sleep can take
+    // 300 ms), so a fixed batch per sleep ran ~6x slower than `rate`
+    let begun = Instant::now();
+    while sent < targets.len() {
         if cancel.load(Ordering::Relaxed) {
             cancelled = true;
             break;
         }
-        let started = Instant::now();
-        for (i, ip) in batch.iter().enumerate() {
-            let seq = (batch_index * per_tick + i) as u16;
+        let due = ((begun.elapsed().as_secs_f64() * rate as f64) as usize + 1).min(targets.len());
+        while sent < due {
             for _attempt in 0..5 {
-                match prober.send(*ip, seq) {
+                match prober.send(targets[sent], sent as u16) {
                     Err(err) if busy(&err) => tokio::time::sleep(Duration::from_millis(20)).await,
                     _ => break, // sent, or this address is unreachable/down: either way, next
                 }
@@ -307,7 +307,7 @@ pub async fn sweep(targets: &[Ipv4Addr], iface: Option<&str>, cancel: &AtomicBoo
             on_progress(Progress { sent, total: targets.len(), alive: alive.len() });
             last_report = Instant::now();
         }
-        tokio::time::sleep_until(started + tick).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // the last addresses' ARP takes up to a second to resolve
     let settle = Instant::now() + Duration::from_millis(if cancelled { 0 } else { 1500 });

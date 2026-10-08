@@ -45,7 +45,7 @@ async fn main() {
         })
     };
     let started = std::time::Instant::now();
-    let options = ScanOptions { timeout_secs, sweep: mode, known, stop: Arc::new(Stop::default()) };
+    let options = ScanOptions { timeout_secs, sweep: mode, known, widen: true, stop: Arc::new(Stop::default()) };
     do_scan(adapter, Default::default(), options, sink).await;
 
     println!("\nscan took {:.1}s\n{:<14} {:<15} {:<19} {:<19} {:<18} {}", started.elapsed().as_secs_f64(), "NAME", "IP", "WIFI-MAC", "BLE-MAC", "SERIAL", "MATCHED");

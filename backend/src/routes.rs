@@ -94,13 +94,20 @@ pub fn routes() -> Vec<Route> {
             Some(json!({
                 "timeout": { "type": "number", "description": "seconds to scan (default 7; a sweep can run longer)" },
                 "wait": { "type": "boolean", "description": "answer when the scan ends with the robots found (default true); false answers right away" },
-                "sweep": { "type": "string", "description": "the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24 around this computer), full (the whole subnet up to a /16; a /17 takes ~35 s on macOS, minutes on Linux), known (remembered IPs only) or off" },
+                "sweep": { "type": "string", "description": "the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24 around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most every 10 minutes), full (the whole subnet up to a /16; a /17 takes ~35 s on macOS, minutes on Linux), known (remembered IPs only) or off" },
             })),
             handler(|app, args| async move {
                 let wait = if args.contains_key("wait") { flag(&args, "wait")? } else { true };
                 let sweep = text(&args, "sweep").unwrap_or_default();
                 app.scan(number(&args, "timeout")?.unwrap_or(7.0), wait, &sweep).await
             }),
+        ),
+        route(
+            "GET",
+            "api/aes-keys",
+            "Every saved AES key with its robot (key, name, serial, aesKey): for the page's download button (private: only this app's pages can read it)",
+            None,
+            handler(|app, _| async move { Ok(app.aes_keys_export()) }),
         ),
         route("POST", "api/scan/stop", "Stop the running scan (and its sweep) now; what it found so far stays", None, handler(|app, _| async move { Ok(app.stop_scan()) })),
         route(

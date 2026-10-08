@@ -141,6 +141,10 @@ async fn rename_aes_key_and_ip() {
 
     let keyed = t.ok("PUT", &format!("api/robots/{DOG}/aes-key"), Some(json!({ "aesKey": "00112233445566778899AABBCCDDEEFF" }))).await;
     assert_eq!(keyed["hasAesKey"], true);
+    let export = t.ok("GET", "api/aes-keys", None).await;
+    assert_eq!(export["keys"][0]["serial"], DOG);
+    assert_eq!(export["keys"][0]["name"], "Rex");
+    assert_eq!(export["keys"][0]["aesKey"].as_str().unwrap().to_lowercase(), "00112233445566778899aabbccddeeff");
     assert_eq!(t.status("PUT", &format!("api/robots/{DOG}/aes-key"), Some(json!({ "aesKey": "nothex" }))).await, 400);
 
     let ip = t.ok("PUT", &format!("api/robots/{BLE_ONLY}/ip"), Some(json!({ "ip": "192.0.2.20" }))).await;

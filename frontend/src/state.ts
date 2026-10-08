@@ -27,7 +27,7 @@ export type Robot = {
 /** The ARP sweep (discovery.rs `sweep` events): what it covers and how far it got */
 export type Sweep = {
     status: "running" | "done" | "cancelled" | "error"
-    phase?: "known" | "subnet" | "done"
+    phase?: "known" | "subnet" | "widen" | "done"
     iface?: string
     ip?: string
     subnet?: string

@@ -24,6 +24,7 @@ const IPS_FILE: &str = "go2_dash_ips.json";
 /// where Unitree MACs were seen on the network, newest first (the sweep re-pings these first)
 const SEEN_FILE: &str = "go2_dash_seen.json";
 const SEEN_MAX: usize = 64;
+const WIDEN_EVERY: Duration = Duration::from_secs(600);
 pub const MULTICAST_GROUP: &str = "231.1.1.1";
 
 #[derive(Clone)]
@@ -58,6 +59,8 @@ struct State {
     /// [{ip, mac, at}] (SEEN_FILE)
     seen: Vec<Value>,
     stop: Option<Arc<discovery::Stop>>,
+    /// when a quick scan last widened its sweep to the whole subnet (at most once per WIDEN_EVERY)
+    last_widen: Option<std::time::Instant>,
     wifi: Value,
     host_ssid: String,
     host_ssid_status: &'static str,
@@ -373,7 +376,12 @@ impl App {
             "sweep" => {
                 let mut sweep = event.clone();
                 sweep.as_object_mut().unwrap().remove("type");
-                self.state.lock().unwrap().sweep = sweep;
+                let mut state = self.state.lock().unwrap();
+                if sweep["phase"] == "widen" {
+                    state.last_widen = Some(std::time::Instant::now());
+                }
+                state.sweep = sweep;
+                drop(state);
                 self.publish(json!({ "type": "scan", "scan": self.scan_state() }));
             }
             "seen" => {
@@ -477,8 +485,12 @@ impl App {
                     mock_scan(sink, timeout_secs, &joined, sweep, &stop).await;
                 } else {
                     let adapter = app.adapter_for_scan().await;
-                    let known = app.state.lock().unwrap().seen.iter().filter_map(|row| row["ip"].as_str()?.parse().ok()).collect();
-                    let options = discovery::ScanOptions { timeout_secs, sweep, known, stop };
+                    let (known, widen) = {
+                        let state = app.state.lock().unwrap();
+                        let known = state.seen.iter().filter_map(|row| row["ip"].as_str()?.parse().ok()).collect();
+                        (known, state.last_widen.is_none_or(|at| at.elapsed() > WIDEN_EVERY))
+                    };
+                    let options = discovery::ScanOptions { timeout_secs, sweep, known, widen, stop };
                     discovery::do_scan(adapter, app.registry.clone(), options, sink).await;
                 }
                 let count = {
@@ -703,6 +715,30 @@ impl App {
     }
 
     // ── Unitree accounts (AES keys) ──
+
+    /// Every saved AES key with the dog it belongs to (for the page's "download keys" button only; a private endpoint).
+    pub fn aes_keys_export(&self) -> Value {
+        let state = self.state.lock().unwrap();
+        let alias = |sn: &str| {
+            state.accounts.values().flat_map(|a| a.robots.iter()).find(|r| r["sn"] == sn).and_then(|r| r["alias"].as_str()).filter(|a| !a.is_empty())
+        };
+        let keys: Vec<Value> = state
+            .aes_keys
+            .iter()
+            .map(|(key, aes_key)| {
+                let device = state.devices.get(key);
+                let serial = device.and_then(|d| d["serial"].as_str()).or_else(|| (!valid_ipv4(key) && !key.contains([':', '-'])).then_some(key.as_str()));
+                let name = state
+                    .names
+                    .get(key)
+                    .map(String::as_str)
+                    .or_else(|| device.and_then(|d| d["name"].as_str()))
+                    .or_else(|| serial.and_then(alias));
+                json!({ "key": key, "name": name, "serial": serial, "aesKey": aes_key })
+            })
+            .collect();
+        json!({ "exportedAt": now_ms(), "keys": keys })
+    }
 
     pub fn accounts(&self) -> Vec<Value> {
         let state = self.state.lock().unwrap();
