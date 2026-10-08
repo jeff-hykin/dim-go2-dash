@@ -8,7 +8,18 @@ A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for **Unit
   macOS hides Bluetooth MACs, so there a Unitree MAC prefix alone marks it (best effort). Try it from a terminal:
   `cd backend && cargo run --example find_go2 -- full`.
 - **Connect to Wi-Fi**: send a Go2 Wi-Fi credentials over Bluetooth so it joins your network.
-- **Drive** one live: camera, stand / sit / jump / dance / …, and keyboard or d-pad walking, over WebRTC.
+- **Drive** one live: camera, stand / sit / jump / dance / …, and keyboard, d-pad or gamepad walking, over WebRTC.
+  Gamepad (the Steam Deck under Steam, Xbox, PlayStation: the standard mapping): left stick walk + strafe, right
+  stick turn, RB run, LT + RT or B = STOP (holds until A), hold B 1 s = **Sit down** (stop, then StandDown; also a
+  button). A pad drives nothing until its sticks have been at rest; blur, a hidden page or a disconnect zero it.
+- **Record** the session to an mcap in Desktop's recordings folder (`go2/<date>_<time>_<dog>.mcap`): ROS2 CDR with
+  ros2msg schemas like Controller's recorder: `/color_image` (JPEG CompressedImage), `/camera_info`, `/lidar`
+  (PointCloud2, the dog's local voxel window), `/odom` (PoseStamped), `/tf`, `/imu`, `/battery`, `/joint_states`,
+  `/joystick` (sensor_msgs/Joy: the RAW pad axes and buttons, layout in the channel metadata, never velocities),
+  `/cmd_vel` (the Twist actually sent) and `/commands`. zstd chunks closed every second and a byte-capped queue: a
+  killed run keeps all but its last second (and is finished on the next start), memory stays flat.
+- **Recordings**: this app's recordings, newest first; Upload (through Desktop's upload queue), Open in Recordings,
+  Rename, Delete, Cancel upload; Auto-upload (off by default) retries failures and waits while offline.
 
 | Discover | Connect to Wi-Fi |
 | --- | --- |
