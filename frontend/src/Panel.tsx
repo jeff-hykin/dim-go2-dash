@@ -210,7 +210,11 @@ const MATCHED: Record<Robot["matched"], { label: string; tone: string; title: st
         tone: "ok",
         title: "Its Wi-Fi MAC (its Bluetooth MAC, last byte − 1) is at this IP in the ARP table",
     },
-    "ble+lan": { label: "BLE + LAN", tone: "ok", title: "Seen on Bluetooth and answered LAN discovery with its serial" },
+    "ble+lan": {
+        label: "BLE + LAN",
+        tone: "ok",
+        title: "Seen on Bluetooth and answered LAN discovery with its serial",
+    },
     lan: { label: "LAN", tone: "ok", title: "Answered LAN discovery with its serial" },
     oui: {
         label: "OUI only",
