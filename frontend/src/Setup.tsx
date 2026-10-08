@@ -742,7 +742,7 @@ function LaunchStep(props: Props & { go: Go }) {
                     <button
                         type="button"
                         className="dim-link"
-                        onClick={() => openApp("launcher", { robot: "go2", kind: "blueprint" })}
+                        onClick={() => openApp("launcher", { robot: "go2" })}
                     >
                         Pick another blueprint
                     </button>
