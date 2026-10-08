@@ -371,7 +371,7 @@ export function App() {
                     <span className="spacer" />
                     <button
                         type="button"
-                        className="icon-btn dim-btn ghost sm"
+                        className="rec-open dim-btn ghost sm"
                         title="This app's recordings: upload, rename, open in Recordings"
                         disabled={!state}
                         onClick={() => setRecordingsOpen(true)}
@@ -379,13 +379,10 @@ export function App() {
                         <Icon name="folder" size={14} />
                         Recordings
                     </button>
-                    <span className="kbd-hint" title="J shows and hides this panel">
-                        <kbd>J</kbd>
-                    </span>
                     <button
                         type="button"
                         className="icon-btn dim-btn ghost icon"
-                        title="Slide panel away"
+                        title="Slide panel away (J shows and hides it)"
                         onClick={() => setSlid(true)}
                     >
                         <Icon name="chevron-left" size={16} />

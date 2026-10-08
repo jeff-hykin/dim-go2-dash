@@ -1550,8 +1550,14 @@ body.science.dark .nav-focus {
     background: var(--danger);
     animation: pulse 1s ease-in-out infinite;
 }
+.rec-acts {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
 .rec-meta {
-    flex: 1 1 220px;
+    flex: 1 1 200px;
     min-width: 0;
 }
 .rec-name {
@@ -1596,17 +1602,13 @@ body.science.dark .nav-focus {
     position: relative;
     flex: none;
 }
+/* the ⋯ actions open as a row under the recording (inside the list, never clipped by its scroll) */
 .rec-menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    z-index: 3;
-    min-width: 190px;
+    flex-basis: 100%;
     display: flex;
-    flex-direction: column;
-    padding: 4px;
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
 }
 .rec-menu button,
 .rec-menu a {
@@ -1642,4 +1644,11 @@ body.science.dark .nav-focus {
     flex-wrap: wrap;
     gap: 8px;
     font-size: 12.5px;
+}
+.p-head .rec-open {
+    gap: 5px;
+    white-space: nowrap;
+}
+.rec-more .dim-btn {
+    color: var(--fg);
 }

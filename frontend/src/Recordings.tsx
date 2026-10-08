@@ -151,79 +151,79 @@ function Row({ rec, onError }: { rec: Recording; onError: (text: string) => void
                 {rec.upload?.state === "failed" && rec.upload.error && <div className="rec-err">{rec.upload.error}
                 </div>}
             </div>
-            <UploadButton rec={rec} onError={onError} />
-            <div className="rec-more">
-                <button type="button" className="dim-btn ghost icon sm" title="More" onClick={() => setMenu(!menu)}>
-                    <Icon name="more-horizontal" size={15} />
-                </button>
-                {menu && (
-                    <div className="rec-menu dim-panel" onMouseLeave={() => setMenu(false)}>
-                        <button
-                            type="button"
-                            disabled={!rec.id || rec.recording}
-                            onClick={() => {
-                                setMenu(false)
-                                openApp(RECORDINGS_APP, { path: `#/replay/${encodeURIComponent(rec.id ?? "")}` }).then((
-                                    ok,
-                                ) => ok ||
-                                    onError("Recordings isn't installed (App Store), or this page isn't inside Desktop")
-                                )
-                            }}
-                        >
-                            <Icon name="play" size={13} />
-                            Open in Recordings
-                        </button>
-                        {uploading && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setMenu(false)
-                                    call("POST", `api/recordings/${file}/upload/cancel`).catch((e) =>
-                                        onError(e.message)
-                                    )
-                                }}
-                            >
-                                <Icon name="close" size={13} />
-                                Cancel upload
-                            </button>
-                        )}
-                        {rec.upload?.link && (
-                            <a
-                                href={rec.upload.link}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={() => setMenu(false)}
-                            >
-                                <Icon name="link" size={13} />
-                                Open uploaded
-                            </a>
-                        )}
-                        <button
-                            type="button"
-                            disabled={rec.recording || uploading}
-                            onClick={() => {
-                                setMenu(false)
-                                setRenaming(true)
-                            }}
-                        >
-                            <Icon name="edit" size={13} />
-                            Rename
-                        </button>
-                        <button
-                            type="button"
-                            className="danger"
-                            disabled={rec.recording}
-                            onClick={() => {
-                                setMenu(false)
-                                setConfirmDelete(true)
-                            }}
-                        >
-                            <Icon name="trash" size={13} />
-                            Delete…
-                        </button>
-                    </div>
-                )}
+            <div className="rec-acts">
+                <UploadButton rec={rec} onError={onError} />
+                <div className="rec-more">
+                    <button type="button" className="dim-btn ghost icon sm" title="More" onClick={() => setMenu(!menu)}>
+                        <Icon name="more-horizontal" size={15} />
+                    </button>
+                </div>
             </div>
+            {menu && (
+                <div className="rec-menu">
+                    <button
+                        type="button"
+                        disabled={!rec.id || rec.recording}
+                        onClick={() => {
+                            setMenu(false)
+                            openApp(RECORDINGS_APP, { path: `#/replay/${encodeURIComponent(rec.id ?? "")}` }).then((
+                                ok,
+                            ) => ok ||
+                                onError("Recordings isn't installed (App Store), or this page isn't inside Desktop")
+                            )
+                        }}
+                    >
+                        <Icon name="play" size={13} />
+                        Open in Recordings
+                    </button>
+                    {uploading && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setMenu(false)
+                                call("POST", `api/recordings/${file}/upload/cancel`).catch((e) => onError(e.message))
+                            }}
+                        >
+                            <Icon name="close" size={13} />
+                            Cancel upload
+                        </button>
+                    )}
+                    {rec.upload?.link && (
+                        <a
+                            href={rec.upload.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={() => setMenu(false)}
+                        >
+                            <Icon name="link" size={13} />
+                            Open uploaded
+                        </a>
+                    )}
+                    <button
+                        type="button"
+                        disabled={rec.recording || uploading}
+                        onClick={() => {
+                            setMenu(false)
+                            setRenaming(true)
+                        }}
+                    >
+                        <Icon name="edit" size={13} />
+                        Rename
+                    </button>
+                    <button
+                        type="button"
+                        className="danger"
+                        disabled={rec.recording}
+                        onClick={() => {
+                            setMenu(false)
+                            setConfirmDelete(true)
+                        }}
+                    >
+                        <Icon name="trash" size={13} />
+                        Delete…
+                    </button>
+                </div>
+            )}
             {confirmDelete && (
                 <div className="rec-confirm">
                     Delete{" "}
