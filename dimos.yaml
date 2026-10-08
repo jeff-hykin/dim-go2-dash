@@ -41,6 +41,7 @@ provides:
         - api/network/*
         - api/scan/*
         - api/check-ip
+        - api/hotspot/*
         - api/aes-keys
         - api/events/*
     description: >-
@@ -400,6 +401,44 @@ provides:
         - description: 'Sign this computer out of the Dimensional cloud (Desktop''s account: every app''s uploads)'
           method: POST
           path: api/cloud/logout
+        - description: >-
+              AP mode: the hotspot link (idle, joining, linked, restoring, error), the hotspot and the network this computer
+              left, saved hotspot passwords' names, whether this platform can scan Wi-Fi
+          method: GET
+          path: api/hotspot
+        - description: >-
+              List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS can't list Wi-Fi names:
+              canScan false). Read-only
+          method: POST
+          path: api/hotspot/scan
+        - description: >-
+              Switch this computer's Wi-Fi to a Go2's hotspot (it loses its internet), then drive the dog at 192.168.12.1. The
+              password is saved for that hotspot. dryRun: true says what it would do
+          method: POST
+          params:
+              dryRun:
+                  description: "true: say what would happen, change nothing"
+                  type: boolean
+              password:
+                  description: 'the hotspot''s password (default: the saved one)'
+                  type: string
+              robot:
+                  description: "a key from GET api/robots: which dog it is (its name and AES key)"
+                  type: string
+              ssid:
+                  required: true
+                  type: string
+          path: api/hotspot/connect
+        - description: 'Leave the Go2''s hotspot: close its drive session and rejoin the Wi-Fi this computer was on'
+          method: POST
+          path: api/hotspot/restore
+        - description: Forget a hotspot's saved password
+          method: DELETE
+          params:
+              ssid:
+                  required: true
+                  type: string
+          path: "api/hotspot/password/{ssid}"
         - description: 'This app''s settings: {autoUpload}'
           method: GET
           path: api/settings

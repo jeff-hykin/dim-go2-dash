@@ -1,6 +1,6 @@
 [package]
 name = "go2_dash"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.86"
 description = "dim-go2-dash backend: Go2 discovery, Wi-Fi provisioning and live control, every action an HTTP endpoint"
@@ -38,6 +38,7 @@ lz4_flex = { version = "0.11", default-features = false, features = ["safe-decod
 openh264 = { version = "=0.9.3", features = ["source"] }
 jpeg-encoder = "0.6"
 bytes = "1"
+async-trait = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus = { version = "0.9", optional = true }

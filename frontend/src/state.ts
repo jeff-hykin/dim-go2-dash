@@ -165,6 +165,20 @@ export type Recording = {
 
 export type Settings = { autoUpload: boolean }
 
+/** AP mode: this computer's link to a Go2's own hotspot (GET api/hotspot) */
+export type HotspotState = {
+    status: "idle" | "joining" | "linked" | "restoring" | "error"
+    ssid: string | null
+    previous: string | null
+    error: string | null
+    ip: string
+    platform: string
+    canScan: boolean
+    saved: string[]
+    /** the page's own: the network this computer is on now, from the last scan */
+    current?: string | null
+}
+
 export type State = {
     robots: Robot[]
     scan: Scan
@@ -177,6 +191,7 @@ export type State = {
     record: RecordState
     recordings: Recording[]
     settings: Settings
+    hotspot: HotspotState
 }
 
 /** The backend's state, or an error string when it can't be reached. `onCommand` sees every robot command, whoever sent it. */
@@ -209,6 +224,7 @@ export function useBackend(onCommand: (command: CommandRecord) => void): [State 
                 record: "record",
                 recordings: "recordings",
                 settings: "settings",
+                hotspot: "hotspot",
             }[
                 event.type as string
             ] as keyof State | undefined

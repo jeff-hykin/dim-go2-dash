@@ -10,6 +10,7 @@ pub mod cdr;
 mod cloud;
 pub mod discovery;
 pub mod drive;
+pub mod hotspot;
 mod lan;
 mod protocol;
 pub mod record;

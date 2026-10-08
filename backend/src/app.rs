@@ -95,6 +95,9 @@ pub struct App {
     /// {autoUpload}
     pub(crate) settings: Mutex<Value>,
     pub(crate) upload_watcher: std::sync::atomic::AtomicBool,
+    /// this computer's Wi-Fi (hotspot.rs: AP mode)
+    pub(crate) wifi: Arc<dyn crate::hotspot::Switcher>,
+    pub(crate) hotspot: Mutex<crate::hotspot::Link>,
 }
 
 pub fn now_ms() -> u64 {
@@ -203,6 +206,8 @@ impl App {
             recordings_index: Mutex::new(recordings_index),
             settings: Mutex::new(settings),
             upload_watcher: Default::default(),
+            wifi: crate::hotspot::switcher(mock),
+            hotspot: Mutex::new(Default::default()),
         })
     }
 
@@ -219,6 +224,10 @@ impl App {
     fn publish_robots(&self) {
         let robots = self.robots();
         self.publish(json!({ "type": "robots", "robots": robots }));
+    }
+
+    pub(crate) fn save_private(&self, file: &str, data: Value) {
+        self.save(file, data, true)
     }
 
     pub(crate) fn save_file(&self, file: &str, data: Value) {

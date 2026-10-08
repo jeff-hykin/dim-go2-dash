@@ -1738,3 +1738,66 @@ body.science.dark .nav-focus {
         row-gap: 6px;
     }
 }
+
+/* ── AP mode: Go2 hotspots ── */
+.hs-av {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    background: var(--accent);
+}
+.hs-note {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--muted-fg);
+}
+.hs-manual .hs-row {
+    display: flex;
+    gap: 6px;
+    padding: 0 12px 8px;
+}
+.hs-manual input {
+    flex: 1;
+    min-width: 0;
+}
+.hs-dialog {
+    width: min(460px, 100%);
+    padding: 16px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 13px;
+}
+.hs-title {
+    font-weight: 600;
+    font-size: 15px;
+}
+.hs-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted-fg);
+}
+.hs-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+/* while on a Go2's hotspot: always visible, top center, above everything but dialogs */
+.hs-banner {
+    position: fixed;
+    top: calc(56px + var(--dim-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 46;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: calc(100% - 24px);
+    box-shadow: var(--shadow-lg);
+}

@@ -38,6 +38,7 @@ async fn state(app: &std::sync::Arc<crate::app::App>) -> Value {
         "record": app.record_state(),
         "recordings": app.recordings_list(),
         "settings": app.settings(),
+        "hotspot": app.hotspot_state(),
     })
 }
 
@@ -457,6 +458,48 @@ pub fn routes() -> Vec<Route> {
             "Sign this computer out of the Dimensional cloud (Desktop's account: every app's uploads)",
             None,
             handler(|app, _| async move { app.cloud_logout().await }),
+        ),
+        route(
+            "GET",
+            "api/hotspot",
+            "AP mode: the hotspot link (idle, joining, linked, restoring, error), the hotspot and the network this computer left, saved hotspot passwords' names, whether this platform can scan Wi-Fi",
+            None,
+            handler(|app, _| async move { Ok(app.hotspot_state()) }),
+        ),
+        route(
+            "POST",
+            "api/hotspot/scan",
+            "List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS can't list Wi-Fi names: canScan false). Read-only",
+            None,
+            handler(|app, _| async move { app.hotspot_scan().await }),
+        ),
+        route(
+            "POST",
+            "api/hotspot/connect",
+            "Switch this computer's Wi-Fi to a Go2's hotspot (it loses its internet), then drive the dog at 192.168.12.1. The password is saved for that hotspot. dryRun: true says what it would do",
+            Some(json!({
+                "ssid": { "type": "string", "required": true },
+                "password": { "type": "string", "description": "the hotspot's password (default: the saved one)" },
+                "robot": { "type": "string", "description": "a key from GET api/robots: which dog it is (its name and AES key)" },
+                "dryRun": { "type": "boolean", "description": "true: say what would happen, change nothing" },
+            })),
+            handler(|app, args| async move {
+                app.hotspot_connect(&text(&args, "ssid").unwrap_or_default(), text(&args, "password"), text(&args, "robot"), flag(&args, "dryRun")?).await
+            }),
+        ),
+        route(
+            "POST",
+            "api/hotspot/restore",
+            "Leave the Go2's hotspot: close its drive session and rejoin the Wi-Fi this computer was on",
+            None,
+            handler(|app, _| async move { app.hotspot_restore().await }),
+        ),
+        route(
+            "DELETE",
+            "api/hotspot/password/{ssid}",
+            "Forget a hotspot's saved password",
+            Some(json!({ "ssid": { "type": "string", "required": true } })),
+            handler(|app, args| async move { Ok(app.hotspot_forget(&text(&args, "ssid").unwrap_or_default())) }),
         ),
         route("GET", "api/settings", "This app's settings: {autoUpload}", None, handler(|app, _| async move { Ok(app.settings()) })),
         route(

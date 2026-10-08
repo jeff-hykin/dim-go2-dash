@@ -7,6 +7,7 @@ import { Control } from "./Control.tsx"
 import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
+import { HotspotBanner, Hotspots, type HotspotScan } from "./Hotspot.tsx"
 import { Recordings } from "./Recordings.tsx"
 import { Setup } from "./Setup.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
@@ -34,6 +35,12 @@ export function App() {
     const [state, loadError] = useBackend(onCommand)
     const [slid, setSlid] = useState(false)
     const [recordingsOpen, setRecordingsOpen] = useState(false)
+    const [hotspotScan, setHotspotScan] = useState<HotspotScan | null>(null)
+    const scanHotspots = () =>
+        call<HotspotScan>("POST", "api/hotspot/scan").then(
+            setHotspotScan,
+            (e) => setHotspotScan({ canScan: true, hotspots: [], current: null, note: e.message }),
+        )
     const [open, setOpen] = useState<Open>(null)
     const [accountsOpen, setAccountsOpen] = useState(false)
     const [accountsFlash, setAccountsFlash] = useState(0)
@@ -106,7 +113,10 @@ export function App() {
         }
         call("POST", "api/scan", { timeout: 7, wait: false, sweep }).catch((e) => setScanError(e.message))
     }
-    const scan = () => scanWith("quick")
+    const scan = () => {
+        scanHotspots()
+        return scanWith("quick")
+    }
 
     // ── keyboard navigation of the panel: manual IP ↔ Scan ↔ dogs ↔ each dog's buttons ──
     const dogEls = () => [...(list.current?.querySelectorAll<HTMLElement>(".dog") ?? [])]
@@ -459,6 +469,9 @@ export function App() {
                             onOpenAccounts={openAccounts}
                         />
                     ))}
+                    {state && (
+                        <Hotspots scan={hotspotScan} state={state.hotspot} robots={robots} onScan={scanHotspots} />
+                    )}
                 </div>
                 <Accounts
                     accounts={state?.accounts ?? []}
@@ -491,6 +504,7 @@ export function App() {
                     record={state.record}
                 />
             )}
+            {state && <HotspotBanner state={state.hotspot} />}
             {/* this app's recordings: one floating button, bottom right, connected or not */}
             <button
                 type="button"

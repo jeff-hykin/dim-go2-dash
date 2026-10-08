@@ -951,10 +951,11 @@ dependencies = [
 
 [[package]]
 name = "go2_dash"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "aes",
  "aes-gcm",
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "btleplug",

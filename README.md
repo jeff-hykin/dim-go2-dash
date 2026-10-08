@@ -18,6 +18,10 @@ A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for **Unit
   `/joystick` (sensor_msgs/Joy: the RAW pad axes and buttons, layout in the channel metadata, never velocities),
   `/cmd_vel` (the Twist actually sent) and `/commands`. zstd chunks closed every second and a byte-capped queue: a
   killed run keeps all but its last second (and is finished on the next start), memory stays flat.
+- **Go2 hotspot (AP mode)**: Scan also lists Wi-Fi hotspots named like a Go2's (`GO2-…`, `Go2_…`, `Unitree…`);
+  "Connect via hotspot" asks first, switches this computer's Wi-Fi to it (NetworkManager on Linux / SteamOS,
+  `networksetup` on macOS, where the hotspot's name is typed since macOS hides Wi-Fi names from apps), drives the dog
+  at 192.168.12.1, and a banner switches back. Hotspot passwords are saved per hotspot (0600, the app's data dir).
 - **Recordings**: this app's recordings, newest first; Upload (through Desktop's upload queue), Open in Recordings,
   Rename, Delete, Cancel upload; Auto-upload (off by default) retries failures and waits while offline.
 
