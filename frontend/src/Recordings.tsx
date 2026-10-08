@@ -1,7 +1,7 @@
 // This app's recordings (Desktop's recordings folder, go2/), newest first. The row's button uploads it through
 // Desktop's upload queue (Upload → progress → Uploaded); ⋯ has Open in Recordings, Rename, Delete, Cancel upload.
 // Auto-upload (persisted, off by default) uploads each finished recording, retries failures, waits while offline.
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { call } from "./api.ts"
 import { megabytes } from "./Control.tsx"
 import { openApp } from "./dim-app/source/desktop.js"
@@ -39,10 +39,15 @@ function percent(upload: Upload): number | null {
 }
 
 /** The row's main button: what it does now, what state it's in. */
-function UploadButton({ rec, onError }: { rec: Recording; onError: (text: string) => void }) {
+function UploadButton({ rec, onError, ctx }: { rec: Recording; onError: (text: string) => void; ctx: Ctx }) {
     const upload = rec.upload
-    const start = () =>
+    // signed out: queue it anyway (Desktop holds it and sends it after sign-in) and ask to sign in
+    const start = () => {
         call("POST", `api/recordings/${encodeURIComponent(rec.file)}/upload`).catch((e) => onError(e.message))
+        if (ctx.account && ctx.account.available && !ctx.account.loggedIn) {
+            ctx.signIn()
+        }
+    }
     if (rec.recording) {
         return <span className="rec-state dim-badge danger">Recording…</span>
     }
@@ -74,8 +79,8 @@ function UploadButton({ rec, onError }: { rec: Recording; onError: (text: string
                 <button
                     type="button"
                     className="dim-btn sm"
-                    title="Desktop needs a Dimensional cloud sign-in before it uploads (the upload starts by itself after)"
-                    onClick={() => openApp(RECORDINGS_APP, { path: "#/transfer" })}
+                    title="It waits for a Dimensional cloud sign-in, then uploads by itself"
+                    onClick={ctx.signIn}
                 >
                     Sign in to upload…
                 </button>
@@ -102,7 +107,7 @@ function UploadButton({ rec, onError }: { rec: Recording; onError: (text: string
     }
 }
 
-function Row({ rec, onError }: { rec: Recording; onError: (text: string) => void }) {
+function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) => void; ctx: Ctx }) {
     const [menu, setMenu] = useState(false)
     const [renaming, setRenaming] = useState(false)
     const [confirmDelete, setConfirmDelete] = useState(false)
@@ -152,7 +157,7 @@ function Row({ rec, onError }: { rec: Recording; onError: (text: string) => void
                 </div>}
             </div>
             <div className="rec-acts">
-                <UploadButton rec={rec} onError={onError} />
+                <UploadButton rec={rec} onError={onError} ctx={ctx} />
                 <div className="rec-more">
                     <button type="button" className="dim-btn ghost icon sm" title="More" onClick={() => setMenu(!menu)}>
                         <Icon name="more-horizontal" size={15} />
@@ -245,10 +250,86 @@ function Row({ rec, onError }: { rec: Recording; onError: (text: string) => void
     )
 }
 
+/** Desktop's Dimensional cloud account (GET api/cloud) */
+type Account = { loggedIn: boolean; email: string | null; available: boolean; error?: string | null }
+type Ctx = { account: Account | null; signIn: () => void }
+
+/** Desktop's own sign-in page in a frame (GET /dimos/cloud/login/page, the same one Recordings uses): it shows a code,
+ * opens the console in a new tab to approve it, and tells this page when it's done. */
+function LoginPanel({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            if (event.data?.type === "dimos-cloud-login" && ["approved", "loggedIn"].includes(event.data.state)) {
+                onDone()
+            }
+        }
+        addEventListener("message", onMessage)
+        return () => removeEventListener("message", onMessage)
+    }, [onDone])
+    const src = new URL("../../dimos/cloud/login/page?theme=dark", location.href).href
+    return (
+        <div className="rec-login">
+            <div className="rec-login-head">
+                Sign in to the Dimensional cloud (console.dimensional.org) to upload. Waiting uploads start by
+                themselves after.
+                <button type="button" className="dim-btn ghost sm" onClick={onClose}>Close</button>
+            </div>
+            <iframe title="Dimensional sign-in" src={src} />
+        </div>
+    )
+}
+
+function AccountLine({ account, onSignIn, onSignOut }: {
+    account: Account | null
+    onSignIn: () => void
+    onSignOut: () => void
+}) {
+    if (!account) {
+        return <span className="rec-account muted">Checking the cloud account…</span>
+    }
+    if (!account.available) {
+        return <span className="rec-account muted" title={account.error ?? ""}>Uploads need dimOS Desktop</span>
+    }
+    if (account.loggedIn) {
+        return (
+            <span className="rec-account">
+                Signed in as <b>{account.email ?? "your account"}</b> ·{" "}
+                <button type="button" className="rec-link" onClick={onSignOut}>Sign out</button>
+            </span>
+        )
+    }
+    return (
+        <button type="button" className="dim-btn sm primary" onClick={onSignIn}>
+            Sign in to upload
+        </button>
+    )
+}
+
 export function Recordings(
     { recordings, settings, onClose }: { recordings: Recording[]; settings: Settings; onClose: () => void },
 ) {
     const [error, setError] = useState<string | null>(null)
+    const [account, setAccount] = useState<Account | null>(null)
+    const [loggingIn, setLoggingIn] = useState(false)
+    const loadAccount = useCallback((fresh = false) => {
+        call<Account>("GET", `api/cloud${fresh ? "?fresh=true" : ""}`).then(
+            setAccount,
+            (e) => setAccount({ loggedIn: false, email: null, available: true, error: e.message }),
+        )
+    }, [])
+    useEffect(() => loadAccount(true), [])
+    // an upload Desktop holds for a sign-in: ask for one
+    const waiting = recordings.some((r) => r.upload?.state === "signin")
+    useEffect(() => {
+        if (waiting && account && account.available && !account.loggedIn) {
+            setLoggingIn(true)
+        }
+    }, [waiting, account?.loggedIn])
+    const onLoggedIn = useCallback(() => {
+        setLoggingIn(false)
+        loadAccount(true)
+    }, [])
+    const ctx: Ctx = { account, signIn: () => setLoggingIn(true) }
     useEffect(() => {
         const key = (e: KeyboardEvent) => e.key === "Escape" && onClose()
         addEventListener("keydown", key)
@@ -292,6 +373,15 @@ export function Recordings(
                         <Icon name="close" size={15} />
                     </button>
                 </div>
+                <div className="rec-accountbar">
+                    <AccountLine
+                        account={account}
+                        onSignIn={() => setLoggingIn(true)}
+                        onSignOut={() =>
+                            call<Account>("POST", "api/cloud/logout").then(setAccount, (e) => setError(e.message))}
+                    />
+                </div>
+                {loggingIn && <LoginPanel onDone={onLoggedIn} onClose={() => setLoggingIn(false)} />}
                 {error && (
                     <div className="rec-error dim-alert danger" onClick={() => setError(null)}>
                         {error}
@@ -303,7 +393,7 @@ export function Recordings(
                             No recordings yet. Connect to a dog, then press <b>Record</b>.
                         </div>
                     )}
-                    {sorted.map((rec) => <Row key={rec.file} rec={rec} onError={setError} />)}
+                    {sorted.map((rec) => <Row key={rec.file} rec={rec} onError={setError} ctx={ctx} />)}
                 </div>
             </div>
         </div>

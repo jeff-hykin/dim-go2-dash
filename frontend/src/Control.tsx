@@ -243,9 +243,8 @@ export function Control(props: {
     onFlash: (name: string, ok: boolean) => void
     onToast: (text: string) => void
     onSignIn: () => void
-    onRecordings: () => void
 }) {
-    const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn, onRecordings } = props
+    const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
     const video = useRef<HTMLVideoElement>(null)
     const live = useCamera(drive, video)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
@@ -439,15 +438,6 @@ export function Control(props: {
                     <PadChip pad={pad} linked={ready} />
                     <span className="spacer" />
                     <RecordButton record={record} onToast={onToast} />
-                    <button
-                        type="button"
-                        className="dim-btn sm"
-                        title="This app's recordings: upload, rename, open"
-                        onClick={onRecordings}
-                    >
-                        <Icon name="folder" size={14} />
-                        Recordings
-                    </button>
                     <button
                         type="button"
                         className="ctl-close dim-btn sm"

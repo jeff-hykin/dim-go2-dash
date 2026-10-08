@@ -444,6 +444,20 @@ pub fn routes() -> Vec<Route> {
             Some(json!({ "file": { "type": "string", "required": true } })),
             handler(|app, args| async move { app.cancel_upload(&text(&args, "file").unwrap_or_default()).await }),
         ),
+        route(
+            "GET",
+            "api/cloud",
+            "The Dimensional cloud account uploads go to (Desktop's): {loggedIn, email, available}; fresh: true asks again",
+            Some(json!({ "fresh": { "type": "boolean" } })),
+            handler(|app, args| async move { app.cloud_account(flag(&args, "fresh")?).await }),
+        ),
+        route(
+            "POST",
+            "api/cloud/logout",
+            "Sign this computer out of the Dimensional cloud (Desktop's account: every app's uploads)",
+            None,
+            handler(|app, _| async move { app.cloud_logout().await }),
+        ),
         route("GET", "api/settings", "This app's settings: {autoUpload}", None, handler(|app, _| async move { Ok(app.settings()) })),
         route(
             "PUT",

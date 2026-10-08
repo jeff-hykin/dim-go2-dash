@@ -371,16 +371,6 @@ export function App() {
                     <span className="spacer" />
                     <button
                         type="button"
-                        className="rec-open dim-btn ghost sm"
-                        title="This app's recordings: upload, rename, open in Recordings"
-                        disabled={!state}
-                        onClick={() => setRecordingsOpen(true)}
-                    >
-                        <Icon name="folder" size={14} />
-                        Recordings
-                    </button>
-                    <button
-                        type="button"
                         className="icon-btn dim-btn ghost icon"
                         title="Slide panel away (J shows and hides it)"
                         onClick={() => setSlid(true)}
@@ -499,9 +489,20 @@ export function App() {
                     onToast={showToast}
                     onSignIn={openAccounts}
                     record={state.record}
-                    onRecordings={() => setRecordingsOpen(true)}
                 />
             )}
+            {/* this app's recordings: one floating button, bottom right, connected or not */}
+            <button
+                type="button"
+                className={`rec-fab dim-btn${state?.record.active ? " live" : ""}`}
+                title="This app's recordings: upload, rename, open in Recordings"
+                disabled={!state}
+                onClick={() => setRecordingsOpen(true)}
+            >
+                <Icon name="folder" size={15} />
+                Recordings
+                {!!state?.recordings.length && <span className="rec-fab-n">{state.recordings.length}</span>}
+            </button>
             {recordingsOpen && state && (
                 <Recordings
                     recordings={state.recordings}

@@ -283,7 +283,8 @@ impl App {
                         }
                         None => ours.clone(),
                     };
-                    if next["state"] == "queued" && signed_out {
+                    if (next["state"] == "queued" && signed_out) || next["errorCode"] == "not_logged_in" {
+                        // Desktop holds it until someone signs in, then sends it by itself
                         next["state"] = json!("signin");
                     }
                     if (next["state"] == "failed" || next["state"] == "offline") && auto && self.auto_upload_on() {
@@ -338,6 +339,27 @@ impl App {
         }
         next["retryAt"] = json!(retry_at);
         next
+    }
+}
+
+impl App {
+    /// Who this computer is signed in to the Dimensional cloud as (Desktop's dimos gateway: GET /dimos/cloud/account).
+    pub async fn cloud_account(&self, fresh: bool) -> Result<Value, HttpError> {
+        if self.desktop_url.get().is_none() {
+            return Ok(json!({ "loggedIn": false, "email": null, "available": false,
+                "error": "Go2 Ctrl isn't running inside dimOS Desktop: uploads and sign-in go through Desktop" }));
+        }
+        let path = if fresh { "/dimos/cloud/account?fresh=1" } else { "/dimos/cloud/account" };
+        let mut account = self.desktop_call(reqwest::Method::GET, path, None).await?;
+        account["available"] = json!(true);
+        Ok(account)
+    }
+
+    pub async fn cloud_logout(&self) -> Result<Value, HttpError> {
+        let mut account = self.desktop_call(reqwest::Method::POST, "/dimos/cloud/logout", None).await?;
+        account["available"] = json!(true);
+        self.publish(json!({ "type": "cloud", "cloud": account }));
+        Ok(account)
     }
 }
 

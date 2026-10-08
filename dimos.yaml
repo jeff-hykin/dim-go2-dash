@@ -12,6 +12,11 @@ uses:
         - POST /uploads
         - "DELETE /uploads/{id}"
         - "POST /uploads/{id}/retry"
+        # sign-in for uploads: the account (backend), Desktop's login page (framed by the Recordings sheet), sign out
+        - GET /cloud/account
+        - POST /cloud/login
+        - GET /cloud/login/page
+        - POST /cloud/logout
     "@desktop-gateway":
         - GET /api/apps
         - PUT /api/launcher/state
@@ -386,6 +391,15 @@ provides:
                   required: true
                   type: string
           path: "api/recordings/{file}/upload/cancel"
+        - description: 'The Dimensional cloud account uploads go to (Desktop''s): {loggedIn, email, available}; fresh: true asks again'
+          method: GET
+          params:
+              fresh:
+                  type: boolean
+          path: api/cloud
+        - description: 'Sign this computer out of the Dimensional cloud (Desktop''s account: every app''s uploads)'
+          method: POST
+          path: api/cloud/logout
         - description: 'This app''s settings: {autoUpload}'
           method: GET
           path: api/settings

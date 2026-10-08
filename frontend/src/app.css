@@ -147,7 +147,7 @@ body.science:not(.dark) .ctl-top {
 .vel {
     position: absolute;
     left: 12px;
-    bottom: calc(60px + var(--dim-inset-bottom)); /* above the command bar (and Desktop's dock) */
+    bottom: calc(84px + var(--dim-inset-bottom)); /* above the command bar (and Desktop's dock) */
     font-size: 10.5px;
     padding: 6px 9px;
     min-width: 118px;
@@ -273,7 +273,7 @@ body.science.dark .cmd-search .dim-input:focus {
 .dpad {
     position: absolute;
     right: 12px;
-    bottom: calc(12px + var(--dim-inset-bottom));
+    bottom: calc(60px + var(--dim-inset-bottom)); /* above the Recordings button */
     z-index: 3;
     display: grid;
     grid-template-columns: repeat(3, 44px);
@@ -1351,11 +1351,15 @@ body.science.dark .nav-focus {
     }
     .dpad {
         right: 8px;
-        bottom: calc(84px + var(--dim-inset-bottom));
+        bottom: calc(128px + var(--dim-inset-bottom)); /* above the Recordings button */
     }
     .vel {
         left: 8px;
-        bottom: calc(188px + var(--dim-inset-bottom)); /* above the d-pad (two 44px rows) */
+        bottom: calc(232px + var(--dim-inset-bottom)); /* above the d-pad (two 44px rows) */
+    }
+    /* the setup panel stops above the Recordings button */
+    .panel {
+        bottom: calc(132px + var(--dim-inset-bottom));
     }
     /* the robot's name stays; its IP (in the setup panel too) gives way */
     .ctl-top .nm {
@@ -1645,10 +1649,92 @@ body.science.dark .nav-focus {
     gap: 8px;
     font-size: 12.5px;
 }
-.p-head .rec-open {
-    gap: 5px;
-    white-space: nowrap;
-}
 .rec-more .dim-btn {
     color: var(--fg);
+}
+
+/* the Recordings button: floating, bottom right, above Desktop's dock; the d-pad sits above it while driving */
+.rec-fab {
+    position: fixed;
+    right: calc(12px + var(--dim-inset-right));
+    bottom: calc(12px + var(--dim-inset-bottom));
+    z-index: 45;
+    gap: 7px;
+    padding: 8px 13px;
+    white-space: nowrap;
+    background: var(--card);
+    box-shadow: var(--shadow-lg);
+}
+.rec-fab-n {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--muted-fg);
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+}
+.rec-fab.live .rec-fab-n {
+    background: var(--danger);
+    color: var(--primary-fg);
+}
+@media (max-width: 600px) {
+    .rec-fab {
+        right: calc(8px + var(--dim-inset-right));
+        bottom: calc(80px + var(--dim-inset-bottom)); /* above the command bar */
+    }
+    /* Sit down: same row as Recordings, on the left, above the command bar */
+    .sit-down {
+        left: 8px;
+        bottom: calc(80px + var(--dim-inset-bottom));
+    }
+}
+
+/* the cloud account under the Recordings header */
+.rec-accountbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+}
+.rec-account.muted {
+    color: var(--muted-fg);
+}
+.rec-link {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: var(--primary);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+}
+.rec-login {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px 12px;
+}
+.rec-login-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--muted-fg);
+    margin-bottom: 8px;
+}
+.rec-login iframe {
+    width: 100%;
+    height: 260px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+@media (max-width: 600px) {
+    /* the top bar wraps instead of pushing Disconnect off the screen */
+    .ctl-top {
+        flex-wrap: wrap;
+        row-gap: 6px;
+    }
 }
