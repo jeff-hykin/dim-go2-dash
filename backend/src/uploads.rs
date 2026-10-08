@@ -195,9 +195,7 @@ impl App {
             self.clone().watch_uploads();
             return Ok(json!({ "upload": self.index()[file]["upload"] }));
         }
-        let upload = self
-            .desktop_call(reqwest::Method::POST, "/dimos/uploads", Some(json!({ "path": path.display().to_string(), "kind": "recording" })))
-            .await;
+        let upload = self.desktop_call(reqwest::Method::POST, "/dimos/uploads", Some(json!({ "path": path.display().to_string() }))).await;
         match upload {
             Ok(upload) => {
                 self.set_upload(file, from_desktop(&upload, auto));
@@ -311,7 +309,7 @@ impl App {
                 self.desktop_call(
                     reqwest::Method::POST,
                     "/dimos/uploads",
-                    Some(json!({ "path": recordings_dir(self).join(file).display().to_string(), "kind": "recording" })),
+                    Some(json!({ "path": recordings_dir(self).join(file).display().to_string() })),
                 )
                 .await
             } else {
