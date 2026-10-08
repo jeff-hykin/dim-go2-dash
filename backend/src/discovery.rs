@@ -312,7 +312,7 @@ pub enum SweepMode {
     /// small (≤ 1024 addresses) or else the /24 around this computer, widened to the whole subnet when a dog on
     /// Bluetooth is still missing (`widen`)
     Quick,
-    /// the remembered IPs, then the whole subnet (up to a /16): a /17 takes ~35 s on macOS, a few minutes on Linux
+    /// the remembered IPs, then the whole subnet (up to a /16): a /17 takes ~1 min on macOS, ~3 min on Linux (its neighbour table caps the rate)
     Full,
     /// only the remembered IPs
     Known,

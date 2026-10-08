@@ -284,15 +284,22 @@ pub async fn sweep(targets: &[Ipv4Addr], iface: Option<&str>, cancel: &AtomicBoo
     let mut sent = 0;
     let mut last_report = Instant::now();
     let mut cancelled = false;
-    // paced by the clock, not by sleeps: macOS coalesces a background process's short timers (a 50 ms sleep can take
-    // 300 ms), so a fixed batch per sleep ran ~6x slower than `rate`
-    let begun = Instant::now();
+    // paced by a token bucket on the clock, not by sleeps: macOS coalesces a background process's short timers (a 50 ms
+    // sleep can take 300 ms), so a fixed batch per sleep ran ~6x slower than `rate`. The bucket holds at most a
+    // second's worth on Linux, so a long stall never turns into a burst that overflows its neighbour table; macOS has
+    // no such table cap (5000 probes/s go out without an error), so there it holds five
+    let burst = if cfg!(target_os = "linux") { rate } else { rate * 5 } as f64;
+    let mut tokens = 1.0f64;
+    let mut last_fill = Instant::now();
     while sent < targets.len() {
         if cancel.load(Ordering::Relaxed) {
             cancelled = true;
             break;
         }
-        let due = ((begun.elapsed().as_secs_f64() * rate as f64) as usize + 1).min(targets.len());
+        tokens = (tokens + last_fill.elapsed().as_secs_f64() * rate as f64).min(burst);
+        last_fill = Instant::now();
+        let due = (sent + tokens as usize).min(targets.len());
+        tokens -= (due - sent) as f64;
         while sent < due {
             for _attempt in 0..5 {
                 match prober.send(targets[sent], sent as u16) {
