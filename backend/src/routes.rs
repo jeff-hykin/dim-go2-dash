@@ -90,16 +90,19 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/scan",
-            "Scan for Go2s over Bluetooth and the local network (passive: nothing is paired or changed). Forgets the previous results; with wait (default) answers when the scan ends",
+            "Scan for Go2s over Bluetooth and the local network (passive: nothing is paired or changed): LAN discovery, plus an ARP sweep (one ping per address) joined to Bluetooth by MAC, for networks that drop discovery's multicast. Forgets the previous results; with wait (default) answers when the scan ends",
             Some(json!({
-                "timeout": { "type": "number", "description": "seconds to scan (default 7)" },
+                "timeout": { "type": "number", "description": "seconds to scan (default 7; a sweep can run longer)" },
                 "wait": { "type": "boolean", "description": "answer when the scan ends with the robots found (default true); false answers right away" },
+                "sweep": { "type": "string", "description": "the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24 around this computer), full (the whole subnet up to a /16; a /17 takes ~35 s on macOS, minutes on Linux), known (remembered IPs only) or off" },
             })),
             handler(|app, args| async move {
                 let wait = if args.contains_key("wait") { flag(&args, "wait")? } else { true };
-                app.scan(number(&args, "timeout")?.unwrap_or(7.0), wait).await
+                let sweep = text(&args, "sweep").unwrap_or_default();
+                app.scan(number(&args, "timeout")?.unwrap_or(7.0), wait, &sweep).await
             }),
         ),
+        route("POST", "api/scan/stop", "Stop the running scan (and its sweep) now; what it found so far stays", None, handler(|app, _| async move { Ok(app.stop_scan()) })),
         route(
             "PUT",
             "api/robots/{key}/name",

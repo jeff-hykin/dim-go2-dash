@@ -843,11 +843,6 @@ body.science.dark .nav-focus {
     color: var(--warn);
     background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
-.arp-tag {
-    margin-left: 6px;
-    padding: 1px 6px;
-    white-space: nowrap;
-}
 
 /* reopen tab (left edge, visible when panel is slid away) */
 .reopen {
@@ -1369,4 +1364,51 @@ body.science.dark .nav-focus {
 .help-fix-note {
     font-size: 12px;
     color: var(--muted-fg);
+}
+
+/* how a dog was matched, "use this IP", the ARP sweep */
+.match-tag {
+    margin-left: 6px;
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+.use-ip {
+    flex: none;
+    white-space: nowrap;
+}
+.use-ip.using {
+    align-self: center;
+}
+.sweep {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--muted-fg) 30%, transparent);
+    border-radius: 8px;
+    font-size: 12px;
+}
+.sweep.err {
+    color: var(--danger);
+}
+.sweep-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.sweep-sub {
+    color: var(--muted-fg);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+.sweep-bar {
+    height: 4px;
+    margin: 6px 0 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--muted-fg) 20%, transparent);
+    overflow: hidden;
+}
+.sweep-bar > div {
+    height: 100%;
+    background: var(--accent, var(--warn));
+    transition: width 0.25s;
 }

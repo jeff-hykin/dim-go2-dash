@@ -3,12 +3,13 @@
 
 pub mod api;
 pub mod app;
-mod arp;
-mod ble;
+pub mod arp;
+pub mod ble;
 mod cloud;
-mod discovery;
+pub mod discovery;
 pub mod drive;
 mod lan;
+pub mod sweep;
 mod protocol;
 pub mod relay;
 pub mod robot_rtc;

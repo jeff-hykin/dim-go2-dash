@@ -23,6 +23,8 @@ pub struct BleDevice {
     pub serial: Option<String>,
     pub name: String,
     pub address: String,
+    /// its Bluetooth MAC: BlueZ (Linux) gives it; CoreBluetooth (macOS) hides it behind a per-computer UUID, so None
+    pub mac: Option<String>,
 }
 
 /// Shared registry of discovered peripherals so a later `connect` can reconnect
@@ -71,6 +73,7 @@ pub async fn scan_ble(adapter: Adapter, registry: Registry, out: mpsc::Sender<Bl
         let serial = props.manufacturer_data.iter().next().and_then(|(&cid, payload)| serial_from_manufacturer(cid, payload));
 
         let address = peripheral.id().to_string();
+        let mac = crate::arp::norm_mac(&props.address.to_string());
         registry.lock().await.insert(address.clone(), peripheral);
 
         let emit = match seen.get(&address) {
@@ -79,7 +82,7 @@ pub async fn scan_ble(adapter: Adapter, registry: Registry, out: mpsc::Sender<Bl
         };
         if emit {
             seen.insert(address.clone(), serial.clone());
-            if out.send(BleDevice { serial, name, address }).await.is_err() {
+            if out.send(BleDevice { serial, name, address, mac }).await.is_err() {
                 break;
             }
         }

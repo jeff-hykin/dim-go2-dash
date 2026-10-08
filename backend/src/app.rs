@@ -21,6 +21,9 @@ const NAMES_FILE: &str = "go2_dash_names.json";
 const AES_KEYS_FILE: &str = "go2_dash_aes_keys.json";
 const ACCOUNTS_FILE: &str = "go2_dash_unitree_accounts.json";
 const IPS_FILE: &str = "go2_dash_ips.json";
+/// where Unitree MACs were seen on the network, newest first (the sweep re-pings these first)
+const SEEN_FILE: &str = "go2_dash_seen.json";
+const SEEN_MAX: usize = 64;
 pub const MULTICAST_GROUP: &str = "231.1.1.1";
 
 #[derive(Clone)]
@@ -50,6 +53,11 @@ struct State {
     scanning: bool,
     last_count: Option<usize>,
     notice: Option<String>,
+    /// the ARP sweep: what it covers and how far it got (discovery.rs `sweep` events), null before one
+    sweep: Value,
+    /// [{ip, mac, at}] (SEEN_FILE)
+    seen: Vec<Value>,
+    stop: Option<Arc<discovery::Stop>>,
     wifi: Value,
     host_ssid: String,
     host_ssid_status: &'static str,
@@ -128,6 +136,7 @@ impl App {
         state.names = load(&data_dir, NAMES_FILE);
         state.aes_keys = load(&data_dir, AES_KEYS_FILE);
         state.ips = load(&data_dir, IPS_FILE);
+        state.seen = load(&data_dir, SEEN_FILE);
         let accounts: BTreeMap<String, Value> = load(&data_dir, ACCOUNTS_FILE);
         for (email, account) in accounts {
             state.accounts.insert(
@@ -225,6 +234,8 @@ impl App {
             "ip": ip,
             "ipSource": if scanned_ip.is_some() { json!("scan") } else if remembered.is_some() { json!("remembered") } else { Value::Null },
             "lanMac": raw["lan_mac"],
+            "bleMac": raw["ble_hw_mac"],
+            "matched": raw["matched"].as_str().unwrap_or(if arp_only { "oui" } else if scanned_ip.is_some() { "lan" } else { "ble" }),
             "arpOnly": arp_only,
             "hasAesKey": state.aes_keys.contains_key(key),
             "canProvisionWifi": ble_id.is_some() && !arp_only,
@@ -328,7 +339,7 @@ impl App {
 
     pub fn scan_state(&self) -> Value {
         let state = self.state.lock().unwrap();
-        json!({ "scanning": state.scanning, "lastCount": state.last_count, "notice": state.notice })
+        json!({ "scanning": state.scanning, "lastCount": state.last_count, "notice": state.notice, "sweep": state.sweep })
     }
 
     fn on_discovery(self: &Arc<Self>, event: Value) {
@@ -358,6 +369,23 @@ impl App {
                     self.remember_ip(&key, &ip);
                 }
                 self.publish_robots();
+            }
+            "sweep" => {
+                let mut sweep = event.clone();
+                sweep.as_object_mut().unwrap().remove("type");
+                self.state.lock().unwrap().sweep = sweep;
+                self.publish(json!({ "type": "scan", "scan": self.scan_state() }));
+            }
+            "seen" => {
+                let (Some(ip), Some(mac)) = (event["ip"].as_str(), event["mac"].as_str()) else { return };
+                let seen = {
+                    let mut state = self.state.lock().unwrap();
+                    state.seen.retain(|row| row["mac"] != mac && row["ip"] != ip);
+                    state.seen.insert(0, json!({ "ip": ip, "mac": mac, "at": now_ms() }));
+                    state.seen.truncate(SEEN_MAX);
+                    state.seen.clone()
+                };
+                self.save_file(SEEN_FILE, json!(seen));
             }
             "drop" => {
                 if let Some(key) = event["key"].as_str() {
@@ -413,10 +441,12 @@ impl App {
 
     /// Starts a scan (a re-scan forgets the previous results) unless one is running, and, with `wait`, returns the
     /// robots once it ends.
-    pub async fn scan(self: &Arc<Self>, timeout_secs: f64, wait: bool) -> Result<Value, HttpError> {
+    pub async fn scan(self: &Arc<Self>, timeout_secs: f64, wait: bool, sweep: &str) -> Result<Value, HttpError> {
         if !(1.0..=60.0).contains(&timeout_secs) {
             return Err(HttpError::bad("timeout must be between 1 and 60 seconds"));
         }
+        let sweep = discovery::SweepMode::parse(sweep).ok_or_else(|| HttpError::bad("sweep must be quick, full, known or off"))?;
+        let stop = Arc::new(discovery::Stop::default());
         let mut done = self.scan_done.subscribe();
         let start = {
             let mut state = self.state.lock().unwrap();
@@ -426,6 +456,8 @@ impl App {
                 state.scanning = true;
                 state.devices.clear();
                 state.notice = None;
+                state.sweep = Value::Null;
+                state.stop = Some(stop.clone());
                 true
             }
         };
@@ -442,14 +474,17 @@ impl App {
                 if app.mock {
                     let joined: Vec<String> =
                         app.mock_joined.lock().unwrap().iter().filter(|(_, at)| **at <= now_ms()).map(|(key, _)| key.clone()).collect();
-                    mock_scan(sink, timeout_secs, &joined).await;
+                    mock_scan(sink, timeout_secs, &joined, sweep, &stop).await;
                 } else {
                     let adapter = app.adapter_for_scan().await;
-                    discovery::do_scan(adapter, app.registry.clone(), timeout_secs, sink).await;
+                    let known = app.state.lock().unwrap().seen.iter().filter_map(|row| row["ip"].as_str()?.parse().ok()).collect();
+                    let options = discovery::ScanOptions { timeout_secs, sweep, known, stop };
+                    discovery::do_scan(adapter, app.registry.clone(), options, sink).await;
                 }
                 let count = {
                     let mut state = app.state.lock().unwrap();
                     state.scanning = false;
+                    state.stop = None;
                     state.last_count = Some(state.devices.len());
                     state.devices.len()
                 };
@@ -462,6 +497,15 @@ impl App {
             let _ = done.changed().await;
         }
         Ok(json!({ "scan": self.scan_state(), "robots": self.robots() }))
+    }
+
+    /// Ends the running scan now (the sweep stops at its next batch); what it found so far stays.
+    pub fn stop_scan(&self) -> Value {
+        let stop = self.state.lock().unwrap().stop.clone();
+        if let Some(stop) = &stop {
+            stop.stop();
+        }
+        json!({ "stopped": stop.is_some(), "scan": self.scan_state() })
     }
 
     // ── this computer's network ──
@@ -797,20 +841,37 @@ pub const MOCK_JOIN_MS: u64 = 4000;
 
 /// The mock's two robots: one already on the network, one only over Bluetooth (a new Go2) until it's given Wi-Fi
 /// (`joined`: the serials that have joined since). Found one after another, as a real scan finds them.
-async fn mock_scan(sink: Sink, timeout_secs: f64, joined: &[String]) {
+async fn mock_scan(sink: Sink, timeout_secs: f64, joined: &[String], sweep: discovery::SweepMode, stop: &discovery::Stop) {
     let pause = Duration::from_secs_f64((timeout_secs / 10.0).min(0.6));
     sink(json!({ "type": "scan_start" }));
+    let lan = json!({ "type": "sweep", "iface": "mock0", "ip": "192.0.2.2", "subnet": "192.0.2.0/24", "fullHosts": 254 });
+    let with = |extra: Value| {
+        let mut event = lan.clone();
+        event.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        event
+    };
+    if sweep != discovery::SweepMode::Off {
+        sink(with(json!({ "status": "running", "phase": "subnet", "swept": "192.0.2.0/24", "partial": false, "sent": 127, "total": 253, "alive": 3 })));
+    }
     tokio::time::sleep(pause).await;
+    if stop.flag.load(std::sync::atomic::Ordering::Relaxed) {
+        sink(with(json!({ "status": "cancelled", "phase": "done", "swept": null, "partial": true, "note": "stopped" })));
+        sink(json!({ "type": "scan_done", "count": 0 }));
+        return;
+    }
     let second = "MOCK0000GO2A0002";
     let second_ip = joined.iter().any(|s| s == second).then_some("192.0.2.11");
     sink(
-        json!({ "type": "device", "serial": second, "name": "Go2_MOCK2", "ble_mac": "mock-ble-2", "ip": second_ip, "lan_mac": second_ip.map(|_| "94:ba:06:00:00:02"), "arp_only": false }),
+        json!({ "type": "device", "serial": second, "name": "Go2_MOCK2", "ble_mac": "mock-ble-2", "ip": second_ip, "lan_mac": second_ip.map(|_| "94:ba:06:00:00:02"), "arp_only": false, "matched": if second_ip.is_some() { "ble+arp" } else { "ble" } }),
     );
     tokio::time::sleep(pause).await;
     sink(
-        json!({ "type": "device", "serial": "MOCK0000GO2A0001", "name": "Go2_MOCK1", "ble_mac": "mock-ble-1", "ip": "192.0.2.10", "lan_mac": "94:ba:06:00:00:01", "arp_only": false }),
+        json!({ "type": "device", "serial": "MOCK0000GO2A0001", "name": "Go2_MOCK1", "ble_mac": "mock-ble-1", "ip": "192.0.2.10", "lan_mac": "94:ba:06:00:00:01", "arp_only": false, "matched": "ble+arp" }),
     );
     tokio::time::sleep(pause).await;
+    if sweep != discovery::SweepMode::Off {
+        sink(with(json!({ "status": "done", "phase": "done", "swept": "192.0.2.0/24", "partial": false, "method": "ping", "note": "swept 192.0.2.0/24", "known": 0 })));
+    }
     sink(json!({ "type": "scan_done", "count": 2 }));
 }
 

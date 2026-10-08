@@ -6,7 +6,7 @@ import { call } from "./api.ts"
 import { Control } from "./Control.tsx"
 import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
-import { Accounts, Help, ManualDrive, RobotCard, scanStatus } from "./Panel.tsx"
+import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
 import { Setup } from "./Setup.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
 
@@ -95,14 +95,16 @@ export function App() {
         setAccountsFlash((n) => n + 1)
     }
 
-    const scan = () => {
+    /** `sweep`: quick (remembered IPs + a small subnet or this /24), or full (the whole subnet, up to a /16) */
+    const scanWith = (sweep: "quick" | "full") => {
         setOpen(null)
         setScanError(null)
         if (driving) {
             call("POST", "api/drive/disconnect").catch(() => {}) // re-scan wipes the list; drop the drive session
         }
-        call("POST", "api/scan", { timeout: 7, wait: false }).catch((e) => setScanError(e.message))
+        call("POST", "api/scan", { timeout: 7, wait: false, sweep }).catch((e) => setScanError(e.message))
     }
+    const scan = () => scanWith("quick")
 
     // ── keyboard navigation of the panel: manual IP ↔ Scan ↔ dogs ↔ each dog's buttons ──
     const dogEls = () => [...(list.current?.querySelectorAll<HTMLElement>(".dog") ?? [])]
@@ -414,6 +416,13 @@ export function App() {
                 </div>
                 <div className="list" ref={list}>
                     {state?.scan.notice && <div className="none warn">{state.scan.notice}</div>}
+                    {state && (
+                        <SweepStatus
+                            sweep={state.scan.sweep}
+                            scanning={state.scan.scanning}
+                            onFullSweep={() => scanWith("full")}
+                        />
+                    )}
                     {loadError && !state && (
                         <div className="none err">
                             Can't reach the Go2 Ctrl server: {loadError}
@@ -436,6 +445,7 @@ export function App() {
                         <RobotCard
                             key={robot.key}
                             robot={robot}
+                            using={state.setup.robot?.key === robot.key}
                             drive={state.drive}
                             wifi={state.wifi}
                             network={state.network}

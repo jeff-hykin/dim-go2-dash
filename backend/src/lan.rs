@@ -28,6 +28,11 @@ pub struct LanDevice {
 
 const SKIP_PREFIXES: [&str; 11] = ["lo", "tailscale", "wg", "tun", "utun", "docker", "br-", "veth", "awdl", "llw", "bridge"];
 
+/// Loopback, VPN tunnels, containers and Apple's peer-to-peer links: never where a dog is.
+pub fn is_tunnel_iface(name: &str) -> bool {
+    SKIP_PREFIXES.iter().any(|p| name.starts_with(p)) || name.starts_with("Meta")
+}
+
 /// (name, ipv4, broadcast) for real, non-tunnel IPv4 interfaces. Replaces psutil.
 pub fn wifi_ifaces() -> Vec<(String, Ipv4Addr, Option<Ipv4Addr>)> {
     let mut out = Vec::new();
@@ -36,7 +41,7 @@ pub fn wifi_ifaces() -> Vec<(String, Ipv4Addr, Option<Ipv4Addr>)> {
         Err(_) => return out,
     };
     for interface in interfaces {
-        if SKIP_PREFIXES.iter().any(|p| interface.name.starts_with(p)) || interface.name.starts_with("Meta") {
+        if is_tunnel_iface(&interface.name) {
             continue;
         }
         if let if_addrs::IfAddr::V4(v4) = interface.addr {
@@ -54,7 +59,7 @@ const IP_BOUND_IF: libc::c_int = 25;
 
 /// macOS: pin outgoing packets to a specific interface (IP_BOUND_IF). No-op elsewhere.
 #[cfg(target_os = "macos")]
-fn bind_to_iface(socket: &Socket, name: &str) {
+pub(crate) fn bind_to_iface(socket: &Socket, name: &str) {
     use std::os::unix::io::AsRawFd;
     let cname = match std::ffi::CString::new(name) {
         Ok(cname) => cname,
@@ -76,7 +81,7 @@ fn bind_to_iface(socket: &Socket, name: &str) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn bind_to_iface(_socket: &Socket, _name: &str) {}
+pub(crate) fn bind_to_iface(_socket: &Socket, _name: &str) {}
 
 /// Probe one interface for Go2s. Sends to the multicast group (always) and the
 /// directed broadcast (when `use_broadcast`), then collects replies until timeout.

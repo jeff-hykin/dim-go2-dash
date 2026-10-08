@@ -98,6 +98,37 @@ async fn scan_and_robots() {
 }
 
 #[tokio::test]
+async fn scan_sweep_match_and_stop() {
+    let t = setup();
+    assert_eq!(t.status("POST", "api/scan", Some(json!({ "timeout": 1, "sweep": "everything" }))).await, 400);
+    let scan = t.ok("POST", "api/scan", Some(json!({ "timeout": 1, "sweep": "full" }))).await;
+    assert_eq!(scan["scan"]["sweep"]["status"], "done");
+    assert_eq!(scan["scan"]["sweep"]["swept"], "192.0.2.0/24");
+    let robots = t.ok("GET", "api/robots", None).await;
+    assert_eq!(robots[0]["matched"], "ble+arp");
+    assert_eq!(robots[1]["matched"], "ble");
+    // "use this IP": the guide's robot and its IP, nothing connected
+    let picked = t.ok("PUT", "api/setup", Some(json!({ "robot": DOG, "ip": "192.0.2.10" }))).await;
+    assert_eq!(picked["robot"]["key"], DOG);
+    assert_eq!(picked["robot"]["ip"], "192.0.2.10");
+    // nothing to stop once it's done; a running one stops, keeping what it found
+    assert_eq!(t.ok("POST", "api/scan/stop", None).await["stopped"], false);
+    t.ok("POST", "api/scan?timeout=5&wait=false", None).await;
+    assert_eq!(t.ok("POST", "api/scan/stop", None).await["stopped"], true);
+    let mut done = false;
+    for _ in 0..50 {
+        let scan = t.ok("GET", "api/state", None).await["scan"].clone();
+        if scan["scanning"] == false {
+            assert_eq!(scan["sweep"]["status"], "cancelled");
+            done = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(done, "the scan didn't stop");
+}
+
+#[tokio::test]
 async fn rename_aes_key_and_ip() {
     let t = setup();
     t.scanned().await;

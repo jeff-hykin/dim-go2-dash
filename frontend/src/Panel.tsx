@@ -4,7 +4,7 @@ import { forwardRef, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
 import { runCommand } from "./dim-app/source/shell.js"
 import { Icon } from "./icons.tsx"
-import type { Account, Drive, Network, Robot, Scan, Wifi } from "./state.ts"
+import type { Account, Drive, Network, Robot, Scan, Sweep, Wifi } from "./state.ts"
 import { agoText, colorFor, copyText, store, stored, validIp } from "./util.ts"
 
 const WIFI_LS = "go2dash.wifi" // last Wi-Fi that worked, to prefill the next dog's form
@@ -203,8 +203,118 @@ function WifiForm(props: { robot: Robot; wifi: Wifi; network: Network; onClose: 
     )
 }
 
+/** How a dog's IP was found, as a badge: the stronger the join, the calmer the tone. */
+const MATCHED: Record<Robot["matched"], { label: string; tone: string; title: string }> = {
+    "ble+arp": {
+        label: "BLE + ARP",
+        tone: "ok",
+        title: "Its Wi-Fi MAC (its Bluetooth MAC, last byte − 1) is at this IP in the ARP table",
+    },
+    "ble+lan": { label: "BLE + LAN", tone: "ok", title: "Seen on Bluetooth and answered LAN discovery with its serial" },
+    lan: { label: "LAN", tone: "ok", title: "Answered LAN discovery with its serial" },
+    oui: {
+        label: "OUI only",
+        tone: "warn",
+        title: "A Unitree MAC with a Go2 port open: best effort, no serial to tell which dog",
+    },
+    guess: {
+        label: "guess",
+        tone: "warn",
+        title: "The only Go2 on Bluetooth and the only unclaimed Unitree MAC on the network (macOS hides Bluetooth " +
+            "MACs, so they can't be joined): probably the same dog",
+    },
+    ble: { label: "BLE only", tone: "", title: "Seen on Bluetooth, not on this network" },
+}
+
+function MatchBadge({ robot }: { robot: Robot }) {
+    const m = MATCHED[robot.matched] ?? MATCHED.ble
+    return <span className={`match-tag dim-badge ${m.tone}`} title={m.title}>{m.label}</span>
+}
+
+/** Pick this dog and its IP as the one the app uses (the guide's robot: launches and Desktop's robot_ip follow it). */
+function UseIp({ robot, using }: { robot: Robot; using: boolean }) {
+    if (!robot.ip) {
+        return null
+    }
+    if (using) {
+        return <span className="use-ip using dim-badge ok" title="The robot IP this app uses">in use</span>
+    }
+    return (
+        <button
+            type="button"
+            className="use-ip dim-btn ghost sm"
+            title={`Use ${robot.ip} as the robot IP (picks this dog; connects to nothing)`}
+            onClick={(e) => {
+                e.stopPropagation()
+                call("PUT", "api/setup", { robot: robot.key, ip: robot.ip }).catch(() => {})
+            }}
+        >
+            Use this IP
+        </button>
+    )
+}
+
+/** The ARP sweep: progress while it runs (with Stop), then what it covered, and "sweep everything" when it didn't. */
+export function SweepStatus(
+    { sweep, scanning, onFullSweep }: { sweep: Sweep | null | undefined; scanning: boolean; onFullSweep: () => void },
+) {
+    if (!sweep) {
+        return null
+    }
+    if (sweep.status === "error") {
+        return <div className="sweep err">ARP sweep: {sweep.error}</div>
+    }
+    const where = `${sweep.iface} · ${sweep.subnet}`
+    if (sweep.status === "running") {
+        const pct = sweep.total ? Math.round(100 * (sweep.sent ?? 0) / sweep.total) : 0
+        const what = sweep.phase === "known" ? "Re-pinging where dogs were seen" : `Sweeping ${sweep.swept}`
+        return (
+            <div className="sweep running" data-testid="sweep">
+                <div className="sweep-row">
+                    <span>
+                        {what} — {(sweep.sent ?? 0).toLocaleString()}/{(sweep.total ?? 0).toLocaleString()} ·{" "}
+                        {sweep.alive ?? 0} answered
+                    </span>
+                    <button
+                        type="button"
+                        className="dim-btn ghost sm"
+                        onClick={() => call("POST", "api/scan/stop").catch(() => {})}
+                    >
+                        Stop
+                    </button>
+                </div>
+                <div className="sweep-bar">
+                    <div style={{ width: `${pct}%` }} />
+                </div>
+                <div className="sweep-sub">{where}</div>
+            </div>
+        )
+    }
+    return (
+        <div className="sweep" data-testid="sweep">
+            <div className="sweep-row">
+                <span className="sweep-sub">
+                    ARP: {sweep.note}
+                    {sweep.method ? ` (${sweep.method})` : ""} · {where}
+                </span>
+                {sweep.partial && !scanning && (
+                    <button
+                        type="button"
+                        className="dim-btn sm"
+                        title="Ping every address of this network, so a dog anywhere on it shows up (read-only)"
+                        onClick={onFullSweep}
+                    >
+                        Sweep all {(sweep.fullHosts ?? 0).toLocaleString()}
+                    </button>
+                )}
+            </div>
+        </div>
+    )
+}
+
 export const RobotCard = forwardRef<HTMLDivElement, {
     robot: Robot
+    using: boolean
     drive: Drive
     wifi: Wifi
     network: Network
@@ -213,7 +323,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
     setOpen: (what: "menu" | "form" | "details" | "edit" | null) => void
     onOpenAccounts: () => void
 }>(function RobotCard(props, ref) {
-    const { robot, drive, wifi, network, awaitingIp, open, setOpen, onOpenAccounts } = props
+    const { robot, using, drive, wifi, network, awaitingIp, open, setOpen, onOpenAccounts } = props
     const key = robot.key
     const driving = drive.active && drive.robot === key
     if (robot.arpOnly) {
@@ -225,13 +335,14 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                     </span>
                     <div className="meta">
                         <div className="nm">
-                            Possible Go2 <span className="arp-tag dim-badge warn">ARP · unverified</span>
+                            Possible Go2 <MatchBadge robot={robot} />
                         </div>
                         <div className="sub">
                             {robot.ip && <Copyable className="ip" value={robot.ip} title="Click to copy IP" />}
                             {robot.lanMac && <span className="serial">{robot.lanMac}</span>}
                         </div>
                     </div>
+                    <UseIp robot={robot} using={using} />
                 </div>
             </div>
         )
@@ -289,7 +400,11 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                                 }}
                             />
                         )
-                        : <div className="nm">{robot.name}</div>}
+                        : (
+                            <div className="nm">
+                                {robot.name} <MatchBadge robot={robot} />
+                            </div>
+                        )}
                     <div className="sub">
                         {robot.ip && (
                             <Copyable
@@ -308,6 +423,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                         {!robot.ip && !awaitingIp && !robot.serial && "—"}
                     </div>
                 </div>
+                <UseIp robot={robot} using={using} />
                 {robot.ip && (
                     <button
                         type="button"
@@ -351,7 +467,8 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                                 />
                             </div>
                         )}
-                    <DetailRow label="MAC address" value={robot.lanMac} />
+                    <DetailRow label="Wi-Fi MAC" value={robot.lanMac} />
+                    <DetailRow label="Bluetooth MAC" value={robot.bleMac} />
                     <div className="d-row">
                         <span className="d-k">AES key</span>
                         <SavedInput

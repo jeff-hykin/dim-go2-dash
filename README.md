@@ -3,7 +3,10 @@
 A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for **Unitree Go2** robot dogs:
 
 - **Discover** nearby Go2s over Bluetooth (BLE) and on the local network (LAN + ARP). A robot seen both ways is one
-  card with its name, serial and IP.
+  card with its name, serial and IP. Where the Wi-Fi drops LAN discovery's multicast (offices), an ARP sweep (one
+  unprivileged ping per address) finds the IP: joined to Bluetooth by MAC on Linux (Wi-Fi MAC = Bluetooth MAC − 1);
+  macOS hides Bluetooth MACs, so there a Unitree MAC prefix alone marks it (best effort). Try it from a terminal:
+  `cd backend && cargo run --example find_go2 -- full`.
 - **Connect to Wi-Fi**: send a Go2 Wi-Fi credentials over Bluetooth so it joins your network.
 - **Drive** one live: camera, stand / sit / jump / dance / …, and keyboard or d-pad walking, over WebRTC.
 

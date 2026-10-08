@@ -13,13 +13,36 @@ export type Robot = {
     bleId: string | null
     ip: string | null
     ipSource: "scan" | "remembered" | null
+    /** its Wi-Fi MAC */
     lanMac: string | null
+    /** its Bluetooth MAC (Linux only: macOS hides it) */
+    bleMac: string | null
+    /** how its IP was found: Bluetooth MAC joined to ARP, LAN discovery, a Unitree MAC only, a guess, or not on this network */
+    matched: "ble+arp" | "ble+lan" | "lan" | "oui" | "guess" | "ble"
     arpOnly: boolean
     hasAesKey: boolean
     canProvisionWifi: boolean
 }
 
-export type Scan = { scanning: boolean; lastCount: number | null; notice: string | null }
+/** The ARP sweep (discovery.rs `sweep` events): what it covers and how far it got */
+export type Sweep = {
+    status: "running" | "done" | "cancelled" | "error"
+    phase?: "known" | "subnet" | "done"
+    iface?: string
+    ip?: string
+    subnet?: string
+    swept?: string | null
+    partial?: boolean
+    fullHosts?: number
+    sent?: number
+    total?: number
+    alive?: number
+    method?: string | null
+    note?: string
+    error?: string
+}
+
+export type Scan = { scanning: boolean; lastCount: number | null; notice: string | null; sweep?: Sweep | null }
 
 export type Wifi = {
     status: "idle" | "running" | "ok" | "error" | "cancelled" | "dry-run"
