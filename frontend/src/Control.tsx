@@ -302,7 +302,7 @@ export function Control(props: {
         call("POST", "api/drive/stop").catch(() => {})
     }
     const [pad, padAxes] = useGamepad({ stop: stopNow, sitDown, setBoost })
-    const padMoving = !!(padAxes.forward || padAxes.strafe || padAxes.turn) && standing
+    const padMoving = !!(padAxes.forward || padAxes.strafe || padAxes.turn) && standing && ready
     const clamp = (v: number) => Math.max(-1, Math.min(1, v))
     const vector = {
         forward: clamp((pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0) + (padMoving ? padAxes.forward : 0)),
@@ -436,7 +436,7 @@ export function Control(props: {
                         {STATUS_LABEL[drive.status] ?? drive.status}
                     </span>
                     {drive.dryRun && <span className="dim-badge warn">Dry run</span>}
-                    <PadChip pad={pad} />
+                    <PadChip pad={pad} linked={ready} />
                     <span className="spacer" />
                     <RecordButton record={record} onToast={onToast} />
                     <button
@@ -562,11 +562,14 @@ export function Control(props: {
     )
 }
 
-function PadChip({ pad }: { pad: GamepadStatus }) {
+function PadChip({ pad, linked }: { pad: GamepadStatus; linked: boolean }) {
     if (!pad.connected) {
         return null
     }
-    const [tone, label] = pad.stopped
+    // the link to the dog dropped (reconnecting): the pad drives nothing until it's back
+    const [tone, label] = !linked
+        ? ["danger", "Disengaged"]
+        : pad.stopped
         ? ["warn", "Stopped — press A"]
         : pad.ready
         ? ["ok", "Gamepad"]

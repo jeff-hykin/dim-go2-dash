@@ -1,5 +1,5 @@
-// deno test frontend/src/gamepad.test.ts — the pad's safety rules (gamepad.ts), with a fake pad and target.
-import { type Axes, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "./gamepad.ts"
+// deno test frontend/test — the pad's safety rules (gamepad.ts), with a fake pad and target.
+import { type Axes, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "../src/gamepad.ts"
 
 function assertEquals(actual: unknown, expected: unknown) {
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
