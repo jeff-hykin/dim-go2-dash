@@ -271,7 +271,13 @@ impl App {
                     let auto = ours["auto"].as_bool().unwrap_or(false);
                     let id = ours["id"].as_str().unwrap_or("");
                     let mut next = match by_id.get(id) {
-                        Some(theirs) => from_desktop(theirs, auto),
+                        Some(theirs) => {
+                            let mut next = from_desktop(theirs, auto);
+                            // the retry count survives Desktop's updates, so the waits keep growing
+                            next["attempts"] = ours["attempts"].clone();
+                            next["at"] = ours["at"].clone();
+                            next
+                        }
                         None if !id.is_empty() && ours["state"] != "failed" => {
                             json!({ "state": "failed", "error": "Desktop's upload queue no longer has it", "auto": auto })
                         }

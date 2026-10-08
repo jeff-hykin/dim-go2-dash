@@ -369,6 +369,16 @@ export function App() {
                     <span className="t dim-label">Robots</span>
                     {state?.network.mock && <span className="dim-badge warn">Mock</span>}
                     <span className="spacer" />
+                    <button
+                        type="button"
+                        className="icon-btn dim-btn ghost sm"
+                        title="This app's recordings: upload, rename, open in Recordings"
+                        disabled={!state}
+                        onClick={() => setRecordingsOpen(true)}
+                    >
+                        <Icon name="folder" size={14} />
+                        Recordings
+                    </button>
                     <span className="kbd-hint" title="J shows and hides this panel">
                         <kbd>J</kbd>
                     </span>
@@ -414,15 +424,6 @@ export function App() {
                             )}
                     >
                         Setup guide
-                    </button>
-                    <button
-                        type="button"
-                        className="dim-btn ghost sm"
-                        title="This app's recordings: upload, rename, open in Recordings"
-                        disabled={!state}
-                        onClick={() => setRecordingsOpen(true)}
-                    >
-                        Recordings
                     </button>
                 </div>
                 <div className="list" ref={list}>
