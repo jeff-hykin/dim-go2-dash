@@ -420,7 +420,7 @@ export function Control(props: {
     return (
         <div className="ctl">
             <div className={`cam-wrap${live ? " live" : ""}`}>
-                <video ref={video} autoPlay muted playsInline />
+                <video ref={video} autoPlay muted playsInline disablePictureInPicture />
                 <div className="cam-ph">
                     <div className="glyph">
                         <Icon name="camera" size={40} />
