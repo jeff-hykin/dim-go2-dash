@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./errors.tsx"
 // The Go2 Setup panel: drive a known IP, scan, the list of nearby dogs (rename, details, AES key, Wi-Fi), Unitree
 // accounts and the "never gets an IP?" help. Every action is an endpoint call; the list itself is the backend's.
 import { forwardRef, useEffect, useRef, useState } from "react"
@@ -197,7 +198,7 @@ function WifiForm(props: { robot: Robot; wifi: Wifi; network: Network; onClose: 
                     </div>
                 ))}
                 {mine && wifi.status === "error" && <div className="err">✗ {wifi.error}</div>}
-                {error && <div className="err">{error}</div>}
+                <ErrorNotice message={error} />
             </div>
         </div>
     )
@@ -612,7 +613,7 @@ export function Accounts(
                         const sub = a.pulling
                             ? "Signing in and pulling keys…"
                             : a.error
-                            ? `✗ ${a.error}`
+                            ? "Key fetch failed"
                             : a.lastPull
                             ? `${keyedHere} key${keyedHere === 1 ? "" : "s"} · ${a.robots.length} robot${
                                 a.robots.length === 1 ? "" : "s"
@@ -626,6 +627,7 @@ export function Accounts(
                             <div className="acct" key={a.email}>
                                 <div className="a-main">
                                     <div className="a-email">{a.email}</div>
+                                    <ErrorNotice message={!a.pulling ? a.error : null} />
                                     <div className={`a-sub${a.error && !a.pulling ? " err" : ""}`} title={names}>
                                         {sub}
                                     </div>
@@ -718,7 +720,7 @@ export function Accounts(
                             Download keys
                         </button>
                     </div>
-                    {error && <div className="acct-hint" style={{ color: "var(--danger)" }}>{error}</div>}
+                    <ErrorNotice message={error} />
                 </div>
             </div>
         </div>
@@ -855,7 +857,7 @@ export function ManualDrive(
             >
                 {busy ? "Connecting…" : "Drive"}
             </button>
-            {error && <div role="alert" className="dim-alert warn">{error}</div>}
+            <ErrorNotice message={error} />
         </div>
     )
 }

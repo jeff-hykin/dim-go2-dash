@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./errors.tsx"
 // The first-run guide, on the stage until it's done: welcome → find the Go2 (Bluetooth + this network) → put it on
 // Wi-Fi → confirm its IP → launch dimos for it (through Desktop) → open Controller. Or, without a robot, a replay. The
 // step and the robot picked are the backend's (api/setup), so a reload or another viewer resumes where it was.
@@ -78,7 +79,7 @@ export function Setup(props: Props) {
             {step === "wifi" && <WifiStep {...props} go={go} />}
             {step === "address" && <Address {...props} go={go} />}
             {step === "launch" && <LaunchStep {...props} go={go} />}
-            {error && <div className="dim-alert danger su-err">{error}</div>}
+            <ErrorNotice message={error} />
             {step !== "welcome" && (
                 <button
                     type="button"

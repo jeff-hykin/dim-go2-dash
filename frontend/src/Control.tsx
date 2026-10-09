@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./errors.tsx"
 // The live-control stage: the robot's camera, its commands, and the d-pad / keyboard driver. Every press is an
 // endpoint call (api/drive/*); the mode, status and last command shown come back from the backend, so a command the
 // agent sends flashes here too.
@@ -485,19 +486,7 @@ export function Control(props: {
                         Disconnect
                     </button>
                 </div>
-                {drive.status === "error" && (
-                    <div className="ctl-err dim-alert danger">
-                        {drive.error}
-                        {/AES|data2=3/i.test(drive.error ?? "") && (
-                            <>
-                                {" "}This dog needs its AES key from Unitree's cloud.
-                                <button type="button" className="dim-btn sm ctl-signin" onClick={onSignIn}>
-                                    Sign in to Unitree…
-                                </button>
-                            </>
-                        )}
-                    </div>
-                )}
+                <ErrorNotice message={drive.status === "error" ? drive.error : null} />
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
                     {boost ? "  ·  run" : "  ·  shift = run"}

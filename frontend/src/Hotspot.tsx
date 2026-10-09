@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./errors.tsx"
 // AP mode: Go2s hosting their own Wi-Fi hotspot, as cards in the Robots panel; "Connect via hotspot" asks first (this
 // computer leaves its Wi-Fi and loses its internet), then the backend switches the Wi-Fi and opens the drive session at
 // 192.168.12.1 (backend/src/hotspot.rs). While linked, a banner offers the way back to the previous network.
@@ -70,7 +71,7 @@ function ConnectDialog({ ssid, state, robots, onClose }: {
                         </select>
                     </label>
                 )}
-                {error && <div className="dim-alert danger">{error}</div>}
+                <ErrorNotice message={error} />
                 <div className="hs-actions">
                     <button type="button" className="dim-btn" disabled={busy} onClick={onClose}>Cancel</button>
                     <button
@@ -177,12 +178,13 @@ export function HotspotBanner({ state }: { state: HotspotState }) {
         : state.status === "restoring"
         ? `Switching back to ${state.previous}…`
         : state.status === "error"
-        ? state.error
+        ? "Hotspot connection failed"
         : `Connected through ${state.ssid} (no internet)`
     return (
         <div className={`hs-banner dim-alert ${state.status === "error" ? "danger" : "warn"}`} role="status">
             <Icon name="signal" size={14} />
-            <span>{error ?? text}</span>
+            <span>{text}</span>
+            <ErrorNotice message={error ?? (state.status === "error" ? state.error : null)} />
             {(state.status === "linked" || state.status === "error") && (
                 <button type="button" className="dim-btn sm" onClick={back}>
                     {state.previous ? `Switch back to ${state.previous}` : "Leave the hotspot"}

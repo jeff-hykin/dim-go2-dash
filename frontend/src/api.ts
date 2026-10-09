@@ -1,4 +1,5 @@
 // The app's backend API (backend/src/routes.rs), by relative URL: the page lives at Desktop's /apps/<name>/.
+import { reportError } from "./errors.tsx"
 import { appEvents } from "./dim-app/source/events.js"
 
 export class ApiError extends Error {}
@@ -11,7 +12,9 @@ export async function call<T = unknown>(method: string, path: string, body?: unk
     })
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-        throw new ApiError(data?.error ?? `${response.status} ${response.statusText}`)
+        const message = data?.error ?? `${response.status} ${response.statusText}`
+        void reportError(message)
+        throw new ApiError(message)
     }
     return data as T
 }

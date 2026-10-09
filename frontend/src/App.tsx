@@ -1,3 +1,4 @@
+import { ErrorNotice, reportError } from "./errors.tsx"
 // Go2 Ctrl: discover nearby Unitree Go2s (BLE + LAN), put them on Wi-Fi over Bluetooth, and drive one live. A floating
 // setup panel on the left; the stage fills with the camera and controls while driving (the panel slides away, J
 // toggles it). All state is the backend's (state.ts); every button is an endpoint call.
@@ -56,9 +57,10 @@ export function App() {
             return // throttled, so a held key doesn't retrigger it every frame
         }
         lastToastAt.current = now
-        setToast(text)
+        void reportError(text).then((id) => {
+            if (id === null) setToast(text)
+        })
         clearTimeout(toastTimer.current)
-        toastTimer.current = setTimeout(() => setToast(null), 2600)
     }
     const showToastRef = useRef(showToast)
     showToastRef.current = showToast
@@ -432,12 +434,12 @@ export function App() {
                             onFullSweep={() => scanWith("full")}
                         />
                     )}
-                    {loadError && !state && (
-                        <div className="none err">
-                            Can't reach the Go2 Ctrl server: {loadError}
-                            <br />Restart the app (App Store), then reload.
-                        </div>
-                    )}
+                    <ErrorNotice
+                        message={loadError && !state
+                            ? `Can't reach the Go2 Ctrl server: ${loadError}. Restart the app, then reload.`
+                            : null}
+                    />
+                    <ErrorNotice message={scanError} />
                     {state && robots.length === 0 && (
                         <div className="none">
                             {state.scan.scanning ? "Scanning for nearby Go2s…" : (
@@ -526,7 +528,17 @@ export function App() {
             )}
 
             <div className="dim-toasts">
-                <div className={`toast dim-toast warn${toast ? " show" : ""}`} role="status">{toast}</div>
+                <div className={`toast dim-toast warn${toast ? " show" : ""}`} role="status">
+                    {toast}
+                    <button
+                        type="button"
+                        className="dim-btn sm"
+                        aria-label="Dismiss error"
+                        onClick={() => setToast(null)}
+                    >
+                        ×
+                    </button>
+                </div>
             </div>
         </>
     )

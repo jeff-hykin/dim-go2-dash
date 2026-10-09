@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./errors.tsx"
 // This app's recordings (Desktop's recordings folder, go2/), newest first. The row's button uploads it through
 // Desktop's upload queue (Upload → progress → Uploaded); ⋯ has Open in Recordings, Rename, Delete, Cancel upload.
 // Auto-upload (persisted, on by default) uploads each finished recording, retries failures, waits while offline.
@@ -153,8 +154,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                         </span>
                     )}
                 </div>
-                {rec.upload?.state === "failed" && rec.upload.error && <div className="rec-err">{rec.upload.error}
-                </div>}
+                <ErrorNotice message={rec.upload?.state === "failed" ? rec.upload.error : null} />
             </div>
             <div className="rec-acts">
                 <UploadButton rec={rec} onError={onError} ctx={ctx} />
@@ -382,11 +382,7 @@ export function Recordings(
                     />
                 </div>
                 {loggingIn && <LoginPanel onDone={onLoggedIn} onClose={() => setLoggingIn(false)} />}
-                {error && (
-                    <div className="rec-error dim-alert danger" onClick={() => setError(null)}>
-                        {error}
-                    </div>
-                )}
+                <ErrorNotice message={error} />
                 <div className="rec-list">
                     {sorted.length === 0 && (
                         <div className="rec-empty">
