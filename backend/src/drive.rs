@@ -202,7 +202,14 @@ impl Drive {
                 crate::robot_rtc::parse_aes_key(&key).map_err(HttpError::bad)?;
                 key.to_lowercase()
             }
-            None => robot.as_deref().map(|key| app.aes_key_for(key)).unwrap_or_default(),
+            None => {
+                let saved = robot.as_deref().map(|key| app.aes_key_for(key)).unwrap_or_default();
+                if saved.is_empty() && ip == crate::hotspot::AP_IP {
+                    app.wifi.current().await.map(|ssid| app.aes_key_for(&ssid)).unwrap_or_default()
+                } else {
+                    saved
+                }
+            }
         };
         close(app).await;
         let dry = dry_run || app.mock;

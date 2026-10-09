@@ -678,6 +678,35 @@ export function Accounts(
                     <div className="actions">
                         <button type="button" className="dim-btn primary sm" onClick={add}>Add &amp; pull</button>
                         <span className="acct-hint" style={{ margin: 0 }}>Saved on this computer only.</span>
+                        <label className="dim-btn ghost sm" style={{ cursor: "pointer" }}>
+                            Upload keys JSON
+                            <input
+                                type="file"
+                                accept=".json,application/json"
+                                hidden
+                                onChange={async (event) => {
+                                    const file = event.currentTarget.files?.[0]
+                                    event.currentTarget.value = ""
+                                    if (!file) return
+                                    try {
+                                        if (file.size > 5 * 1024 * 1024) {
+                                            throw new Error(
+                                                "Keys file is too large (maximum 5 MB).",
+                                            )
+                                        }
+                                        const data = JSON.parse(await file.text())
+                                        await call("POST", "api/aes-keys", {
+                                            keys: Array.isArray(data) ? data : data.keys,
+                                        })
+                                        setError(null)
+                                    } catch (error) {
+                                        setError(
+                                            `Couldn't import keys: ${error instanceof Error ? error.message : error}`,
+                                        )
+                                    }
+                                }}
+                            />
+                        </label>
                         <button
                             type="button"
                             className="dim-btn ghost sm a-download"
@@ -781,13 +810,19 @@ export function ManualDrive(
     { inputRef, onArrowDown }: { inputRef: React.RefObject<HTMLInputElement | null>; onArrowDown: () => void },
 ) {
     const [ip, setIp] = useState(() => stored<string>(LAST_IP_LS, ""))
+    const [error, setError] = useState<string | null>(null)
+    const [busy, setBusy] = useState(false)
     const ok = validIp(ip)
     const drive = () => {
         if (!ok) {
             return
         }
         store(LAST_IP_LS, ip.trim())
-        call("POST", "api/drive/connect", { ip: ip.trim() }).catch(() => {}) // the stage shows the error
+        setError(null)
+        setBusy(true)
+        call("POST", "api/drive/connect", { ip: ip.trim() }).catch((e) => setError(e.message)).finally(() =>
+            setBusy(false)
+        )
     }
     return (
         <div className={`p-manual${ok ? " ready" : ""}`}>
@@ -811,9 +846,16 @@ export function ManualDrive(
                     }
                 }}
             />
-            <button type="button" className="dim-btn primary sm" title="Drive this IP live" onClick={drive}>
-                Drive
+            <button
+                type="button"
+                className="dim-btn primary sm"
+                title="Drive this IP live"
+                disabled={!ok || busy}
+                onClick={drive}
+            >
+                {busy ? "Connecting…" : "Drive"}
             </button>
+            {error && <div role="alert" className="dim-alert warn">{error}</div>}
         </div>
     )
 }

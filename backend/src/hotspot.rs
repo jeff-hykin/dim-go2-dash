@@ -133,11 +133,39 @@ impl Switcher for Nmcli {
         text.lines().find_map(|l| l.strip_prefix("yes:")).map(|s| s.replace("\\:", ":")).filter(|s| !s.is_empty())
     }
     async fn join(&self, ssid: &str, password: Option<&str>) -> Result<(), String> {
-        let mut args = vec!["dev", "wifi", "connect", ssid];
         if let Some(password) = password.filter(|p| !p.is_empty()) {
-            args.extend(["password", password]);
+            // Explicit WPA-PSK avoids NetworkManager creating an incomplete security section.
+            // Keep our profile separate from manually configured connections.
+            let profile = format!("dimOS Go2 {ssid}");
+            let exists = run("nmcli", &["connection", "show", "id", &profile]).await.is_ok();
+            if !exists {
+                run(
+                    "nmcli",
+                    &[
+                        "connection",
+                        "add",
+                        "type",
+                        "wifi",
+                        "con-name",
+                        &profile,
+                        "ssid",
+                        ssid,
+                        "connection.autoconnect",
+                        "no",
+                        "wifi-sec.key-mgmt",
+                        "wpa-psk",
+                        "wifi-sec.psk",
+                        password,
+                    ],
+                )
+                .await?;
+            } else {
+                run("nmcli", &["connection", "modify", "id", &profile, "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]).await?;
+            }
+            run("nmcli", &["connection", "up", "id", &profile]).await.map(|_| ())
+        } else {
+            run("nmcli", &["dev", "wifi", "connect", ssid]).await.map(|_| ())
         }
-        run("nmcli", &args).await.map(|_| ())
     }
     async fn rejoin(&self, ssid: &str) -> Result<(), String> {
         match run("nmcli", &["connection", "up", "id", ssid]).await {
@@ -332,11 +360,12 @@ impl App {
                 json!({ "dryRun": true, "would": { "leave": previous, "join": ssid, "password": password.is_some(), "then": format!("drive {AP_IP}") } }),
             );
         }
-        let leaving = self.hotspot.lock().unwrap().previous.clone().or(previous.clone());
+        let already_joined = previous.as_deref() == Some(ssid);
+        let leaving = self.hotspot.lock().unwrap().previous.clone().or_else(|| previous.clone().filter(|p| p != ssid));
         self.set_hotspot(|l| {
             *l = Link { status: "joining", ssid: Some(ssid.into()), previous: leaving.clone(), error: None };
         });
-        if let Err(err) = self.wifi.join(ssid, password.as_deref()).await {
+        if let Err(err) = if already_joined { Ok(()) } else { self.wifi.join(ssid, password.as_deref()).await } {
             let needs = err.to_lowercase().contains("secret") || err.to_lowercase().contains("password");
             let message = if needs && password.is_none() {
                 format!("{ssid} needs its password (the one set in the Unitree app's AP mode)")
@@ -372,9 +401,7 @@ impl App {
             tokio::time::sleep(Duration::from_millis(700)).await;
         }
         self.set_hotspot(|l| l.status = "linked");
-        let name = robot.as_deref().and_then(|key| self.robot(key).ok()).and_then(|r| r["name"].as_str().map(str::to_string));
-        let drive =
-            crate::drive::Drive::open(self, robot, AP_IP.into(), name.unwrap_or_else(|| format!("Go2 via {ssid}")), None, false).await?;
+        let drive = crate::drive::Drive::open(self, robot, AP_IP.into(), ssid.into(), None, false).await?;
         Ok(json!({ "hotspot": self.hotspot_state(), "drive": drive }))
     }
 

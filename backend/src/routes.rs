@@ -113,6 +113,11 @@ pub fn routes() -> Vec<Route> {
             None,
             handler(|app, _| async move { Ok(app.aes_keys_export()) }),
         ),
+        route(
+            "POST", "api/aes-keys", "Import a downloaded AES keys JSON file locally",
+            Some(json!({ "keys": { "type": "array", "required": true } })),
+            handler(|app, args| async move { app.aes_keys_import(args.get("keys").unwrap_or(&Value::Null)) }),
+        ),
         route("POST", "api/scan/stop", "Stop the running scan (and its sweep) now; what it found so far stays", None, handler(|app, _| async move { Ok(app.stop_scan()) })),
         route(
             "PUT",

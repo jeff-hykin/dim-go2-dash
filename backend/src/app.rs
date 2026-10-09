@@ -379,7 +379,23 @@ impl App {
     }
 
     pub fn aes_key_for(&self, key: &str) -> String {
-        self.state.lock().unwrap().aes_keys.get(key).cloned().unwrap_or_default()
+        let state = self.state.lock().unwrap();
+        if let Some(aes) = state.aes_keys.get(key) {
+            return aes.clone();
+        }
+        if let Some(aes) = state
+            .names
+            .iter()
+            .find_map(|(robot, name)| (key == name || key.starts_with(&format!("{name}_"))).then(|| state.aes_keys.get(robot)).flatten())
+        {
+            return aes.clone();
+        }
+        let serial = state.devices.get(key).and_then(|d| d["serial"].as_str()).unwrap_or(key).to_string();
+        if let Some(aes) = state.aes_keys.get(&serial) {
+            return aes.clone();
+        }
+        drop(state);
+        shared_aes_key(&serial).unwrap_or_default()
     }
 
     // ── scanning ──
@@ -761,6 +777,38 @@ impl App {
     // ── Unitree accounts (AES keys) ──
 
     /// Every saved AES key with the dog it belongs to (for the page's "download keys" button only; a private endpoint).
+    pub fn aes_keys_import(&self, entries: &Value) -> Result<Value, HttpError> {
+        let entries = entries.as_array().ok_or_else(|| HttpError::bad("keys must be an array"))?;
+        if entries.is_empty() || entries.len() > 10000 {
+            return Err(HttpError::bad("provide 1–10000 keys"));
+        }
+        let mut validated = Vec::new();
+        for entry in entries {
+            let key = entry["key"]
+                .as_str()
+                .filter(|k| !k.trim().is_empty())
+                .or_else(|| entry["serial"].as_str().filter(|k| !k.trim().is_empty()))
+                .ok_or_else(|| HttpError::bad("each key needs key or serial"))?;
+            let aes = entry["aesKey"].as_str().ok_or_else(|| HttpError::bad("each key needs aesKey"))?.trim().to_lowercase();
+            crate::robot_rtc::parse_aes_key(&aes).map_err(HttpError::bad)?;
+            validated.push((key.to_string(), aes, entry["name"].as_str().filter(|n| !n.trim().is_empty()).map(str::to_string)));
+        }
+        let (keys, names) = {
+            let mut state = self.state.lock().unwrap();
+            for (key, aes, name) in validated {
+                state.aes_keys.insert(key.clone(), aes);
+                if let Some(name) = name {
+                    state.names.insert(key, name);
+                }
+            }
+            (json!(state.aes_keys), json!(state.names))
+        };
+        self.save(AES_KEYS_FILE, keys, true);
+        self.save(NAMES_FILE, names, false);
+        self.publish_robots();
+        Ok(json!({ "imported": entries.len() }))
+    }
+
     pub fn aes_keys_export(&self) -> Value {
         let state = self.state.lock().unwrap();
         let alias = |sn: &str| {
@@ -1009,4 +1057,59 @@ async fn detect_ssid() -> String {
         return ssid.trim().to_string();
     }
     run("iwgetid", &["-r"]).await.trim().to_string()
+}
+
+/// Same private fleet file as Desktop/steam_install: SERIAL KEY ALIAS.
+fn shared_aes_key(identity: &str) -> Option<String> {
+    let home = std::env::var_os("HOME")?;
+    let text = std::fs::read_to_string(std::path::PathBuf::from(home).join(".config/dimos/go2-keys")).ok()?;
+    parse_shared_aes_key(&text, identity)
+}
+
+fn parse_shared_aes_key(text: &str, identity: &str) -> Option<String> {
+    let rows: Vec<Vec<&str>> = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .map(|l| l.split_whitespace().collect())
+        .filter(|r: &Vec<&str>| r.len() >= 2)
+        .collect();
+    let row = rows
+        .iter()
+        .find(|r| r[0] == identity)
+        .or_else(|| rows.iter().find(|r| r.get(2).is_some_and(|alias| identity == *alias || identity.starts_with(&format!("{alias}_")))))?;
+    crate::robot_rtc::parse_aes_key(row[1]).ok()?;
+    Some(row[1].to_lowercase())
+}
+
+#[cfg(test)]
+mod fleet_keys_tests {
+    use super::*;
+    #[test]
+    fn shared_keys_match_serial_and_wifi_alias() {
+        let text = "# private fleet\nSERIAL 0123456789abcdef0123456789abcdef Go2\nOTHER (empty) Broken\n";
+        assert_eq!(parse_shared_aes_key(text, "SERIAL"), parse_shared_aes_key(text, "Go2_49077"));
+        assert!(parse_shared_aes_key(text, "SERIAL").is_some());
+        assert!(parse_shared_aes_key(text, "Go20_49077").is_none());
+        assert!(parse_shared_aes_key(text, "Broken").is_none());
+    }
+    #[test]
+    fn invalid_import_does_not_write_partial_keys() {
+        let dir = std::env::temp_dir().join(format!("go2-import-{}", now_ms()));
+        let app = App::new(dir.clone(), true);
+        let before = app.aes_keys_export()["keys"].clone();
+        assert!(app
+            .aes_keys_import(&json!([
+                {"serial":"NEW", "aesKey":"0123456789abcdef0123456789abcdef"},
+                {"serial":"BAD", "aesKey":"invalid"}
+            ]))
+            .is_err());
+        assert_eq!(app.aes_keys_export()["keys"], before);
+        assert_eq!(
+            app.aes_keys_import(&json!([{"serial":"NEW", "aesKey":"0123456789abcdef0123456789abcdef", "name":"Go2_49077"}])).unwrap()
+                ["imported"],
+            1
+        );
+        assert_eq!(app.aes_key_for("NEW"), "0123456789abcdef0123456789abcdef");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
