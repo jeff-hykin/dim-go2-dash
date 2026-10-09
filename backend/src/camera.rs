@@ -104,7 +104,12 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
                 continue;
             }
             let header = Header { stamp_ns: now, frame_id: "camera_optical" };
-            recorder.write("/color_image", cdr::compressed_image(&header, "jpeg", &jpeg), None);
+            let image = if recorder.image_format() == "raw" {
+                cdr::image(&header, width as u32, height as u32, &rgb)
+            } else {
+                cdr::compressed_image(&header, "jpeg", &jpeg)
+            };
+            recorder.write("/color_image", image, None);
             if now.saturating_sub(last_info_ns) >= 1_000_000_000 {
                 last_info_ns = now;
                 let mut info = go2_camera_info();

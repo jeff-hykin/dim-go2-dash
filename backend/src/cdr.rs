@@ -131,6 +131,25 @@ pub fn twist(linear: [f64; 3], angular: [f64; 3]) -> Encoded {
     }
 }
 
+pub fn image(header: &Header, width: u32, height: u32, rgb: &[u8]) -> Encoded {
+    let mut w = CdrWriter::new();
+    w.header(header);
+    w.u32(height);
+    w.u32(width);
+    w.string("rgb8");
+    w.buffer.push(0);
+    w.u32(width * 3);
+    w.bytes(rgb);
+    Encoded {
+        schema_name: "sensor_msgs/msg/Image",
+        schema_text: format!(
+            "std_msgs/Header header\nuint32 height\nuint32 width\nstring encoding\nuint8 is_bigendian\nuint32 step\nuint8[] data\n{}",
+            header_msg()
+        ),
+        data: w.finish(),
+    }
+}
+
 /// sensor_msgs/CompressedImage (`format` e.g. "jpeg").
 pub fn compressed_image(header: &Header, format: &str, data: &[u8]) -> Encoded {
     let mut w = CdrWriter::new();

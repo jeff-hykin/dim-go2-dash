@@ -1,6 +1,6 @@
 // This app's recordings (Desktop's recordings folder, go2/), newest first. The row's button uploads it through
 // Desktop's upload queue (Upload → progress → Uploaded); ⋯ has Open in Recordings, Rename, Delete, Cancel upload.
-// Auto-upload (persisted, off by default) uploads each finished recording, retries failures, waits while offline.
+// Auto-upload (persisted, on by default) uploads each finished recording, retries failures, waits while offline.
 import { useCallback, useEffect, useState } from "react"
 import { call } from "./api.ts"
 import { megabytes } from "./Control.tsx"
@@ -390,7 +390,7 @@ export function Recordings(
                 <div className="rec-list">
                     {sorted.length === 0 && (
                         <div className="rec-empty">
-                            No recordings yet. Connect to a dog, then press <b>Record</b>.
+                            No recordings yet. Recording starts automatically when you connect to a dog.
                         </div>
                     )}
                     {sorted.map((rec) => <Row key={rec.file} rec={rec} onError={setError} ctx={ctx} />)}

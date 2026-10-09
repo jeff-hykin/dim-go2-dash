@@ -1801,3 +1801,104 @@ body.science.dark .nav-focus {
     max-width: calc(100% - 24px);
     box-shadow: var(--shadow-lg);
 }
+
+/* Camera overlays must keep their contrast over bright video. */
+.act.dim-btn, .sit-down.dim-btn, .ctl-close.dim-btn, .dbtn.dim-btn {
+    background: rgba(12, 18, 28, 0.88);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    box-shadow: 0 2px 8px #0005;
+}
+.act.dim-btn:hover, .sit-down.dim-btn:hover {
+    background: rgba(35, 45, 60, 0.96);
+}
+.go2-record-control {
+    position: relative;
+    pointer-events: auto;
+}
+.rec-split {
+    display: flex;
+}
+.rec-btn.dim-btn, .rec-more-btn.dim-btn {
+    background: #b91c1c;
+    color: #fff;
+    border-color: #ef4444;
+}
+.rec-btn.dim-btn:hover, .rec-more-btn.dim-btn:hover {
+    background: #dc2626;
+}
+.rec-btn .rec-dot {
+    background: white;
+}
+.rec-btn.on {
+    color: white;
+}
+.rec-btn {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+.rec-more-btn {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    font-size: 20px;
+}
+.go2-record-options {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(440px, 90vw);
+    max-height: 70vh;
+    overflow: auto;
+    padding: 16px;
+    background: var(--bg, #111827);
+    color: var(--fg, #fff);
+    z-index: 50;
+    box-shadow: 0 8px 32px #0008;
+}
+.rec-options-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.go2-record-options fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+}
+.go2-record-options label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+.go2-record-options .rec-check {
+    flex-direction: row;
+    align-items: center;
+}
+.go2-record-options .rec-stream {
+    display: grid;
+    grid-template-columns: 20px 1fr 95px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+.rec-stream .dim-input {
+    width: 95px;
+}
+.rec-path {
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    margin-bottom: 12px;
+}
+.go2-record-options h3 {
+    margin: 12px 0 8px;
+}
+.saved-recording {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--bg);
+}

@@ -506,9 +506,10 @@ pub fn routes() -> Vec<Route> {
             "PUT",
             "api/settings",
             "Change settings: autoUpload (upload each finished recording; retries failures, waits while offline)",
-            Some(json!({ "autoUpload": { "type": "boolean" } })),
+            Some(json!({ "autoUpload": { "type": "boolean" }, "recordOptions": { "type": "object" } })),
             handler(|app, args| async move {
                 let auto = if args.contains_key("autoUpload") { Some(flag(&args, "autoUpload")?) } else { None };
+                if let Some(value) = args.get("recordOptions") { app.update_record_options(value.clone())?; }
                 Ok(app.update_settings(auto))
             }),
         ),

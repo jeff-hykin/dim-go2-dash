@@ -70,3 +70,9 @@ dimos-desktop install https://github.com/jeff-hykin/dim-go2-dash
 ```
 
 Licensed under Apache-2.0.
+
+Recording starts automatically after a dog connects and ends on disconnect. Auto-upload is enabled by default;
+it can be disabled in recording options or the recordings list. The red Record button has an options menu for
+folder, stream selection, per-stream max rates, camera JPEG/raw encoding, chunk compression, and session logs.
+Action presses are ROS2 `std_msgs/msg/String` JSON messages on `/robot_action`; raw controller input is
+`sensor_msgs/msg/Joy` on `/joystick`, and sent velocities remain on `/cmd_vel`. Hold LT or RB to walk fast.

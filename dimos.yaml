@@ -349,7 +349,7 @@ provides:
           path: api/record
         - description: >-
               Record the drive session to an mcap in Desktop's recordings folder (go2/<date>_<time>_<dog>.mcap): camera,
-              lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs
+              lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and actions (/robot_action). Needs
               a drive session; ends with it
           method: POST
           path: api/record/start
@@ -447,6 +447,8 @@ provides:
           params:
               autoUpload:
                   type: boolean
+              recordOptions:
+                  type: object
           path: api/settings
         - description: >-
               Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first (on the

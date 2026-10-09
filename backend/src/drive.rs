@@ -60,6 +60,7 @@ pub const COMMANDS: &[Command] = &[
         description: "Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first",
         action: Action::Stand,
     },
+    Command { name: "lie_down", label: "Lie down", description: "Lie down (StandDown)", action: sport(1005, "StandDown", true) },
     Command {
         name: "pose",
         label: "Pose",
@@ -72,7 +73,6 @@ pub const COMMANDS: &[Command] = &[
         description: "Sit down (the robot can't walk until it stands again)",
         action: sport(1009, "Sit", true),
     },
-    Command { name: "lie_down", label: "Lie Down", description: "Lie down (StandDown)", action: sport(1005, "StandDown", true) },
     Command {
         name: "jump",
         label: "Jump",
@@ -233,10 +233,14 @@ impl Drive {
         drive.publish();
         drive.clone().start_ticker();
         if dry {
+            app.record_start().await?;
             return Ok(drive.snapshot());
         }
         match drive.clone().connect_until(Instant::now() + CONNECT_WINDOW).await {
-            Ok(()) => Ok(drive.snapshot()),
+            Ok(()) => {
+                app.record_start().await?;
+                Ok(drive.snapshot())
+            }
             Err(err) => {
                 drive.set(|s| {
                     s.status = "error";
@@ -502,6 +506,7 @@ impl Drive {
             s.velocity = (0.0, 0.0, 0.0);
         });
         if let Some(active) = self.app.upgrade().and_then(|app| app.recording()) {
+            active.command(&json!({ "name": "stop", "sends": [{ "sport": "StopMove", "apiId": SPORT_STOP_MOVE }], "sent": !self.dry, "dryRun": self.dry }));
             active.cmd_vel(0.0, 0.0, 0.0);
         }
         if !self.dry {

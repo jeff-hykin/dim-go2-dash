@@ -58,8 +58,28 @@ impl App {
         settings
     }
 
+    pub fn record_options(&self) -> crate::record::RecordOptions {
+        serde_json::from_value(self.settings()["recordOptions"].clone()).unwrap_or_default()
+    }
+
+    pub fn update_record_options(self: &Arc<Self>, value: Value) -> Result<Value, HttpError> {
+        let options: crate::record::RecordOptions = serde_json::from_value(value).map_err(|error| HttpError::bad(error.to_string()))?;
+        options.validate().map_err(HttpError::bad)?;
+        if self.recording().is_some() {
+            let old = self.record_options();
+            if old.directory != options.directory || old.compression != options.compression || old.image_format != options.image_format {
+                return Err(HttpError::conflict("stop recording before changing folder, image format or compression"));
+            }
+        }
+        self.settings.lock().unwrap()["recordOptions"] = serde_json::to_value(&options).unwrap();
+        if let Some(active) = self.recording() {
+            active.recorder.configure(options);
+        }
+        Ok(self.update_settings(None))
+    }
+
     fn auto_upload_on(&self) -> bool {
-        self.settings.lock().unwrap()["autoUpload"].as_bool().unwrap_or(false)
+        self.settings.lock().unwrap()["autoUpload"].as_bool().unwrap_or(true)
     }
 
     /// Newest first: name, file, size, when, robot, duration, whether it's recording now, and its upload.

@@ -3,7 +3,7 @@
 //   /color_image /camera_info  the camera (camera.rs)        /lidar /odom /tf /imu /battery /joint_states  (sensors.rs)
 //   /joystick  sensor_msgs/Joy: the gamepad's RAW axes and buttons (never velocities; layout in the channel metadata)
 //   /cmd_vel   geometry_msgs/Twist: the velocity actually sent to the dog (m/s, rad/s)
-//   /commands  std_msgs/String: each sport command sent (stand, sit, …) as JSON
+//   /robot_action  std_msgs/String: each sport command sent (stand, sit, …) as JSON
 // A recording lives as long as the drive session: disconnecting ends it (and the file is finished).
 
 use std::collections::BTreeMap;
@@ -42,8 +42,8 @@ pub fn channel_metadata(topic: &str) -> BTreeMap<String, String> {
         "/cmd_vel" => {
             m.insert("description".into(), "the velocity command sent to the dog (sport Move), m/s and rad/s; zeros on stop".into());
         }
-        "/commands" => {
-            m.insert("description".into(), "each sport command sent to the dog, as JSON {name, apiId, sent, dryRun}".into());
+        "/robot_action" => {
+            m.insert("description".into(), "each sport command sent to the dog, as JSON {name, sends, sent, dryRun}".into());
         }
         "/lidar" => {
             m.insert("description".into(), "the Go2's local voxel map (rt/utlidar/voxel_map_compressed), decoded to points".into());
@@ -91,7 +91,7 @@ impl Active {
     }
 
     pub fn command(&self, record: &Value) {
-        self.recorder.write("/commands", cdr::string(&record.to_string()), None);
+        self.recorder.write("/robot_action", cdr::string(&record.to_string()), None);
     }
 
     pub fn joy(&self, axes: &[f32], buttons: &[i32]) {
@@ -109,6 +109,10 @@ impl Active {
 
 /// Where recordings go: DIMOS_APP's recordingsDir/go2 (GO2_DASH_RECORDINGS_DIR overrides), else <data dir>/recordings.
 pub fn recordings_dir(app: &App) -> PathBuf {
+    let options = app.record_options();
+    if !options.directory.is_empty() {
+        return PathBuf::from(options.directory);
+    }
     if let Some(dir) = std::env::var_os("GO2_DASH_RECORDINGS_DIR") {
         return PathBuf::from(dir);
     }
@@ -160,7 +164,8 @@ impl App {
             ("mock".to_string(), self.mock.to_string()),
             ("started_ms".to_string(), started.to_string()),
         ]);
-        let recorder = Arc::new(Recorder::start(&path, metadata, channel_metadata).map_err(HttpError::bad)?);
+        let recorder =
+            Arc::new(Recorder::start_with_options(&path, metadata, channel_metadata, self.record_options()).map_err(HttpError::bad)?);
         let file = path.file_name().unwrap().to_string_lossy().into_owned();
         let weak_drive = Arc::downgrade(&drive);
         let want_keyframe: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
@@ -260,6 +265,7 @@ pub fn is_recording(app: &App, path: &Path) -> bool {
 /// GO2_DASH_MOCK's robot while recording: the topics a Go2 sends (as JSON / binary frames, through the same converters),
 /// a camera (H.264 RTP through the same decoder), and a pose that follows the drive commands.
 fn spawn_mock_robot(app: Arc<App>, active: Arc<Active>) {
+    let app = Arc::downgrade(&app);
     tokio::spawn(async move {
         let mut camera = tokio::task::spawn_blocking(MockCamera::new).await.ok().flatten();
         let (mut x, mut y, mut yaw) = (0.0f64, 0.0f64, 0.0f64);
@@ -267,6 +273,7 @@ fn spawn_mock_robot(app: Arc<App>, active: Arc<Active>) {
         let period = Duration::from_millis(1000 / 15);
         while !active.ended.load(Ordering::Relaxed) {
             tokio::time::sleep(period).await;
+            let Some(app) = app.upgrade() else { break };
             tick += 1;
             let dt = period.as_secs_f64();
             if let Some((vx, vy, wz)) = app.drive.lock().await.as_ref().map(|d| d.commanded_velocity()) {
@@ -276,7 +283,7 @@ fn spawn_mock_robot(app: Arc<App>, active: Arc<Active>) {
             }
             if let Some(cam) = camera.as_mut() {
                 // encoding a frame takes a few ms: off the async workers' hot path
-                let packets = tokio::task::block_in_place(|| cam.next_packets("mock"));
+                let packets = cam.next_packets("mock");
                 for packet in packets {
                     active.on_rtp(packet);
                 }

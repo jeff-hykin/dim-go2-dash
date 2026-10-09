@@ -30,6 +30,63 @@ const CHUNK_SIZE: u64 = 4 * 1024 * 1024;
 pub const PROFILE: &str = "ros2";
 pub const LIBRARY: &str = concat!("dim-go2-dash ", env!("CARGO_PKG_VERSION"));
 
+pub const TOPICS: &[&str] = &[
+    "/color_image",
+    "/camera_info",
+    "/lidar",
+    "/odom",
+    "/tf",
+    "/imu",
+    "/battery",
+    "/joint_states",
+    "/joystick",
+    "/cmd_vel",
+    "/robot_action",
+    "/logs",
+];
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordOptions {
+    pub directory: String,
+    pub compression: String,
+    pub image_format: String,
+    pub record_new: bool,
+    pub logs: bool,
+    pub topics: BTreeMap<String, bool>,
+    pub rates: BTreeMap<String, f64>,
+}
+impl Default for RecordOptions {
+    fn default() -> Self {
+        Self {
+            directory: String::new(),
+            compression: "zstd".into(),
+            image_format: "jpeg".into(),
+            record_new: true,
+            logs: false,
+            topics: BTreeMap::new(),
+            rates: BTreeMap::new(),
+        }
+    }
+}
+impl RecordOptions {
+    pub fn validate(&self) -> Result<(), String> {
+        if !["zstd", "none"].contains(&self.compression.as_str()) {
+            return Err("compression must be zstd or none".into());
+        }
+        if !["jpeg", "raw"].contains(&self.image_format.as_str()) {
+            return Err("imageFormat must be jpeg or raw".into());
+        }
+        if !self.directory.is_empty() && !Path::new(&self.directory).is_absolute() {
+            return Err("recording folder must be an absolute path".into());
+        }
+        if self.rates.values().any(|hz| !hz.is_finite() || *hz <= 0.0 || *hz > 1000.0) {
+            return Err("max rates must be between 0 and 1000 Hz (empty = unlimited)".into());
+        }
+        Ok(())
+    }
+}
+
 struct Sample {
     topic: &'static str,
     encoded: Encoded,
@@ -44,9 +101,13 @@ pub struct Counters {
     pub dropped: AtomicU64,
     queued_bytes: AtomicU64,
     per_topic: Mutex<BTreeMap<&'static str, u64>>,
+    per_topic_bytes: Mutex<BTreeMap<&'static str, u64>>,
+    skipped: AtomicU64,
 }
 
 pub struct Recorder {
+    options: Mutex<RecordOptions>,
+    last_sample: Mutex<HashMap<&'static str, u64>>,
     pub path: PathBuf,
     pub started_ms: u64,
     started: Instant,
@@ -61,11 +122,24 @@ pub type ChannelMetadata = fn(&str) -> BTreeMap<String, String>;
 impl Recorder {
     /// Creates the file and its writer thread. `metadata` becomes an mcap Metadata record named "dimos.recording".
     pub fn start(path: &Path, metadata: BTreeMap<String, String>, channel_metadata: ChannelMetadata) -> Result<Recorder, String> {
+        Self::start_with_options(path, metadata, channel_metadata, RecordOptions::default())
+    }
+
+    pub fn start_with_options(
+        path: &Path,
+        metadata: BTreeMap<String, String>,
+        channel_metadata: ChannelMetadata,
+        settings: RecordOptions,
+    ) -> Result<Recorder, String> {
+        settings.validate()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
         }
         let file = File::create(path).map_err(|e| format!("could not create {}: {e}", path.display()))?;
-        let mut writer = options().create(BufWriter::new(file)).map_err(|e| e.to_string())?;
+        let mut writer = options()
+            .compression(if settings.compression == "none" { None } else { Some(mcap::Compression::Zstd) })
+            .create(BufWriter::new(file))
+            .map_err(|e| e.to_string())?;
         writer.write_metadata(&mcap::records::Metadata { name: "dimos.recording".into(), metadata }).map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;
         let (sender, receiver) = sync_channel(QUEUE_DEPTH);
@@ -78,6 +152,8 @@ impl Recorder {
                 .map_err(|e| e.to_string())?
         };
         Ok(Recorder {
+            options: Mutex::new(settings),
+            last_sample: Mutex::new(HashMap::new()),
             path: path.to_path_buf(),
             started_ms: crate::app::now_ms(),
             started: Instant::now(),
@@ -89,6 +165,26 @@ impl Recorder {
 
     /// Queues a message; never blocks. `publish_time` is the message's own time (its header stamp), `log_time` now.
     pub fn write(&self, topic: &'static str, encoded: Encoded, publish_time: Option<u64>) {
+        let now = now_ns();
+        let settings = self.options.lock().unwrap();
+        let enabled = settings.topics.get(topic).copied().unwrap_or(settings.record_new || TOPICS.contains(&topic));
+        let limited = if let Some(hz) = settings.rates.get(topic) {
+            let mut last = self.last_sample.lock().unwrap();
+            let previous = last.get(topic).copied().unwrap_or(0);
+            if now.saturating_sub(previous) < (1e9 / hz) as u64 {
+                true
+            } else {
+                last.insert(topic, now);
+                false
+            }
+        } else {
+            false
+        };
+        if !enabled || limited || (topic == "/logs" && !settings.logs) {
+            self.counters.skipped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        drop(settings);
         let Some(sender) = self.sender.lock().unwrap().clone() else { return };
         let size = encoded.data.len() as u64;
         if self.counters.queued_bytes.load(Ordering::Relaxed) + size > QUEUE_BYTES {
@@ -104,6 +200,16 @@ impl Recorder {
         }
     }
 
+    pub fn configure(&self, settings: RecordOptions) {
+        *self.options.lock().unwrap() = settings;
+    }
+    pub fn image_format(&self) -> String {
+        self.options.lock().unwrap().image_format.clone()
+    }
+    pub fn logs_on(&self) -> bool {
+        self.options.lock().unwrap().logs
+    }
+
     pub fn status(&self) -> serde_json::Value {
         serde_json::json!({
             "active": true,
@@ -115,6 +221,8 @@ impl Recorder {
             "bytes": self.counters.bytes.load(Ordering::Relaxed),
             "dropped": self.counters.dropped.load(Ordering::Relaxed),
             "topics": *self.counters.per_topic.lock().unwrap(),
+            "skipped": self.counters.skipped.load(Ordering::Relaxed),
+            "streams": self.counters.per_topic_bytes.lock().unwrap().iter().map(|(topic, bytes)| serde_json::json!({ "topic": topic, "bytesPerSecond": *bytes as f64 / self.started.elapsed().as_secs_f64().max(1.0) })).collect::<Vec<_>>(),
         })
     }
 
@@ -181,6 +289,7 @@ fn drain(
             counters.messages.fetch_add(1, Ordering::Relaxed);
             counters.bytes.fetch_add(size, Ordering::Relaxed);
             *counters.per_topic.lock().unwrap().entry(sample.topic).or_default() += 1;
+            *counters.per_topic_bytes.lock().unwrap().entry(sample.topic).or_default() += size;
         }
         if last_flush.elapsed() >= FLUSH_EVERY {
             writer.flush().map_err(|e| e.to_string())?;
@@ -311,6 +420,30 @@ mod tests {
 
     fn no_metadata(_: &str) -> BTreeMap<String, String> {
         BTreeMap::new()
+    }
+
+    #[test]
+    fn stream_exclusion_and_rate_caps_are_applied_to_the_actual_mcap() {
+        let dir = scratch("options");
+        let path = dir.join("filtered.mcap");
+        let mut settings = RecordOptions::default();
+        settings.compression = "none".into();
+        settings.topics.insert("/imu".into(), false);
+        settings.rates.insert("/joystick".into(), 1.0);
+        let recorder = Recorder::start_with_options(&path, BTreeMap::new(), no_metadata, settings).unwrap();
+        recorder.write("/imu", crate::cdr::string("excluded"), None);
+        for _ in 0..3 {
+            recorder.write("/joystick", crate::cdr::string("sample"), None);
+        }
+        recorder.write("/robot_action", crate::cdr::string("stand"), None);
+        recorder.finish().unwrap();
+        let bytes = std::fs::read(path).unwrap();
+        let topics: Vec<_> = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap().channel.topic.clone()).collect();
+        assert_eq!(topics.iter().filter(|t| *t == "/joystick").count(), 1);
+        assert!(!topics.iter().any(|t| t == "/imu"));
+        assert!(topics.iter().any(|t| t == "/robot_action"));
+        assert_eq!(recorder.status()["skipped"], 3);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

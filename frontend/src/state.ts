@@ -126,6 +126,8 @@ export type RecordState =
         seconds: number
         messages: number
         bytes: number
+        skipped?: number
+        streams?: { topic: string; bytesPerSecond: number }[]
         dropped: number
         topics: Record<string, number>
         robot: string

@@ -184,7 +184,10 @@ impl App {
         let recordings_index: serde_json::Map<String, Value> = load(&data_dir, crate::uploads::INDEX_FILE);
         let mut settings: Value = load::<Option<Value>>(&data_dir, crate::uploads::SETTINGS_FILE).unwrap_or(json!({}));
         if !settings["autoUpload"].is_boolean() {
-            settings["autoUpload"] = json!(false);
+            settings["autoUpload"] = json!(true);
+        }
+        if !settings["recordOptions"].is_object() {
+            settings["recordOptions"] = serde_json::to_value(crate::record::RecordOptions::default()).unwrap();
         }
         Arc::new(App {
             routes: crate::routes::routes(),
@@ -218,6 +221,11 @@ impl App {
     }
 
     pub fn publish(&self, event: Value) {
+        if let Some(active) = self.recording() {
+            if active.recorder.logs_on() {
+                active.recorder.write("/logs", crate::cdr::string(&event.to_string()), None);
+            }
+        }
         let _ = self.events.send(event.to_string());
     }
 

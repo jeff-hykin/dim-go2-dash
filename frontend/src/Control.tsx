@@ -13,6 +13,8 @@ import {
     noPad,
     type PadLike,
 } from "./gamepad.ts"
+import { RecordOptions } from "./RecordOptions.tsx"
+import { openApp } from "./dim-app/source/desktop.js"
 import { Icon } from "./icons.tsx"
 import type { Command, Drive, RecordState } from "./state.ts"
 
@@ -202,6 +204,8 @@ export function megabytes(bytes: number): string {
 /** Record / stop, with the time and size while it runs. */
 function RecordButton({ record, onToast }: { record: RecordState; onToast: (text: string) => void }) {
     const [busy, setBusy] = useState(false)
+    const [optionsOpen, setOptionsOpen] = useState(false)
+    const [saved, setSaved] = useState<string | null>(null)
     const [, tick] = useState(0)
     useEffect(() => {
         if (!record.active) {
@@ -213,24 +217,57 @@ function RecordButton({ record, onToast }: { record: RecordState; onToast: (text
     const toggle = () => {
         setBusy(true)
         call("POST", record.active ? "api/record/stop" : "api/record/start")
-            .then((r) => !record.active || onToast(`Saved ${(r as { file?: string })?.file ?? "the recording"}`))
+            .then((r) => {
+                if (record.active) {
+                    setSaved((r as { file?: string })?.file ?? "the recording")
+                    onToast(`Saved ${(r as { file?: string })?.file ?? "the recording"}`)
+                }
+            })
             .catch((e) => onToast(e.message))
             .finally(() => setBusy(false))
     }
     const seconds = record.active ? (Date.now() - record.startedAt) / 1000 : 0
     return (
-        <button
-            type="button"
-            className={`rec-btn dim-btn sm${record.active ? " on" : ""}`}
-            disabled={busy}
-            title={record.active
-                ? `Recording to ${record.file} — click to stop and save`
-                : "Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to an mcap"}
-            onClick={toggle}
-        >
-            <span className="rec-dot" />
-            {record.active ? `${clock(seconds)} · ${megabytes(record.bytes)}` : busy ? "Starting…" : "Record"}
-        </button>
+        <div className="go2-record-control">
+            <div className="rec-split">
+                <button
+                    type="button"
+                    className={`rec-btn dim-btn sm${record.active ? " on" : ""}`}
+                    disabled={busy}
+                    title={record.active
+                        ? `Recording to ${record.file} — click to stop and save`
+                        : "Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to an mcap"}
+                    onClick={toggle}
+                >
+                    <span className="rec-dot" />
+                    {record.active
+                        ? `Stop · ${clock(seconds)} · ${megabytes(record.bytes)}`
+                        : busy
+                        ? "Starting…"
+                        : "Record"}
+                </button>
+                <button
+                    type="button"
+                    className="rec-more-btn dim-btn sm"
+                    aria-label="Recording options"
+                    title="Recording options"
+                    aria-expanded={optionsOpen}
+                    onClick={() => setOptionsOpen(!optionsOpen)}
+                >
+                    ⋯
+                </button>
+            </div>
+            {saved && !record.active && (
+                <button
+                    type="button"
+                    className="saved-recording dim-btn sm"
+                    onClick={() => openApp("dim-recordings")}
+                >
+                    View in Recordings
+                </button>
+            )}
+            {optionsOpen && <RecordOptions record={record} onError={onToast} onClose={() => setOptionsOpen(false)} />}
+        </div>
     )
 }
 
