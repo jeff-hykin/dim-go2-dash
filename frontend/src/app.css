@@ -1902,3 +1902,61 @@ body.science.dark .nav-focus {
     right: 0;
     background: var(--bg);
 }
+/* ── Steam Deck / small screens: the centre card sits beside the open panel (never under it), with a × to close ── */
+:root {
+    --panel-w: clamp(340px, 36vw, 440px);
+}
+.panel {
+    width: var(--panel-w);
+}
+.stage {
+    overflow: auto;
+}
+.stage.beside-panel {
+    left: calc(var(--panel-w) + 32px);
+    padding-left: 16px;
+}
+.stage {
+    container-type: size;
+}
+.stage-card {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    margin: auto;
+}
+.stage-card .setup.dim-empty {
+    width: min(560px, 100cqw - 40px);
+}
+.stage-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+}
+@media (max-height: 820px), (max-width: 1100px) {
+    .stage {
+        padding: 20px;
+    }
+}
+/* robot rows: the name keeps its room; Use-this-IP / Drive / ⋯ wrap under it when the panel is narrow */
+.dog .row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+.dog .meta {
+    flex: 1 1 170px;
+}
+.dog .nm {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.dog {
+    padding: 11px 12px;
+}
+.nm {
+    font-size: 14.5px;
+}
+.sub {
+    font-size: 12px;
+}

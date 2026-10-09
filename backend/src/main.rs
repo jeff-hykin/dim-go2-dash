@@ -27,6 +27,7 @@ async fn main() {
             eprintln!("copied {copied} saved files from ~/.local/share/dim into {}", data_dir.display());
         }
     }
+    go2_dash::log::init(&data_dir);
     let recordings_root = dimos_app::get().and_then(|given| given.recordings_dir.clone()).map(PathBuf::from);
     let app = App::with_recordings(data_dir, mock, recordings_root);
     if let Some(url) = dimos_app::get().and_then(|given| given.desktop_url.clone()) {

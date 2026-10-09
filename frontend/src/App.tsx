@@ -42,6 +42,7 @@ export function App() {
             setHotspotScan,
             (e) => setHotspotScan({ canScan: true, hotspots: [], current: null, note: e.message }),
         )
+    const [closedCard, setClosedCard] = useState<string | null>(null)
     const [open, setOpen] = useState<Open>(null)
     const [accountsOpen, setAccountsOpen] = useState(false)
     const [accountsFlash, setAccountsFlash] = useState(0)
@@ -280,100 +281,127 @@ export function App() {
     const wifi = state?.wifi
     // Wi-Fi was just sent to a robot the scan hasn't seen on the network yet
     const sent = wifi?.status === "ok" ? robots.find((r) => r.key === wifi.robot && r.ipSource !== "scan") : undefined
+    // which centre card shows, so its × hides that one card until a different one replaces it
+    const card = guiding && state
+        ? "setup"
+        : sent || (state && robots.length > 0)
+        ? (sent ? "sent" : "idle")
+        : loadError && !state
+        ? "no-backend"
+        : state?.scan.scanning
+        ? "scanning"
+        : state && state.scan.lastCount === 0
+        ? "no-robot"
+        : state
+        ? "find"
+        : null
+    const closeCard = () =>
+        card === "setup" ? call("PUT", "api/setup", { step: "done" }).catch(() => {}) : setClosedCard(card)
     return (
         <>
             <div
-                className={`stage${sent ? " connected" : ""}${guiding ? " guiding" : ""}`}
-                style={driving ? { display: "none" } : undefined}
+                className={`stage${sent ? " connected" : ""}${guiding ? " guiding" : ""}${slid ? "" : " beside-panel"}`}
+                style={driving || !card || card === closedCard ? { display: "none" } : undefined}
             >
-                {guiding && state
-                    ? (
-                        <Setup
-                            setup={state.setup}
-                            robots={robots}
-                            scan={state.scan}
-                            wifi={state.wifi}
-                            network={state.network}
-                            onOpenAccounts={openAccounts}
-                            onShowHelp={() => {
-                                setSlid(false)
-                                setHelpRequest((n) => n + 1)
-                            }}
-                        />
-                    )
-                    : sent || (state && robots.length > 0)
-                    ? (
-                        <div className="empty">
-                            <div className="glyph">
-                                <Icon name={sent ? "signal" : "robot"} size={44} />
+                <div className="stage-card">
+                    <button
+                        type="button"
+                        className="stage-close dim-btn ghost icon"
+                        title="Close"
+                        aria-label="Close"
+                        onClick={closeCard}
+                    >
+                        <Icon name="close" size={16} />
+                    </button>
+                    {guiding && state
+                        ? (
+                            <Setup
+                                setup={state.setup}
+                                robots={robots}
+                                scan={state.scan}
+                                wifi={state.wifi}
+                                network={state.network}
+                                onOpenAccounts={openAccounts}
+                                onShowHelp={() => {
+                                    setSlid(false)
+                                    setHelpRequest((n) => n + 1)
+                                }}
+                            />
+                        )
+                        : sent || (state && robots.length > 0)
+                        ? (
+                            <div className="empty">
+                                <div className="glyph">
+                                    <Icon name={sent ? "signal" : "robot"} size={44} />
+                                </div>
+                                <h1>
+                                    {sent
+                                        ? `Wi-Fi sent to ${sent.name} — waiting for it on the network`
+                                        : "No dog connected yet"}
+                                </h1>
+                                <p>
+                                    {sent
+                                        ? `Credentials delivered over Bluetooth. Once ${sent.name} joins the network and we see its IP, press Drive for its camera & controls.`
+                                        : "Pick a Go2 in the list: Drive it if it has an IP, or send it Wi-Fi credentials over Bluetooth to bring it onto your network."}
+                                </p>
                             </div>
-                            <h1>
-                                {sent
-                                    ? `Wi-Fi sent to ${sent.name} — waiting for it on the network`
-                                    : "No dog connected yet"}
-                            </h1>
-                            <p>
-                                {sent
-                                    ? `Credentials delivered over Bluetooth. Once ${sent.name} joins the network and we see its IP, press Drive for its camera & controls.`
-                                    : "Pick a Go2 in the list: Drive it if it has an IP, or send it Wi-Fi credentials over Bluetooth to bring it onto your network."}
-                            </p>
-                        </div>
-                    )
-                    : loadError && !state
-                    ? (
-                        <EmptyState
-                            testId="onboard-no-backend"
-                            tone="warn"
-                            label="Server not answering"
-                            title="Can't reach the Go2 Ctrl server"
-                            body={`It didn't answer (${loadError}). Restarting the app usually fixes it: try again, or stop and start Go2 Ctrl from Desktop's App Store.`}
-                            actions={[
-                                { label: "Try again", onClick: () => location.reload() },
-                                { label: "Open the App Store", app: "appstore", primary: false },
-                            ]}
-                        />
-                    )
-                    : state?.scan.scanning
-                    ? (
-                        <EmptyState
-                            testId="onboard-scanning"
-                            busy
-                            label="Scanning"
-                            title="Looking for Go2s nearby"
-                            body="Searching this network and Bluetooth. This takes a few seconds."
-                        />
-                    )
-                    : state && state.scan.lastCount === 0
-                    ? (
-                        <EmptyState
-                            testId="onboard-no-robot"
-                            tone="warn"
-                            label="No robot found"
-                            title="No Go2 found on this network"
-                            body="Power the Go2 on and wait about a minute for it to boot. Then put this computer on the same Wi-Fi as the dog (or on the dog's own hotspot), or stay close to it: a new Go2 shows up over Bluetooth, and you can send it your Wi-Fi from here."
-                            actions={[
-                                { label: "Scan again", onClick: scan },
-                                {
-                                    label: "Help: it shows but never gets an IP",
-                                    onClick: () => {
-                                        setSlid(false)
-                                        setHelpRequest((n) => n + 1)
+                        )
+                        : loadError && !state
+                        ? (
+                            <EmptyState
+                                testId="onboard-no-backend"
+                                tone="warn"
+                                label="Server not answering"
+                                title="Can't reach the Go2 Ctrl server"
+                                body={`It didn't answer (${loadError}). Restarting the app usually fixes it: try again, or stop and start Go2 Ctrl from Desktop's App Store.`}
+                                actions={[
+                                    { label: "Try again", onClick: () => location.reload() },
+                                    { label: "Open the App Store", app: "appstore", primary: false },
+                                ]}
+                            />
+                        )
+                        : state?.scan.scanning
+                        ? (
+                            <EmptyState
+                                testId="onboard-scanning"
+                                busy
+                                label="Scanning"
+                                title="Looking for Go2s nearby"
+                                body="Searching this network and Bluetooth. This takes a few seconds."
+                            />
+                        )
+                        : state && state.scan.lastCount === 0
+                        ? (
+                            <EmptyState
+                                testId="onboard-no-robot"
+                                tone="warn"
+                                label="No robot found"
+                                title="No Go2 found on this network"
+                                body="Power the Go2 on and wait about a minute for it to boot. Then put this computer on the same Wi-Fi as the dog (or on the dog's own hotspot), or stay close to it: a new Go2 shows up over Bluetooth, and you can send it your Wi-Fi from here."
+                                actions={[
+                                    { label: "Scan again", onClick: scan },
+                                    {
+                                        label: "Help: it shows but never gets an IP",
+                                        onClick: () => {
+                                            setSlid(false)
+                                            setHelpRequest((n) => n + 1)
+                                        },
                                     },
-                                },
-                            ]}
-                        />
-                    )
-                    : state
-                    ? (
-                        <EmptyState
-                            testId="onboard-find-robot"
-                            label="Go2 Ctrl"
-                            title="Find your Go2"
-                            body="Scan this network and Bluetooth for Unitree Go2s nearby. Then put one on your Wi-Fi and drive it, with its camera, from here."
-                            actions={[{ label: "Scan for Go2s", onClick: scan }]}
-                        />
-                    )
-                    : null}
+                                ]}
+                            />
+                        )
+                        : state
+                        ? (
+                            <EmptyState
+                                testId="onboard-find-robot"
+                                label="Go2 Ctrl"
+                                title="Find your Go2"
+                                body="Scan this network and Bluetooth for Unitree Go2s nearby. Then put one on your Wi-Fi and drive it, with its camera, from here."
+                                actions={[{ label: "Scan for Go2s", onClick: scan }]}
+                            />
+                        )
+                        : null}
+                </div>
             </div>
 
             <div className={`panel dim-panel${slid ? " slid" : ""}`}>

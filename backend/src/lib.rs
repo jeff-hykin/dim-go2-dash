@@ -9,6 +9,7 @@ pub mod camera;
 pub mod cdr;
 mod cloud;
 pub mod discovery;
+pub mod log;
 pub mod drive;
 pub mod hotspot;
 mod lan;

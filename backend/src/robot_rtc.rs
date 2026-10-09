@@ -35,6 +35,8 @@ use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::TrackLocalWriter;
 
 pub const SIGNALING_PORT: u16 = 9991;
+/// the dog's address on its own hotspot
+const AP_MODE_IP: &str = "192.168.12.1";
 const SIGNALING_TIMEOUT: Duration = Duration::from_secs(4);
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(8);
 const SPORT_TOPIC: &str = "rt/api/sport/request";
@@ -88,6 +90,8 @@ pub struct RobotConn {
     channel: Arc<RTCDataChannel>,
     video_ssrc: Arc<Mutex<Option<u32>>>,
     closed: Arc<AtomicBool>,
+    /// the AES key the robot accepted (None for firmware that needs none)
+    pub key_used: Option<String>,
 }
 
 // ── signaling crypto ──
@@ -118,17 +122,32 @@ pub fn parse_aes_key(hex: &str) -> Result<[u8; 16], String> {
     Ok(key)
 }
 
-fn decrypt_data1(data1: &str, data2: i64, aes_key: &str) -> Result<String, String> {
+/// An AES-128 key to try, and where it came from (for the log).
+pub type AesKey = (String, String);
+
+/// Decrypts con_notify's data1; for data2=3, tries each key in order (a wrong key fails the GCM tag check, so the
+/// right one identifies itself) and returns which one worked.
+fn decrypt_data1(data1: &str, data2: i64, aes_keys: &[AesKey]) -> Result<(String, Option<String>), String> {
     match data2 {
-        2 => gcm_decrypt(data1, &LEGACY_GCM_KEY),
+        2 => Ok((gcm_decrypt(data1, &LEGACY_GCM_KEY)?, None)),
         3 => {
-            if aes_key.is_empty() {
+            if aes_keys.is_empty() {
                 return Err("This robot speaks data2=3 — a per-device AES-128 key is required (pull it from a Unitree account, or set it on the robot).".into());
             }
-            gcm_decrypt(data1, &parse_aes_key(aes_key)?)
-                .map_err(|_| "AES-128 key rejected by the robot (GCM tag check failed).".to_string())
+            for (source, key) in aes_keys {
+                let Ok(parsed) = parse_aes_key(key) else {
+                    crate::dlog!("aes key from {source} isn't 32 hex characters, skipped");
+                    continue;
+                };
+                if let Ok(plain) = gcm_decrypt(data1, &parsed) {
+                    crate::dlog!("aes key from {source} accepted");
+                    return Ok((plain, Some(key.clone())));
+                }
+                crate::dlog!("aes key from {source} rejected");
+            }
+            Err(format!("AES-128 key rejected by the robot (tried {} known keys; GCM tag check failed).", aes_keys.len()))
         }
-        _ => Ok(data1.to_string()),
+        _ => Ok((data1.to_string(), None)),
     }
 }
 
@@ -169,6 +188,12 @@ fn rsa_encrypt(data: &str, public_key_b64_der: &str) -> Result<String, String> {
     Ok(B64.encode(encrypted))
 }
 
+/// The offer's id: "STA_localNetwork" when the dog is on a shared Wi-Fi, empty on its own hotspot (AP mode, always
+/// 192.168.12.1), as unitree_webrtc_connect sends it.
+pub fn offer_id(ip: &str) -> &'static str {
+    if ip == AP_MODE_IP { "" } else { "STA_localNetwork" }
+}
+
 pub fn validation_reply(key: &str) -> String {
     B64.encode(md5::compute(format!("UnitreeGo2_{key}")).0)
 }
@@ -179,21 +204,29 @@ async fn signal(ip: &str, path: &str, body: Option<String>) -> Result<String, St
     if let Some(body) = body {
         request = request.body(body);
     }
-    let response = request.send().await.map_err(|e| format!("robot {ip} unreachable: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("signaling {path} failed ({})", response.status()));
+    crate::dlog!("signal → POST http://{ip}:{SIGNALING_PORT}{path}");
+    let response = request.send().await.map_err(|e| {
+        crate::dlog!("signal ✗ {path}: {e}");
+        format!("robot {ip} unreachable: {e}")
+    })?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    crate::dlog!("signal ← {path} {status} ({} bytes)", text.len());
+    if !status.is_success() {
+        return Err(format!("signaling {path} failed ({status})"));
     }
-    response.text().await.map_err(|e| e.to_string())
+    Ok(text)
 }
 
 /// Hands the robot our SDP offer and returns its answer (JSON `{sdp, type}`).
-async fn exchange_sdp(ip: &str, aes_key: &str, offer_json: &str) -> Result<Value, String> {
+async fn exchange_sdp(ip: &str, aes_keys: &[AesKey], offer_json: &str) -> Result<(Value, Option<String>), String> {
     let notify_b64 = signal(ip, "/con_notify", None).await?;
     let notify_raw = B64.decode(notify_b64.trim()).map_err(|e| format!("con_notify isn't base64: {e}"))?;
     let notify: Value = serde_json::from_slice(&notify_raw).map_err(|e| format!("con_notify isn't JSON: {e}"))?;
     let data1 = notify["data1"].as_str().ok_or("con_notify has no data1")?;
     let data2 = notify["data2"].as_i64().unwrap_or(0);
-    let data1 = decrypt_data1(data1, data2, aes_key)?;
+    crate::dlog!("con_notify data2={data2} ({} aes keys to try)", aes_keys.len());
+    let (data1, key_used) = decrypt_data1(data1, data2, aes_keys)?;
     if data1.len() < 20 {
         return Err("con_notify data1 is too short".into());
     }
@@ -202,7 +235,26 @@ async fn exchange_sdp(ip: &str, aes_key: &str, offer_json: &str) -> Result<Value
     let body = json!({ "data1": aes_ecb_encrypt(offer_json, &session_key), "data2": rsa_encrypt(&session_key, public_key)? });
     let answer = signal(ip, &format!("/con_ing_{}", path_ending(&data1)), Some(body.to_string())).await?;
     let answer = aes_ecb_decrypt(&answer, &session_key)?;
-    serde_json::from_str(&answer).map_err(|e| format!("answer isn't JSON: {e}"))
+    crate::dlog!("answer: {answer}");
+    Ok((serde_json::from_str(&answer).map_err(|e| format!("answer isn't JSON: {e}"))?, key_used))
+}
+
+/// Logs `line` the first time `topic` is seen in this process (the robot's streams arrive many times a second).
+fn log_once(topic: &str, line: impl FnOnce() -> String) {
+    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<String>>> = std::sync::Mutex::new(None);
+    if SEEN.lock().unwrap().get_or_insert_with(Default::default).insert(topic.to_string()) {
+        crate::dlog!("{}", line());
+    }
+}
+
+/// An incoming data-channel message in the debug log: subscription data ("msg") once per topic, everything else always.
+fn log_incoming(data: &[u8]) {
+    let text = String::from_utf8_lossy(data);
+    let parsed: Option<Value> = serde_json::from_slice(data).ok();
+    match parsed.as_ref().filter(|m| m["type"] == "msg").and_then(|m| m["topic"].as_str()) {
+        Some(topic) => log_once(topic, || format!("dc ← {text} (first on {topic}; later ones aren't logged)")),
+        None => crate::dlog!("dc ← {text}"),
+    }
 }
 
 async fn send(channel: &RTCDataChannel, kind: &str, topic: &str, data: Option<Value>) {
@@ -210,7 +262,11 @@ async fn send(channel: &RTCDataChannel, kind: &str, topic: &str, data: Option<Va
     if let Some(data) = data {
         message["data"] = data;
     }
-    let _ = channel.send_text(message.to_string()).await;
+    let text = message.to_string();
+    crate::dlog!("dc → {text}");
+    if let Err(err) = channel.send_text(text).await {
+        crate::dlog!("dc ✗ send failed: {err}");
+    }
 }
 
 fn robot_api() -> Result<webrtc::api::API, String> {
@@ -225,16 +281,16 @@ fn robot_api() -> Result<webrtc::api::API, String> {
 
 impl RobotConn {
     /// Opens the session and returns once the robot has validated the data channel (it's then ready for commands).
-    pub async fn connect(ip: &str, aes_key: &str, on_event: OnEvent) -> Result<Arc<RobotConn>, String> {
+    pub async fn connect(ip: &str, aes_keys: &[AesKey], on_event: OnEvent) -> Result<Arc<RobotConn>, String> {
         let pc = Arc::new(robot_api()?.new_peer_connection(RTCConfiguration::default()).await.map_err(|e| e.to_string())?);
-        let result = Self::negotiate(pc.clone(), ip, aes_key, on_event).await;
+        let result = Self::negotiate(pc.clone(), ip, aes_keys, on_event).await;
         if result.is_err() {
             let _ = pc.close().await;
         }
         result
     }
 
-    async fn negotiate(pc: Arc<RTCPeerConnection>, ip: &str, aes_key: &str, on_event: OnEvent) -> Result<Arc<RobotConn>, String> {
+    async fn negotiate(pc: Arc<RTCPeerConnection>, ip: &str, aes_keys: &[AesKey], on_event: OnEvent) -> Result<Arc<RobotConn>, String> {
         pc.add_transceiver_from_kind(
             RTPCodecType::Video,
             Some(RTCRtpTransceiverInit { direction: RTCRtpTransceiverDirection::Recvonly, send_encodings: vec![] }),
@@ -259,11 +315,13 @@ impl RobotConn {
                 let on_event = on_data.clone();
                 Box::pin(async move {
                     if !message.is_string {
+                        log_once("binary", || format!("dc ← binary ({} bytes); later binary frames aren't logged", message.data.len()));
                         if let Some(data) = parse_binary(&message.data) {
                             on_event(ConnEvent::Data(data));
                         }
                         return;
                     }
+                    log_incoming(&message.data);
                     let Ok(message) = serde_json::from_slice::<Value>(&message.data) else {
                         return;
                     };
@@ -322,6 +380,7 @@ impl RobotConn {
             let on_event = on_event.clone();
             let closed = closed.clone();
             pc.on_peer_connection_state_change(Box::new(move |state| {
+                crate::dlog!("peer state: {state}");
                 if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Disconnected)
                     && !closed.swap(true, Ordering::Relaxed)
                 {
@@ -331,14 +390,28 @@ impl RobotConn {
             }));
         }
 
+        pc.on_ice_connection_state_change(Box::new(|state| {
+            crate::dlog!("ice state: {state}");
+            Box::pin(async {})
+        }));
+        channel.on_open(Box::new(|| {
+            crate::dlog!("data channel open");
+            Box::pin(async {})
+        }));
+        channel.on_close(Box::new(|| {
+            crate::dlog!("data channel closed");
+            Box::pin(async {})
+        }));
         let offer = pc.create_offer(None).await.map_err(|e| e.to_string())?;
         let mut gathered = pc.gathering_complete_promise().await;
         pc.set_local_description(offer).await.map_err(|e| e.to_string())?;
         let _ = tokio::time::timeout(Duration::from_secs(4), gathered.recv()).await;
         let local = pc.local_description().await.ok_or("no local description")?;
-        let offer_json = json!({ "id": "STA_localNetwork", "sdp": local.sdp, "type": "offer", "token": "" }).to_string();
+        let candidates: Vec<&str> = local.sdp.lines().filter(|l| l.starts_with("a=candidate")).collect();
+        crate::dlog!("connect {ip}: offer id {:?}, {} local candidates: {candidates:?}", offer_id(ip), candidates.len());
+        let offer_json = json!({ "id": offer_id(ip), "sdp": local.sdp, "type": "offer", "token": "" }).to_string();
 
-        let answer = exchange_sdp(ip, aes_key, &offer_json).await?;
+        let (answer, key_used) = exchange_sdp(ip, aes_keys, &offer_json).await?;
         let sdp = answer["sdp"].as_str().unwrap_or("").to_string();
         if sdp == "reject" {
             return Err("Robot is busy — another WebRTC client is connected.".into());
@@ -347,10 +420,13 @@ impl RobotConn {
         pc.set_remote_description(answer).await.map_err(|e| e.to_string())?;
 
         match tokio::time::timeout(VALIDATION_TIMEOUT, validated_rx).await {
-            Ok(Ok(())) => {}
-            _ => return Err("the robot never validated the data channel".into()),
+            Ok(Ok(())) => crate::dlog!("validated: ready for commands"),
+            _ => {
+                crate::dlog!("validation timed out after {VALIDATION_TIMEOUT:?}");
+                return Err("the robot never validated the data channel".into());
+            }
         }
-        let conn = Arc::new(RobotConn { pc, channel, video_ssrc, closed });
+        let conn = Arc::new(RobotConn { pc, channel, video_ssrc, closed, key_used });
         conn.start_heartbeat();
         send(&conn.channel, "vid", "", Some(json!("on"))).await;
         Ok(conn)
@@ -426,7 +502,7 @@ impl RobotConn {
 }
 
 /// "YYYY-MM-DD HH:MM:SS" (UTC) for the heartbeat, without a date crate.
-fn format_utc(secs: u64) -> String {
+pub fn format_utc(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     // civil-from-days (Howard Hinnant)
@@ -459,6 +535,36 @@ mod tests {
         assert_eq!(format_utc(0), "1970-01-01 00:00:00");
         assert_eq!(format_utc(1_790_000_000), "2026-09-21 14:13:20");
         assert_eq!(validation_reply("abc").len(), 24);
+    }
+
+    #[test]
+    fn data2_3_finds_the_one_key_the_robot_accepts() {
+        let right = "00112233445566778899aabbccddeeff";
+        let nonce = [7u8; 12];
+        let sealed = Aes128Gcm::new_from_slice(&parse_aes_key(right).unwrap())
+            .unwrap()
+            .encrypt(Nonce::from_slice(&nonce), b"secret data1".as_slice())
+            .unwrap();
+        // the robot's layout: ciphertext, nonce, then the 16-byte tag
+        let (ciphertext, tag) = sealed.split_at(sealed.len() - 16);
+        let data1 = B64.encode([ciphertext, &nonce, tag].concat());
+        let keys = vec![("a".to_string(), "ffeeddccbbaa99887766554433221100".to_string()), ("b".to_string(), right.to_string())];
+        let (plain, used) = decrypt_data1(&data1, 3, &keys).unwrap();
+        assert_eq!((plain.as_str(), used.as_deref()), ("secret data1", Some(right)));
+        assert!(decrypt_data1(&data1, 3, &keys[..1]).unwrap_err().contains("AES"));
+        assert!(decrypt_data1(&data1, 3, &[]).unwrap_err().contains("AES"));
+    }
+
+    #[test]
+    fn fleet_key_file_lines() {
+        let keys = crate::app::fleet_keys("# SERIAL KEY ALIAS\nB42D 00112233445566778899AABBCCDDEEFF Go2_1\nB42E (empty) Go2_2\n\n");
+        assert_eq!(keys, vec![("go2-keys B42D Go2_1".to_string(), "00112233445566778899aabbccddeeff".to_string())]);
+    }
+
+    #[test]
+    fn offer_id_is_empty_on_the_dogs_hotspot() {
+        assert_eq!(offer_id("192.168.12.1"), "");
+        assert_eq!(offer_id("10.10.187.42"), "STA_localNetwork");
     }
 
     #[tokio::test]

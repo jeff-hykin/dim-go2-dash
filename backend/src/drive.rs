@@ -138,7 +138,7 @@ pub struct Drive {
     pub ip: String,
     pub name: String,
     pub dry: bool,
-    aes_key: String,
+    aes_keys: Vec<crate::robot_rtc::AesKey>,
     started_at: u64,
     state: Mutex<DriveState>,
     conn: tokio::sync::Mutex<Option<Arc<RobotConn>>>,
@@ -197,20 +197,33 @@ impl Drive {
         aes_key: Option<String>,
         dry_run: bool,
     ) -> Result<Value, HttpError> {
-        let aes_key = match aes_key.filter(|k| !k.is_empty()) {
+        let given = match aes_key.filter(|k| !k.is_empty()) {
             Some(key) => {
                 crate::robot_rtc::parse_aes_key(&key).map_err(HttpError::bad)?;
-                key.to_lowercase()
+                Some(("the request".to_string(), key.to_lowercase()))
             }
             None => {
-                let saved = robot.as_deref().map(|key| app.aes_key_for(key)).unwrap_or_default();
-                if saved.is_empty() && ip == crate::hotspot::AP_IP {
-                    app.wifi.current().await.map(|ssid| app.aes_key_for(&ssid)).unwrap_or_default()
-                } else {
-                    saved
+                let saved = robot.as_deref().map(|key| (format!("saved for {key}"), app.aes_key_for(key))).filter(|(_, k)| !k.is_empty());
+                // on a dog's hotspot, the key saved for that hotspot
+                match saved {
+                    None if ip == crate::hotspot::AP_IP => app
+                        .wifi
+                        .current()
+                        .await
+                        .map(|ssid| (format!("saved for hotspot {ssid}"), app.aes_key_for(&ssid)))
+                        .filter(|(_, k)| !k.is_empty()),
+                    saved => saved,
                 }
             }
         };
+        // the robot's own key first, then every other known one (a manual IP, or the dog's hotspot, names no robot)
+        let mut aes_keys: Vec<crate::robot_rtc::AesKey> = given.into_iter().collect();
+        for candidate in app.known_aes_keys() {
+            if !aes_keys.iter().any(|(_, k)| *k == candidate.1) {
+                aes_keys.push(candidate);
+            }
+        }
+        crate::dlog!("drive open: robot {robot:?} ip {ip} dry {} ({} aes keys known)", dry_run || app.mock, aes_keys.len());
         close(app).await;
         let dry = dry_run || app.mock;
         let drive = Arc::new(Drive {
@@ -218,7 +231,7 @@ impl Drive {
             ip,
             name,
             dry,
-            aes_key,
+            aes_keys,
             started_at: now_ms(),
             state: Mutex::new(DriveState {
                 status: if dry { "ready" } else { "connecting" },
@@ -288,8 +301,9 @@ impl Drive {
                         }
                     }
                 });
-                match RobotConn::connect(&self.ip, &self.aes_key, on_event).await {
+                match RobotConn::connect(&self.ip, &self.aes_keys, on_event).await {
                     Ok(conn) => {
+                        self.remember_key(&conn);
                         if self.is_closed() {
                             conn.close().await;
                             return Err("the session was closed".into());
@@ -306,12 +320,30 @@ impl Drive {
                         return Ok(());
                     }
                     // an AES problem won't fix itself by retrying
-                    Err(err) if err.contains("AES") || err.contains("busy") => return Err(err),
-                    Err(err) if Instant::now() >= deadline || self.is_closed() => return Err(err),
-                    Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+                    Err(err) if err.contains("AES") || err.contains("busy") => {
+                        crate::dlog!("connect {} failed, not retrying: {err}", self.ip);
+                        return Err(err);
+                    }
+                    Err(err) if Instant::now() >= deadline || self.is_closed() => {
+                        crate::dlog!("connect {} failed, giving up: {err}", self.ip);
+                        return Err(err);
+                    }
+                    Err(err) => {
+                        crate::dlog!("connect {} failed, retrying: {err}", self.ip);
+                        tokio::time::sleep(Duration::from_millis(500)).await
+                    }
                 }
             }
         })
+    }
+
+    /// A robot that needed a key it had none saved for keeps the one it accepted, for next time.
+    fn remember_key(&self, conn: &RobotConn) {
+        let (Some(robot), Some(key), Some(app)) = (&self.robot, &conn.key_used, self.app.upgrade()) else { return };
+        if app.aes_key_for(robot) != *key {
+            crate::dlog!("saving the accepted aes key for {robot}");
+            let _ = app.set_aes_key(robot, key);
+        }
     }
 
     /// A dropped peer link (dog off Wi-Fi, track died) rebuilds the connection in place until the session is closed.
@@ -319,6 +351,7 @@ impl Drive {
         if self.is_closed() || self.state.lock().unwrap().status == "reconnecting" {
             return;
         }
+        crate::dlog!("connection to {} lost: reconnecting", self.ip);
         self.set(|s| {
             s.status = "reconnecting";
             s.mode = "resting";
@@ -413,7 +446,11 @@ impl Drive {
     }
 
     pub async fn command(&self, command: &Command, dry_run: bool) -> Result<Value, HttpError> {
-        self.ready()?;
+        crate::dlog!("command {} (dry {dry_run}, mode {})", command.name, self.state.lock().unwrap().mode);
+        if let Err(err) = self.ready() {
+            crate::dlog!("command {} refused: {}", command.name, err.message);
+            return Err(err);
+        }
         let sends = sends_for(command);
         let dry = dry_run || self.dry;
         if dry_run && !self.dry {
@@ -477,9 +514,14 @@ impl Drive {
 
     /// Drives at a normalized velocity for `duration` (re-sent every 120 ms, then a stop), replacing any earlier move.
     pub fn drive(&self, forward: f64, strafe: f64, turn: f64, run: bool, duration: Duration, dry_run: bool) -> Result<Value, HttpError> {
-        self.ready()?;
+        crate::dlog!("move forward {forward} strafe {strafe} turn {turn} run {run} for {duration:?} (dry {dry_run})");
+        if let Err(err) = self.ready() {
+            crate::dlog!("move refused: {}", err.message);
+            return Err(err);
+        }
         let mode = self.state.lock().unwrap().mode;
         if mode != "stand" && mode != "pose" {
+            crate::dlog!("move refused: the robot isn't standing (mode {mode})");
             return Err(HttpError::conflict(format!("the robot isn't standing (mode: {mode}) — POST api/drive/stand first")));
         }
         let mult = if run { RUN_MULT } else { 1.0 };
@@ -503,6 +545,7 @@ impl Drive {
     }
 
     pub async fn stop(&self, dry_run: bool) -> Result<Value, HttpError> {
+        crate::dlog!("stop (dry {dry_run})");
         self.ready()?;
         if dry_run && !self.dry {
             return Ok(json!({ "dryRun": true, "sent": false, "sends": [{ "sport": "StopMove", "apiId": SPORT_STOP_MOVE }] }));

@@ -398,6 +398,20 @@ impl App {
         shared_aes_key(&serial).unwrap_or_default()
     }
 
+    /// Every AES key this computer knows, labelled by where it came from: the ones saved per robot, then dimos'
+    /// fleet key file (~/.config/dimos/go2-keys, "SERIAL KEY ALIAS" per line, the SteamOS installer writes it).
+    pub fn known_aes_keys(&self) -> Vec<crate::robot_rtc::AesKey> {
+        let mut keys: Vec<crate::robot_rtc::AesKey> =
+            self.state.lock().unwrap().aes_keys.iter().map(|(robot, key)| (format!("saved for {robot}"), key.clone())).collect();
+        if self.mock {
+            return keys;
+        }
+        let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+        let text = std::fs::read_to_string(home.join(".config/dimos/go2-keys")).unwrap_or_default();
+        keys.extend(fleet_keys(&text));
+        keys
+    }
+
     // ── scanning ──
 
     pub fn scan_state(&self) -> Value {
@@ -1112,4 +1126,19 @@ mod fleet_keys_tests {
         assert_eq!(app.aes_key_for("NEW"), "0123456789abcdef0123456789abcdef");
         let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+/// The keys in a dimos go2-keys file: "SERIAL KEY ALIAS" lines, skipping comments and "(empty)" keys.
+pub fn fleet_keys(text: &str) -> Vec<crate::robot_rtc::AesKey> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let (serial, key) = (fields.next()?, fields.next()?);
+            let alias = fields.next().unwrap_or("");
+            crate::robot_rtc::parse_aes_key(key).ok()?;
+            Some((format!("go2-keys {serial} {alias}").trim_end().to_string(), key.to_lowercase()))
+        })
+        .collect()
 }
