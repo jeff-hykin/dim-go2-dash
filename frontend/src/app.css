@@ -1863,7 +1863,7 @@ body.science.dark .nav-focus {
     user-select: none;
 }
 .go2-record-options .rec-check:hover {
-    background: var(--hover, rgba(255, 255, 255, 0.05));
+    background: var(--hover);
 }
 .go2-record-options .dim-check .box,
 body.science.dark .go2-record-options .dim-check .box {
