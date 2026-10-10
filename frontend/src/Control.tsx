@@ -704,6 +704,19 @@ export function Control(props: {
                                 )
                             })}
                         </div>
+                        <button
+                            type="button"
+                            className={`act light-btn dim-btn sm${drive.light ? " on" : ""}`}
+                            aria-pressed={!!drive.light}
+                            title={`The head light is ${drive.light ? "on" : "off"}: click to turn it ${
+                                drive.light ? "off" : "on"
+                            }`}
+                            onClick={() =>
+                                call("POST", "api/drive/light", { on: !drive.light }).catch((e) => onToast(e.message))}
+                        >
+                            <Icon name="sun" size={13} />
+                            {drive.light ? "Light on" : "Light off"}
+                        </button>
                     </div>
                 </div>
                 {/* on a touchscreen the on-screen arrows are easy to hit by accident: hidden until asked for */}

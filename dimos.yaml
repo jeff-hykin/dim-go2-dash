@@ -335,6 +335,18 @@ provides:
                   type: boolean
           path: api/drive/sit-down
         - description: >-
+              Turn the dog's head light on (brightness 10) or off (0) through its VUI api (SetBrightness); without `on` it
+              toggles. The drive state's `light` says which it is
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+              "on":
+                  description: true = on, false = off; leave out to toggle
+                  type: boolean
+          path: api/drive/light
+        - description: >-
               For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as
               sensor_msgs/Joy on /joystick while recording. Drives nothing
           method: POST

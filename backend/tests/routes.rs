@@ -576,3 +576,19 @@ async fn record_options_are_validated_and_live_filters_are_saved() {
     assert_eq!(t.status("PUT", "api/settings", Some(json!({ "recordOptions": options }))).await, 409);
     t.ok("POST", "api/drive/disconnect", None).await;
 }
+
+#[tokio::test]
+async fn the_head_light_toggles_and_shows_in_the_drive_state() {
+    let t = setup();
+    t.app.update_settings(Some(false));
+    assert_eq!(t.status("POST", "api/drive/light", None).await, 409, "needs a drive session");
+    t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.30", "dryRun": true }))).await;
+    assert_eq!(t.ok("GET", "api/drive", None).await["light"], false);
+    let on = t.ok("POST", "api/drive/light", None).await;
+    assert_eq!(on["light"], true);
+    assert_eq!(on["sends"][0], json!({ "vui": "SetBrightness", "apiId": 1005, "parameter": { "brightness": 10 } }));
+    assert_eq!(t.ok("GET", "api/drive", None).await["light"], true);
+    assert_eq!(t.ok("POST", "api/drive/light", None).await["sends"][0]["parameter"]["brightness"], 0, "toggles off");
+    assert_eq!(t.ok("POST", "api/drive/light", Some(json!({ "on": true }))).await["light"], true);
+    t.ok("POST", "api/drive/disconnect", None).await;
+}

@@ -380,6 +380,26 @@ pub fn routes() -> Vec<Route> {
         ),
         route(
             "POST",
+            "api/drive/light",
+            "Turn the dog's head light on (brightness 10) or off (0) through its VUI api (SetBrightness); without `on` it toggles. The drive state's `light` says which it is",
+            Some(json!({
+                "on": { "type": "boolean", "description": "true = on, false = off; leave out to toggle" },
+                "dryRun": { "type": "boolean", "description": DRY_RUN },
+            })),
+            handler(|app, args| async move {
+                let dry_run = flag(&args, "dryRun")?;
+                let on = match args.get("on") {
+                    None | Some(Value::Null) => None,
+                    Some(_) => Some(flag(&args, "on")?),
+                };
+                match app.drive.lock().await.clone() {
+                    Some(drive) => drive.light(on, dry_run).await,
+                    None => Err(HttpError::conflict("no robot connected — POST api/drive/connect first")),
+                }
+            }),
+        ),
+        route(
+            "POST",
             "api/drive/joy",
             "For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as sensor_msgs/Joy on /joystick while recording. Drives nothing",
             Some(json!({

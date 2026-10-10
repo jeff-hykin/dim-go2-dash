@@ -41,6 +41,9 @@ const SIGNALING_TIMEOUT: Duration = Duration::from_secs(4);
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(8);
 const SPORT_TOPIC: &str = "rt/api/sport/request";
 const MOTION_SWITCHER_TOPIC: &str = "rt/api/motion_switcher/request";
+/// the head light and speaker (VUI); api 1005 SetBrightness {"brightness": 0..10}, like dimos' set_light
+const VUI_TOPIC: &str = "rt/api/vui/request";
+pub const VUI_SET_BRIGHTNESS: u32 = 1005;
 /// data2=2 firmware wraps con_notify in AES-128-GCM under this fixed key; data2=3 (≥ 1.1.15) uses a per-device key.
 const LEGACY_GCM_KEY: [u8; 16] = [232, 86, 130, 189, 22, 84, 155, 0, 142, 4, 166, 104, 43, 179, 235, 227];
 
@@ -472,6 +475,11 @@ impl RobotConn {
 
     pub async fn sport(&self, api_id: u32, parameter: Option<Value>) {
         self.request(SPORT_TOPIC, api_id, parameter).await;
+    }
+
+    /// The head light's brightness, 0 (off) to 10.
+    pub async fn set_brightness(&self, level: u8) {
+        self.request(VUI_TOPIC, VUI_SET_BRIGHTNESS, Some(json!({ "brightness": level.min(10) }))).await;
     }
 
     pub async fn set_motion_mode(&self, name: &str) {

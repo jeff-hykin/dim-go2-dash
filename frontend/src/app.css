@@ -2070,7 +2070,8 @@ body.science.dark .big-check input:checked + .box.box::after {
     background-color: color-mix(in srgb, var(--muted-fg) 40%, transparent);
 }
 /* the action buttons are touch targets: a bit bigger than the theme's small button */
-.ctl .cmd-scroll .act.dim-btn {
+.ctl .cmd-scroll .act.dim-btn,
+.ctl .cmd-bar .light-btn.dim-btn {
     font-size: 13px;
     padding: 8px 14px;
     min-height: 34px;
@@ -2141,4 +2142,13 @@ body.science.dark .big-check input:checked + .box.box::after {
     .format-toggle {
         bottom: calc(84px + var(--dim-inset-bottom));
     }
+}
+/* the head light: beside the commands, lit while it's on */
+.ctl .cmd-bar .light-btn {
+    flex: none;
+    gap: 6px;
+}
+.ctl .cmd-bar .light-btn.on {
+    color: #fde047;
+    border-color: color-mix(in srgb, #fde047 60%, transparent);
 }

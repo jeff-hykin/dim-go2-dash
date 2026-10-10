@@ -136,6 +136,8 @@ struct DriveState {
     move_until: Option<Instant>,
     moving: bool,
     last_command: Option<Value>,
+    /// the head light, as last set from here (the robot doesn't say)
+    light: bool,
 }
 
 pub struct Drive {
@@ -176,6 +178,7 @@ impl Drive {
             "moving": state.moving,
             "video": self.video.lock().unwrap().is_some(),
             "lastCommand": state.last_command,
+            "light": state.light,
             "startedAt": self.started_at,
         })
     }
@@ -249,6 +252,7 @@ impl Drive {
                 move_until: None,
                 moving: false,
                 last_command: None,
+                light: false,
             }),
             conn: tokio::sync::Mutex::new(None),
             video: Mutex::new(dry.then(crate::video::placeholder_track)),
@@ -629,6 +633,33 @@ impl Drive {
             conn.sport(SPORT_STAND_DOWN, None).await;
         }
         Ok(json!({ "dryRun": self.dry, "sent": !self.dry, "sends": sends, "mode": "resting" }))
+    }
+
+    /// The head light on (brightness 10) or off (0); `on` None toggles it.
+    pub async fn light(&self, on: Option<bool>, dry_run: bool) -> Result<Value, HttpError> {
+        self.ready()?;
+        let on = on.unwrap_or(!self.state.lock().unwrap().light);
+        let level = if on { 10 } else { 0 };
+        let sends = vec![json!({ "vui": "SetBrightness", "apiId": crate::robot_rtc::VUI_SET_BRIGHTNESS, "parameter": { "brightness": level } })];
+        if dry_run && !self.dry {
+            return Ok(json!({ "dryRun": true, "sent": false, "light": on, "sends": sends }));
+        }
+        let label = if on { "Light on" } else { "Light off" };
+        let record = json!({ "name": "light", "label": label, "at": now_ms(), "sent": !self.dry, "dryRun": self.dry });
+        self.set(|s| {
+            s.light = on;
+            s.last_command = Some(record.clone());
+        });
+        if let Some(app) = self.app.upgrade() {
+            app.publish(json!({ "type": "command", "command": record }));
+            if let Some(active) = app.recording() {
+                active.command(&json!({ "name": "light", "sends": sends, "sent": !self.dry, "dryRun": self.dry }));
+            }
+        }
+        if !self.dry {
+            self.conn().await?.set_brightness(level).await;
+        }
+        Ok(json!({ "dryRun": self.dry, "sent": !self.dry, "light": on, "sends": sends }))
     }
 
     /// While recording: the sensor topics (sensors.rs), traffic saving off (else the robot holds the lidar back), and a

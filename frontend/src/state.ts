@@ -80,6 +80,8 @@ export type Drive =
         moving: boolean
         video: boolean
         lastCommand: CommandRecord | null
+        /** the head light, as last set from this app */
+        light?: boolean
         startedAt: number
     }
 
