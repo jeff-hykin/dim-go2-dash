@@ -54,8 +54,69 @@ const MODE_LABEL: Record<string, string> = {
 }
 
 /** The camera: a receive-only WebRTC peer with the backend, which forwards the robot's track. */
+/** how long the WebRTC video gets to start before the page falls back to the server's JPEG frames */
+const JPEG_FALLBACK_AFTER_MS = 4000
+
+/**
+ * The camera as JPEG frames from the backend (GET api/drive/camera.jpg), for when the WebRTC video doesn't play (Firefox
+ * decodes WebRTC H.264 only as Constrained Baseline). Starts once `want` has lasted JPEG_FALLBACK_AFTER_MS without the
+ * video going live; returns the newest frame's object URL.
+ */
+function useJpegFallback(want: boolean, live: boolean): string | null {
+    const [frame, setFrame] = useState<string | null>(null)
+    const [waited, setWaited] = useState(false)
+    useEffect(() => {
+        setWaited(false)
+        if (!want) {
+            return
+        }
+        const timer = setTimeout(() => setWaited(true), JPEG_FALLBACK_AFTER_MS)
+        return () => clearTimeout(timer)
+    }, [want])
+    const active = want && waited && !live
+    useEffect(() => {
+        if (!active) {
+            setFrame(null)
+            return
+        }
+        let stopped = false
+        let url: string | null = null
+        const next = async () => {
+            while (!stopped) {
+                try {
+                    const response = await fetch("api/drive/camera.jpg", { cache: "no-store" })
+                    if (response.status === 200) {
+                        const fresh = URL.createObjectURL(await response.blob())
+                        if (url) {
+                            URL.revokeObjectURL(url)
+                        }
+                        url = fresh
+                        setFrame(fresh)
+                        await new Promise((r) => setTimeout(r, 60))
+                        continue
+                    }
+                } catch {
+                    // the backend restarting or the session closing: try again shortly
+                }
+                await new Promise((r) => setTimeout(r, 400))
+            }
+        }
+        next()
+        return () => {
+            stopped = true
+            if (url) {
+                URL.revokeObjectURL(url)
+            }
+        }
+    }, [active])
+    return frame
+}
+
 /** The camera's live state and, while it isn't live, which step it's stuck on (shown in the placeholder). */
-function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null>): { live: boolean; status: string } {
+function useCamera(
+    drive: Active,
+    video: React.RefObject<HTMLVideoElement | null>,
+): { live: boolean; status: string; jpeg: string | null } {
     const [live, setLive] = useState(false)
     const [status, setStatus] = useState("")
     const want = drive.status === "ready" && drive.video
@@ -126,7 +187,8 @@ function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null
         element.addEventListener("loadeddata", onFrame)
         return () => element.removeEventListener("loadeddata", onFrame)
     }, [video.current])
-    return { live: live && want, status }
+    const jpeg = useJpegFallback(!!want, live && !!want)
+    return { live: (live && !!want) || !!jpeg, status, jpeg }
 }
 
 /** The page has the user's focus: this document, or Desktop's shell around it (a Steam Deck user never clicks in). */
@@ -295,7 +357,7 @@ export function Control(props: {
 }) {
     const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
     const video = useRef<HTMLVideoElement>(null)
-    const { live, status: cameraStatus } = useCamera(drive, video)
+    const { live, status: cameraStatus, jpeg } = useCamera(drive, video)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
     const [boost, setBoost] = useState(false)
     const [searching, setSearching] = useState(false)
@@ -469,7 +531,15 @@ export function Control(props: {
     return (
         <div className="ctl">
             <div className={`cam-wrap${live ? " live" : ""}`}>
-                <video ref={video} autoPlay muted playsInline disablePictureInPicture />
+                <video
+                    ref={video}
+                    autoPlay
+                    muted
+                    playsInline
+                    disablePictureInPicture
+                    style={jpeg ? { display: "none" } : undefined}
+                />
+                {jpeg && <img className="cam-jpeg" src={jpeg} alt="" />}
                 <div className="cam-ph">
                     <div className="glyph">
                         <Icon name="camera" size={40} />

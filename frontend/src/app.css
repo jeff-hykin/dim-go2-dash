@@ -1960,3 +1960,9 @@ body.science.dark .nav-focus {
 .sub {
     font-size: 12px;
 }
+/* the camera as the backend's JPEG frames (when the WebRTC video won't play) */
+.cam-jpeg {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}

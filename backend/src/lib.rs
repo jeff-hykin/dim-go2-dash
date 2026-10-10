@@ -17,6 +17,7 @@ pub mod hotspot;
 mod lan;
 mod protocol;
 pub mod record;
+pub mod preview;
 pub mod recording;
 pub mod relay;
 pub mod robot_rtc;

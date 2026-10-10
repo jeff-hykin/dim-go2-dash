@@ -23,6 +23,14 @@ pub fn router(app: Arc<App>, frontend: Option<PathBuf>) -> Router {
 
 async fn serve(State(server): State<Server>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
+    // the camera's newest JPEG (pages that can't play the WebRTC video poll this); 204 while there's none
+    if parts.method == axum::http::Method::GET && parts.uri.path().trim_end_matches('/').ends_with("api/drive/camera.jpg") {
+        let drive = server.app.drive.lock().await.clone();
+        return match drive.and_then(|drive| drive.preview.frame()) {
+            Some(jpeg) => ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, "no-store")], jpeg.as_ref().clone()).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
+        };
+    }
     let body: Bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
         Ok(bytes) => bytes,
         Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response(),
