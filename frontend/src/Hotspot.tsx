@@ -9,16 +9,27 @@ import type { HotspotState, Robot } from "./state.ts"
 
 export type ScannedHotspot = { ssid: string; signal: number | null; security: string; current: boolean }
 export type HotspotScan = { canScan: boolean; hotspots: ScannedHotspot[]; current: string | null; note?: string }
+export type HotspotAsk = { ssid: string; robot?: string }
+
+/** The dog a hotspot belongs to: a Go2's hotspot is named after its Bluetooth name (Go2_60968 → Go2_60968_83d1a1fa). */
+export function robotForHotspot(ssid: string, robots: Robot[]): Robot | undefined {
+    const name = ssid.toLowerCase()
+    return robots.find((r) => {
+        const ble = r.bleName?.toLowerCase()
+        return !!ble && (name === ble || name.startsWith(`${ble}_`))
+    })
+}
 
 /** The confirmation, the password when it needs one, and the switch. */
-function ConnectDialog({ ssid, state, robots, onClose }: {
+export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }: {
     ssid: string
+    robot?: string
     state: HotspotState
     robots: Robot[]
     onClose: () => void
 }) {
     const [password, setPassword] = useState("")
-    const [robot, setRobot] = useState("")
+    const [robot, setRobot] = useState(forRobot ?? "")
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [needsPassword, setNeedsPassword] = useState(!state.saved.includes(ssid))
@@ -88,19 +99,21 @@ function ConnectDialog({ ssid, state, robots, onClose }: {
     )
 }
 
-/** The Go2 hotspot cards (and, where Wi-Fi names can't be listed, a field for one). */
-export function Hotspots({ scan, state, robots, onScan }: {
+/** The Go2 hotspot cards not shown on a known dog's card (and, where Wi-Fi names can't be listed, a field for one). */
+export function Hotspots({ scan, state, robots, onScan, onAsk }: {
     scan: HotspotScan | null
     state: HotspotState
     robots: Robot[]
     onScan: () => void
+    onAsk: (ask: HotspotAsk) => void
 }) {
-    const [asking, setAsking] = useState<string | null>(null)
     const [typed, setTyped] = useState("")
     const linked = state.status === "linked" ? state.ssid : null
+    const setAsking = (ssid: string) => onAsk({ ssid })
+    const unclaimed = scan?.hotspots.filter((h) => !robotForHotspot(h.ssid, robots)) ?? []
     return (
         <>
-            {scan?.hotspots.map((h) => (
+            {unclaimed.map((h) => (
                 <div className="dog hs-card" key={h.ssid}>
                     <div className="row">
                         <span className="av hs-av" title="A Go2 hosting its own Wi-Fi (AP mode)">
@@ -149,17 +162,9 @@ export function Hotspots({ scan, state, robots, onScan }: {
             )}
             {scan && scan.canScan && scan.hotspots.length === 0 && (
                 <div className="hs-note">
-                    No Go2 hotspots nearby (AP mode).{" "}
+                    {scan.note ? `Wi-Fi scan failed: ${scan.note}.` : "No Go2 hotspots nearby (AP mode)."}{" "}
                     <button type="button" className="rec-link" onClick={onScan}>Scan Wi-Fi again</button>
                 </div>
-            )}
-            {asking && (
-                <ConnectDialog
-                    ssid={asking}
-                    state={{ ...state, current: scan?.current ?? state.previous ?? null }}
-                    robots={robots}
-                    onClose={() => setAsking(null)}
-                />
             )}
         </>
     )

@@ -8,7 +8,14 @@ import { Control } from "./Control.tsx"
 import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
-import { HotspotBanner, Hotspots, type HotspotScan } from "./Hotspot.tsx"
+import {
+    ConnectDialog,
+    type HotspotAsk,
+    HotspotBanner,
+    Hotspots,
+    type HotspotScan,
+    robotForHotspot,
+} from "./Hotspot.tsx"
 import { Recordings } from "./Recordings.tsx"
 import { Setup } from "./Setup.tsx"
 import { type CommandRecord, type Robot, useBackend } from "./state.ts"
@@ -37,11 +44,20 @@ export function App() {
     const [slid, setSlid] = useState(false)
     const [recordingsOpen, setRecordingsOpen] = useState(false)
     const [hotspotScan, setHotspotScan] = useState<HotspotScan | null>(null)
-    const scanHotspots = () =>
-        call<HotspotScan>("POST", "api/hotspot/scan").then(
-            setHotspotScan,
-            (e) => setHotspotScan({ canScan: true, hotspots: [], current: null, note: e.message }),
-        )
+    const [hotspotAsk, setHotspotAsk] = useState<HotspotAsk | null>(null)
+    const hotspotScanning = useRef(false)
+    const scanHotspots = () => {
+        if (hotspotScanning.current) {
+            return
+        }
+        hotspotScanning.current = true
+        call<HotspotScan>("POST", "api/hotspot/scan")
+            .then(
+                setHotspotScan,
+                (e) => setHotspotScan({ canScan: true, hotspots: [], current: null, note: e.message }),
+            )
+            .finally(() => hotspotScanning.current = false)
+    }
     const [closedCard, setClosedCard] = useState<string | null>(null)
     const [open, setOpen] = useState<Open>(null)
     const [accountsOpen, setAccountsOpen] = useState(false)
@@ -76,6 +92,16 @@ export function App() {
     const setup = state?.setup
     const guiding = !!setup && setup.step !== "done" && !driving
 
+    // AP mode: a dog's hotspot comes up a while after it boots, so look for hotspots now and every 30 s (read-only);
+    // not while driving or on a hotspot (scanning the Wi-Fi in use adds lag)
+    const hotspotIdle = useRef(true)
+    hotspotIdle.current = !driving && (state?.hotspot.status ?? "idle") === "idle"
+    useEffect(() => {
+        const tick = () => hotspotIdle.current && !document.hidden && scanHotspots()
+        tick()
+        const timer = setInterval(tick, 30_000)
+        return () => clearInterval(timer)
+    }, [])
     // the panel slides away while driving or being guided, and comes back after
     useEffect(() => setSlid(driving || guiding), [driving, guiding])
     useEffect(() => {
@@ -497,10 +523,35 @@ export function App() {
                             }}
                             setOpen={(what) => setOpen(what ? { key: robot.key, what } : null)}
                             onOpenAccounts={openAccounts}
+                            hotspot={hotspotScan?.hotspots.find((h) => robotForHotspot(h.ssid, [robot]))}
+                            hotspotLinked={state.hotspot.status === "linked" &&
+                                !!state.hotspot.ssid && !!robotForHotspot(state.hotspot.ssid, [robot])}
+                            onHotspot={() => {
+                                const h = hotspotScan?.hotspots.find((h) => robotForHotspot(h.ssid, [robot]))
+                                h && setHotspotAsk({ ssid: h.ssid, robot: robot.key })
+                            }}
                         />
                     ))}
                     {state && (
-                        <Hotspots scan={hotspotScan} state={state.hotspot} robots={robots} onScan={scanHotspots} />
+                        <Hotspots
+                            scan={hotspotScan}
+                            state={state.hotspot}
+                            robots={robots}
+                            onScan={scanHotspots}
+                            onAsk={setHotspotAsk}
+                        />
+                    )}
+                    {state && hotspotAsk && (
+                        <ConnectDialog
+                            ssid={hotspotAsk.ssid}
+                            robot={hotspotAsk.robot}
+                            state={{
+                                ...state.hotspot,
+                                current: hotspotScan?.current ?? state.hotspot.previous ?? null,
+                            }}
+                            robots={robots}
+                            onClose={() => setHotspotAsk(null)}
+                        />
                     )}
                 </div>
                 <Accounts

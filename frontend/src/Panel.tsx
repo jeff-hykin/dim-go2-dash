@@ -4,6 +4,7 @@ import { ErrorNotice } from "./errors.tsx"
 import { forwardRef, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
 import { runCommand } from "./dim-app/source/shell.js"
+import type { ScannedHotspot } from "./Hotspot.tsx"
 import { Icon } from "./icons.tsx"
 import type { Account, Drive, Network, Robot, Scan, Sweep, Wifi } from "./state.ts"
 import { agoText, colorFor, copyText, store, stored, validIp } from "./util.ts"
@@ -327,8 +328,25 @@ export const RobotCard = forwardRef<HTMLDivElement, {
     open: { menu: boolean; form: boolean; details: boolean; edit: boolean }
     setOpen: (what: "menu" | "form" | "details" | "edit" | null) => void
     onOpenAccounts: () => void
+    /** its own Wi-Fi hotspot (AP mode), when a Wi-Fi scan saw it */
+    hotspot?: ScannedHotspot
+    hotspotLinked?: boolean
+    onHotspot?: () => void
 }>(function RobotCard(props, ref) {
-    const { robot, using, drive, wifi, network, awaitingIp, open, setOpen, onOpenAccounts } = props
+    const {
+        robot,
+        using,
+        drive,
+        wifi,
+        network,
+        awaitingIp,
+        open,
+        setOpen,
+        onOpenAccounts,
+        hotspot,
+        hotspotLinked,
+        onHotspot,
+    } = props
     const key = robot.key
     const driving = drive.active && drive.robot === key
     if (robot.arpOnly) {
@@ -410,6 +428,14 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                         : (
                             <div className="nm">
                                 {robot.name} <MatchBadge robot={robot} />
+                                {hotspot && (
+                                    <span
+                                        className="match-tag dim-badge ok"
+                                        title={`Its own Wi-Fi hotspot (AP mode) is in range: ${hotspot.ssid}`}
+                                    >
+                                        hotspot
+                                    </span>
+                                )}
                             </div>
                         )}
                     <div className="sub">
@@ -427,11 +453,27 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                             </span>
                         )}
                         {robot.serial && <span className="serial">{robot.serial}</span>}
-                        {!robot.ip && !awaitingIp && !robot.serial && "—"}
+                        {hotspot && (
+                            <span className="serial" title="Its hotspot's Wi-Fi name and signal">
+                                {hotspot.ssid}
+                                {hotspot.signal != null ? ` · ${hotspot.signal}%` : ""}
+                            </span>
+                        )}
+                        {!robot.ip && !awaitingIp && !robot.serial && !hotspot && "—"}
                     </div>
                 </div>
                 <div className="acts">
                     <UseIp robot={robot} using={using} />
+                    {hotspot && !robot.ip && (hotspotLinked ? <span className="dim-badge ok">connected</span> : (
+                        <button
+                            type="button"
+                            className="dim-btn sm"
+                            title={`Switch this computer's Wi-Fi to ${hotspot.ssid} (asks first) and drive it there`}
+                            onClick={onHotspot}
+                        >
+                            Connect via hotspot
+                        </button>
+                    ))}
                     {robot.ip && (
                         <button
                             type="button"
