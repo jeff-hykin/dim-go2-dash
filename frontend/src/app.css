@@ -1896,12 +1896,6 @@ body.science.dark .nav-focus {
 .go2-record-options h3 {
     margin: 12px 0 8px;
 }
-.saved-recording {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    background: var(--bg);
-}
 /* ── Steam Deck / small screens: the centre card sits beside the open panel (never under it), with a × to close ── */
 :root {
     --panel-w: clamp(340px, 36vw, 440px);

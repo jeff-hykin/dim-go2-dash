@@ -15,7 +15,6 @@ import {
     type PadLike,
 } from "./gamepad.ts"
 import { RecordOptions } from "./RecordOptions.tsx"
-import { openApp } from "./dim-app/source/desktop.js"
 import { Icon } from "./icons.tsx"
 import { store, stored } from "./util.ts"
 import type { Command, Drive, RecordState } from "./state.ts"
@@ -324,7 +323,6 @@ export function megabytes(bytes: number): string {
 function RecordButton({ record, onToast }: { record: RecordState; onToast: (text: string) => void }) {
     const [busy, setBusy] = useState(false)
     const [optionsOpen, setOptionsOpen] = useState(false)
-    const [saved, setSaved] = useState<string | null>(null)
     const [, tick] = useState(0)
     useEffect(() => {
         if (!record.active) {
@@ -338,7 +336,6 @@ function RecordButton({ record, onToast }: { record: RecordState; onToast: (text
         call("POST", record.active ? "api/record/stop" : "api/record/start")
             .then((r) => {
                 if (record.active) {
-                    setSaved((r as { file?: string })?.file ?? "the recording")
                     onToast(`Saved ${(r as { file?: string })?.file ?? "the recording"}`)
                 }
             })
@@ -376,15 +373,6 @@ function RecordButton({ record, onToast }: { record: RecordState; onToast: (text
                     ⋯
                 </button>
             </div>
-            {saved && !record.active && (
-                <button
-                    type="button"
-                    className="saved-recording dim-btn sm"
-                    onClick={() => openApp("dim-recordings")}
-                >
-                    View in Recordings
-                </button>
-            )}
             {optionsOpen && <RecordOptions record={record} onError={onToast} onClose={() => setOptionsOpen(false)} />}
         </div>
     )
