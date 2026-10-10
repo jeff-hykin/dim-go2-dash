@@ -18,7 +18,39 @@ struct Server {
 }
 
 pub fn router(app: Arc<App>, frontend: Option<PathBuf>) -> Router {
-    Router::new().fallback(serve).with_state(Server { app, frontend })
+    Router::new()
+        .route("/api/drive/video.ws", axum::routing::get(video_ws))
+        .fallback(serve)
+        .with_state(Server { app, frontend })
+}
+
+/// The camera as H.264 over a WebSocket (stream.rs), for pages whose WebRTC video won't connect.
+async fn video_ws(State(server): State<Server>, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let Some(drive) = server.app.drive.lock().await.clone() else {
+        return (StatusCode::CONFLICT, "no drive session").into_response();
+    };
+    upgrade.on_upgrade(move |mut socket| async move {
+        use axum::extract::ws::Message;
+        use tokio::sync::broadcast::error::RecvError;
+        let mut frames = drive.stream.subscribe();
+        crate::dlog!("video.ws: a page connected");
+        for _ in 0..3 {
+            drive.keyframe().await;
+        }
+        loop {
+            match frames.recv().await {
+                Ok(frame) => {
+                    if socket.send(Message::Binary(frame.as_ref().clone().into())).await.is_err() {
+                        break;
+                    }
+                }
+                // behind: the page skips to the next keyframe; ask for one
+                Err(RecvError::Lagged(_)) => drive.keyframe().await,
+                Err(RecvError::Closed) => break,
+            }
+        }
+        crate::dlog!("video.ws: the page disconnected");
+    })
 }
 
 async fn serve(State(server): State<Server>, request: Request) -> Response {

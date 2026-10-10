@@ -144,6 +144,8 @@ pub struct Drive {
     conn: tokio::sync::Mutex<Option<Arc<RobotConn>>>,
     video: Mutex<Option<Arc<TrackLocalStaticRTP>>>,
     viewers: tokio::sync::Mutex<Vec<Arc<RTCPeerConnection>>>,
+    /// the camera over a WebSocket (api/drive/video.ws), for pages whose WebRTC video won't connect
+    pub stream: crate::stream::VideoStream,
     closed: AtomicBool,
     app: Weak<App>,
 }
@@ -246,6 +248,7 @@ impl Drive {
             conn: tokio::sync::Mutex::new(None),
             video: Mutex::new(dry.then(crate::video::placeholder_track)),
             viewers: tokio::sync::Mutex::new(Vec::new()),
+            stream: crate::stream::VideoStream::start(),
             closed: AtomicBool::new(false),
             app: Arc::downgrade(app),
         });
@@ -253,6 +256,20 @@ impl Drive {
         drive.publish();
         drive.clone().start_ticker();
         if dry {
+            // a dry session's camera: the mock camera's H.264 on the WebSocket stream (try the page's video path)
+            if let Some(mut camera) = crate::camera::MockCamera::new() {
+                let weak = Arc::downgrade(&drive);
+                tokio::spawn(async move {
+                    let mut tick = tokio::time::interval(Duration::from_millis(66));
+                    while let Some(drive) = weak.upgrade().filter(|d| !d.is_closed()) {
+                        for packet in camera.next_packets("dry run") {
+                            drive.stream.push(packet);
+                        }
+                        drop(drive);
+                        tick.tick().await;
+                    }
+                });
+            }
             app.record_start().await?;
             return Ok(drive.snapshot());
         }
@@ -290,6 +307,7 @@ impl Drive {
                             tokio::spawn(drive.reconnect());
                         }
                         ConnEvent::Rtp(packet) => {
+                            drive.stream.push(packet.clone());
                             if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
                                 active.on_rtp(packet);
                             }

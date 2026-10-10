@@ -55,7 +55,7 @@ pub fn go2_camera_info() -> CameraInfo<'static> {
     }
 }
 
-fn has_keyframe(annex_b: &[u8]) -> bool {
+pub fn has_keyframe(annex_b: &[u8]) -> bool {
     // NAL types after each start code: 5 = IDR slice, 7 = SPS
     annex_b.windows(4).any(|w| w[0] == 0 && w[1] == 0 && w[2] == 1 && matches!(w[3] & 0x1f, 5 | 7))
 }

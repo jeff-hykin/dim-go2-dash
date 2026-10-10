@@ -54,13 +54,113 @@ const MODE_LABEL: Record<string, string> = {
 }
 
 /** The camera: a receive-only WebRTC peer with the backend, which forwards the robot's track. */
+/** how long the WebRTC video gets to start before the page also tries the WebSocket stream */
+const WS_FALLBACK_AFTER_MS = 4000
+
+/**
+ * The camera over a WebSocket (api/drive/video.ws: the robot's H.264 access units, unchanged) decoded with WebCodecs
+ * onto `canvas`, for when the WebRTC video won't connect. Starts once `want` has lasted WS_FALLBACK_AFTER_MS without the
+ * WebRTC video going live; returns whether frames are being drawn.
+ */
+function useWsVideo(want: boolean, webrtcLive: boolean, canvas: React.RefObject<HTMLCanvasElement | null>): boolean {
+    const [waited, setWaited] = useState(false)
+    const [drawing, setDrawing] = useState(false)
+    useEffect(() => {
+        setWaited(false)
+        if (!want) {
+            return
+        }
+        const timer = setTimeout(() => setWaited(true), WS_FALLBACK_AFTER_MS)
+        return () => clearTimeout(timer)
+    }, [want])
+    const active = want && waited && !webrtcLive && typeof VideoDecoder !== "undefined"
+    useEffect(() => {
+        setDrawing(false)
+        if (!active) {
+            return
+        }
+        let stopped = false
+        let socket: WebSocket | null = null
+        let decoder: VideoDecoder | null = null
+        let retry: ReturnType<typeof setTimeout> | undefined
+        let needKey = true
+        const newDecoder = () => {
+            if (decoder && decoder.state !== "closed") {
+                decoder.close()
+            }
+            needKey = true
+            decoder = new VideoDecoder({
+                output: (frame) => {
+                    const target = canvas.current
+                    if (target) {
+                        if (target.width !== frame.displayWidth || target.height !== frame.displayHeight) {
+                            target.width = frame.displayWidth
+                            target.height = frame.displayHeight
+                        }
+                        target.getContext("2d")?.drawImage(frame, 0, 0)
+                        setDrawing(true)
+                    }
+                    frame.close()
+                },
+                // a bad frame: start again from the next keyframe
+                error: () => !stopped && newDecoder(),
+            })
+            // no `description`: the chunks are Annex B
+            decoder.configure({ codec: "avc1.42e01f", optimizeForLatency: true })
+        }
+        const open = () => {
+            newDecoder()
+            const url = new URL("api/drive/video.ws", location.href)
+            url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+            socket = new WebSocket(url)
+            socket.binaryType = "arraybuffer"
+            socket.onmessage = (event) => {
+                const bytes = new Uint8Array(event.data as ArrayBuffer)
+                const key = bytes[0] === 1
+                if (needKey && !key) {
+                    return
+                }
+                needKey = false
+                const timestamp = Number(new DataView(bytes.buffer, 1, 8).getBigUint64(0, true))
+                try {
+                    decoder?.decode(
+                        new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp, data: bytes.subarray(9) }),
+                    )
+                } catch {
+                    newDecoder()
+                }
+            }
+            socket.onclose = () => {
+                setDrawing(false)
+                if (!stopped) {
+                    retry = setTimeout(open, 1000)
+                }
+            }
+        }
+        open()
+        return () => {
+            stopped = true
+            clearTimeout(retry)
+            socket?.close()
+            if (decoder && decoder.state !== "closed") {
+                decoder.close()
+            }
+        }
+    }, [active])
+    return drawing
+}
+
 /** The camera's live state and, while it isn't live, which step it's stuck on (shown in the placeholder). */
-function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null>): { live: boolean; status: string } {
+function useCamera(
+    drive: Active,
+    video: React.RefObject<HTMLVideoElement | null>,
+    canvas: React.RefObject<HTMLCanvasElement | null>,
+): { live: boolean; status: string; ws: boolean } {
     const [live, setLive] = useState(false)
     const [status, setStatus] = useState("")
     // not waiting for the `video` flag: its event can be lost (the Wi-Fi switching to the dog's hotspot drops the
     // page's zenoh link); until the robot's track exists the backend says so and this retries
-    const want = drive.status === "ready" && !drive.dryRun
+    const want = drive.status === "ready"
     useEffect(() => {
         setLive(false)
         if (!want) {
@@ -128,7 +228,8 @@ function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null
         element.addEventListener("loadeddata", onFrame)
         return () => element.removeEventListener("loadeddata", onFrame)
     }, [video.current])
-    return { live: live && want, status }
+    const ws = useWsVideo(!!want, live && !!want, canvas)
+    return { live: (live && !!want) || ws, status, ws }
 }
 
 /** The page has the user's focus: this document, or Desktop's shell around it (a Steam Deck user never clicks in). */
@@ -297,7 +398,8 @@ export function Control(props: {
 }) {
     const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
     const video = useRef<HTMLVideoElement>(null)
-    const { live, status: cameraStatus } = useCamera(drive, video)
+    const canvas = useRef<HTMLCanvasElement>(null)
+    const { live, status: cameraStatus, ws } = useCamera(drive, video, canvas)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
     const [boost, setBoost] = useState(false)
     const [searching, setSearching] = useState(false)
@@ -471,7 +573,15 @@ export function Control(props: {
     return (
         <div className="ctl">
             <div className={`cam-wrap${live ? " live" : ""}`}>
-                <video ref={video} autoPlay muted playsInline disablePictureInPicture />
+                <video
+                    ref={video}
+                    autoPlay
+                    muted
+                    playsInline
+                    disablePictureInPicture
+                    style={ws ? { display: "none" } : undefined}
+                />
+                <canvas ref={canvas} className="cam-canvas" style={ws ? undefined : { display: "none" }} />
                 <div className="cam-ph">
                     <div className="glyph">
                         <Icon name="camera" size={40} />

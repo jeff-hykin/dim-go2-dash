@@ -1960,3 +1960,9 @@ body.science.dark .nav-focus {
 .sub {
     font-size: 12px;
 }
+/* the camera from the WebSocket stream (when the WebRTC video won't connect), drawn by WebCodecs */
+.cam-canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
