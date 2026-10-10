@@ -451,6 +451,22 @@ export function App() {
                         applyNav(true)
                     }}
                 />
+                {/* the open drive session, whichever way it was opened (a card, a typed IP, a hotspot): its way out */}
+                {drive.active && (
+                    <div className="p-session">
+                        <span className="dot" />
+                        <span className="p-session-name">Driving {drive.name}</span>
+                        <span className="spacer" />
+                        <button
+                            type="button"
+                            className="dim-btn sm"
+                            title="Close the drive session (the dog keeps its pose; recording stops)"
+                            onClick={() => call("POST", "api/drive/disconnect").catch(() => {})}
+                        >
+                            Disconnect
+                        </button>
+                    </div>
+                )}
                 <div className="p-scan">
                     <button
                         type="button"
@@ -585,7 +601,7 @@ export function App() {
                     record={state.record}
                 />
             )}
-            {state && <HotspotBanner state={state.hotspot} />}
+            {state && <HotspotBanner state={state.hotspot} besidePanel={!slid} />}
             {/* this app's recordings: one floating button, bottom right, connected or not */}
             <button
                 type="button"

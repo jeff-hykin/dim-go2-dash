@@ -1982,3 +1982,37 @@ body.science.dark .nav-focus {
 .ctl .act.err {
     background-color: color-mix(in srgb, var(--card) 92%, transparent);
 }
+/* the on-screen driving buttons hide behind this (touchscreens hit them by accident); Sit down sits above it */
+.controls-toggle {
+    position: absolute;
+    left: 14px;
+    bottom: calc(14px + var(--dim-inset-bottom));
+    z-index: 4;
+    gap: 6px;
+}
+.ctl .sit-down {
+    bottom: calc(56px + var(--dim-inset-bottom));
+}
+/* the panel's open-session row: which dog is being driven, and Disconnect */
+.p-session {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 15px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+.p-session .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+}
+.p-session .spacer {
+    flex: 1;
+}
+/* with the Robots panel open the banner sits in the space beside it, never over it */
+.hs-banner.beside-panel {
+    left: calc(var(--panel-w) + 32px + (100vw - var(--panel-w) - 32px) / 2);
+    max-width: calc(100vw - var(--panel-w) - 56px);
+}

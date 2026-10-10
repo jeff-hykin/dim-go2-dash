@@ -17,6 +17,7 @@ import {
 import { RecordOptions } from "./RecordOptions.tsx"
 import { openApp } from "./dim-app/source/desktop.js"
 import { Icon } from "./icons.tsx"
+import { store, stored } from "./util.ts"
 import type { Command, Drive, RecordState } from "./state.ts"
 
 type Active = Extract<Drive, { active: true }>
@@ -54,6 +55,9 @@ const MODE_LABEL: Record<string, string> = {
 }
 
 /** The camera: a receive-only WebRTC peer with the backend, which forwards the robot's track. */
+/** whether the on-screen driving buttons are shown (localStorage) */
+const SHOW_CONTROLS_KEY = "go2dash.showControls"
+
 /** how long the WebRTC video gets to start before the page also tries the WebSocket stream */
 const WS_FALLBACK_AFTER_MS = 4000
 
@@ -399,6 +403,8 @@ export function Control(props: {
     const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
     const video = useRef<HTMLVideoElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
+    const [showControls, setShowControls] = useState<boolean>(() => stored(SHOW_CONTROLS_KEY, false))
+    useEffect(() => store(SHOW_CONTROLS_KEY, showControls), [showControls])
     const { live, status: cameraStatus, ws } = useCamera(drive, video, canvas)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
     const [boost, setBoost] = useState(false)
@@ -614,88 +620,104 @@ export function Control(props: {
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
                     {boost ? "  ·  run" : "  ·  shift = run"}
                 </div>
-                <div className="dpad">
-                    {dpad.map(([key, cls, icon, title]) => (
-                        <button
-                            type="button"
-                            key={key}
-                            className={`dbtn dim-btn icon ${cls}${pressed.has(key) ? " held" : ""}`}
-                            title={title}
-                            onPointerDown={(e) => {
-                                e.preventDefault()
-                                e.currentTarget.setPointerCapture?.(e.pointerId)
-                                press(key)
-                            }}
-                            onPointerUp={() => release(key)}
-                            onPointerCancel={() => release(key)}
-                        >
-                            <Icon name={icon} size={18} />
-                        </button>
-                    ))}
-                </div>
+                {showControls && (
+                    <div className="dpad">
+                        {dpad.map(([key, cls, icon, title]) => (
+                            <button
+                                type="button"
+                                key={key}
+                                className={`dbtn dim-btn icon ${cls}${pressed.has(key) ? " held" : ""}`}
+                                title={title}
+                                onPointerDown={(e) => {
+                                    e.preventDefault()
+                                    e.currentTarget.setPointerCapture?.(e.pointerId)
+                                    press(key)
+                                }}
+                                onPointerUp={() => release(key)}
+                                onPointerCancel={() => release(key)}
+                            >
+                                <Icon name={icon} size={18} />
+                            </button>
+                        ))}
+                    </div>
+                )}
                 <div className="cmd-dock">
                     <span className={`mode-badge dim-badge ${MODE_TONE[drive.mode] ?? ""}`} title="Current dog mode">
                         Mode: {MODE_LABEL[drive.mode] ?? "—"}
                     </span>
-                    <div className={`cmd-bar${searching ? " searching" : ""}`}>
-                        <div className="cmd-search dim-panel glass">
-                            <span className="ico">
-                                <Icon name="search" size={13} />
-                            </span>
-                            <input
-                                ref={searchInput}
-                                className="dim-input"
-                                type="text"
-                                placeholder="Search commands…"
-                                autoComplete="off"
-                                spellCheck={false}
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Escape") {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        closeSearch()
-                                    } else if (e.key === "Enter") {
-                                        e.preventDefault()
-                                        if (visible[0]) {
-                                            doCommand(visible[0].name)
+                    {showControls && (
+                        <div className={`cmd-bar${searching ? " searching" : ""}`}>
+                            <div className="cmd-search dim-panel glass">
+                                <span className="ico">
+                                    <Icon name="search" size={13} />
+                                </span>
+                                <input
+                                    ref={searchInput}
+                                    className="dim-input"
+                                    type="text"
+                                    placeholder="Search commands…"
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    value={query}
+                                    onChange={(e) => setQuery(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Escape") {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            closeSearch()
+                                        } else if (e.key === "Enter") {
+                                            e.preventDefault()
+                                            if (visible[0]) {
+                                                doCommand(visible[0].name)
+                                            }
+                                            closeSearch()
                                         }
-                                        closeSearch()
-                                    }
-                                }}
-                            />
+                                    }}
+                                />
+                            </div>
+                            <div className="cmd-scroll">
+                                {commands.map((c, i) => {
+                                    const flashing = flash && flash.name === c.name ? (flash.ok ? " ok" : " err") : ""
+                                    const hidden = !visible.includes(c) ? " nomatch" : ""
+                                    return (
+                                        <button
+                                            type="button"
+                                            key={`${c.name}-${flash?.name === c.name ? flash.n : 0}`}
+                                            className={`act dim-btn sm${i === 0 ? " primary" : ""}${flashing}${hidden}`}
+                                            title={c.description}
+                                            onClick={() => doCommand(c.name)}
+                                        >
+                                            {c.label}
+                                        </button>
+                                    )
+                                })}
+                            </div>
                         </div>
-                        <div className="cmd-scroll">
-                            {commands.map((c, i) => {
-                                const flashing = flash && flash.name === c.name ? (flash.ok ? " ok" : " err") : ""
-                                const hidden = !visible.includes(c) ? " nomatch" : ""
-                                return (
-                                    <button
-                                        type="button"
-                                        key={`${c.name}-${flash?.name === c.name ? flash.n : 0}`}
-                                        className={`act dim-btn sm${i === 0 ? " primary" : ""}${flashing}${hidden}`}
-                                        title={c.description}
-                                        onClick={() => doCommand(c.name)}
-                                    >
-                                        {c.label}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    </div>
+                    )}
                 </div>
+                {/* on a touchscreen the on-screen controls are easy to hit by accident: hidden until asked for */}
                 <button
                     type="button"
-                    className={`sit-down dim-btn sm${pad.sitHold > 0 ? " holding" : ""}`}
-                    style={{ "--hold": pad.sitHold } as React.CSSProperties}
-                    disabled={!ready}
-                    title="Sit the dog down safely without closing the app (low battery, bad link): stop, then lie down. Gamepad: hold B for 1 s"
-                    onClick={sitDown}
+                    className="controls-toggle dim-btn sm"
+                    title="Show or hide the on-screen driving buttons (keyboard and gamepad work either way)"
+                    onClick={() => setShowControls((shown) => !shown)}
                 >
-                    <Icon name="power" size={13} />
-                    Sit down
+                    <Icon name={showControls ? "close" : "gamepad"} size={13} />
+                    {showControls ? "Hide controls" : "Show controls"}
                 </button>
+                {showControls && (
+                    <button
+                        type="button"
+                        className={`sit-down dim-btn sm${pad.sitHold > 0 ? " holding" : ""}`}
+                        style={{ "--hold": pad.sitHold } as React.CSSProperties}
+                        disabled={!ready}
+                        title="Sit the dog down safely without closing the app (low battery, bad link): stop, then lie down. Gamepad: hold B for 1 s"
+                        onClick={sitDown}
+                    >
+                        <Icon name="power" size={13} />
+                        Sit down
+                    </button>
+                )}
             </div>
         </div>
     )
