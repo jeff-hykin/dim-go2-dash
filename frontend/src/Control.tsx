@@ -600,7 +600,15 @@ export function Control(props: {
                     <div className="ctl-top-side">
                         <div className="ctl-id">
                             <span className="nm">{drive.name}</span>
-                            <span className="ctl-ip dim-mono">{drive.ip}</span>
+                            <span className="ctl-ip dim-mono">
+                                {drive.ip}
+                                {drive.battery != null && (
+                                    <span className={`ctl-batt${drive.battery <= 20 ? " low" : ""}`} title="battery">
+                                        {" · "}
+                                        {drive.battery}%
+                                    </span>
+                                )}
+                            </span>
                         </div>
                         {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
                         {drive.status !== "ready" && (

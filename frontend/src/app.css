@@ -2058,6 +2058,10 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: var(--fg);
     opacity: 0.85;
 }
+.ctl-id .ctl-batt.low {
+    color: var(--warn);
+    font-weight: 600;
+}
 /* in the top bar (driving), the hotspot's way back is part of the row, not floating over it */
 .hs-banner.inline {
     position: static;

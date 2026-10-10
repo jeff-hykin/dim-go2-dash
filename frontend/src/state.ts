@@ -82,6 +82,8 @@ export type Drive =
         lastCommand: CommandRecord | null
         /** the head light, as last set from this app */
         light?: boolean
+        /** the battery's charge (%), null until the robot reports it */
+        battery?: number | null
         startedAt: number
     }
 

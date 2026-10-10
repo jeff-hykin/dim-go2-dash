@@ -138,6 +138,8 @@ struct DriveState {
     last_command: Option<Value>,
     /// the head light, as last set from here (the robot doesn't say)
     light: bool,
+    /// the battery's charge (%), from the robot's lowstate (subscribed for the whole session)
+    battery: Option<u8>,
 }
 
 pub struct Drive {
@@ -179,6 +181,7 @@ impl Drive {
             "video": self.video.lock().unwrap().is_some(),
             "lastCommand": state.last_command,
             "light": state.light,
+            "battery": state.battery,
             "startedAt": self.started_at,
         })
     }
@@ -192,6 +195,15 @@ impl Drive {
     fn set(&self, update: impl FnOnce(&mut DriveState)) {
         update(&mut self.state.lock().unwrap());
         self.publish();
+    }
+
+    /// A lowstate message: its battery charge, published when it changes.
+    fn on_lowstate(&self, json: &Value) {
+        let Some(soc) = json["data"]["bms_state"]["soc"].as_f64() else { return };
+        let soc = soc.clamp(0.0, 100.0).round() as u8;
+        if self.state.lock().unwrap().battery != Some(soc) {
+            self.set(|s| s.battery = Some(soc));
+        }
     }
 
     fn is_closed(&self) -> bool {
@@ -253,6 +265,8 @@ impl Drive {
                 moving: false,
                 last_command: None,
                 light: false,
+                // the mock robot's (recording.rs mocks the same 80%)
+                battery: dry.then_some(80),
             }),
             conn: tokio::sync::Mutex::new(None),
             video: Mutex::new(dry.then(crate::video::placeholder_track)),
@@ -333,6 +347,9 @@ impl Drive {
                             }
                         }
                         ConnEvent::Data(message) => {
+                            if message.topic == crate::sensors::LOWSTATE {
+                                drive.on_lowstate(&message.json);
+                            }
                             if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
                                 active.on_data(&message);
                             }
@@ -342,6 +359,8 @@ impl Drive {
                 match RobotConn::connect(&self.ip, &self.aes_keys, on_event).await {
                     Ok(conn) => {
                         self.remember_key(&conn);
+                        // the battery for the top bar, recording or not (read-only, about 1 Hz worth showing)
+                        conn.subscribe(crate::sensors::LOWSTATE).await;
                         if self.is_closed() {
                             conn.close().await;
                             return Err("the session was closed".into());
@@ -676,7 +695,8 @@ impl Drive {
 
     pub async fn stop_streams(&self) {
         let Some(conn) = self.conn.lock().await.clone() else { return };
-        for topic in crate::sensors::TOPICS {
+        // lowstate stays: the top bar shows its battery for the whole session
+        for topic in crate::sensors::TOPICS.into_iter().filter(|t| *t != crate::sensors::LOWSTATE) {
             conn.unsubscribe(topic).await;
         }
     }
