@@ -572,9 +572,13 @@ provides:
                   type: boolean
           path: api/drive/finger_heart
 nix:
+    # prebuilt copies to look for in the cache, in order (a Mac's cross build, then a Linux machine's own build:
+    # CI's Ubuntu runner or any Linux box that pushed); none there: Desktop builds it here
     cache:
         aarch64-linux:
             - packages.aarch64-darwin.dimosApp-aarch64-linux
             - packages.x86_64-linux.dimosApp-aarch64-linux
+            - packages.aarch64-linux.dimosApp-aarch64-linux
         x86_64-linux:
             - packages.aarch64-darwin.dimosApp-x86_64-linux
+            - packages.x86_64-linux.dimosApp-x86_64-linux
