@@ -186,7 +186,7 @@ impl Switcher for MacOs {
         "macos"
     }
     async fn scan(&self) -> Result<Option<Vec<Network>>, String> {
-        Ok(mac_scan().await)
+        mac_scan().await
     }
     async fn current(&self) -> Option<String> {
         let device = mac_wifi_device().await;
@@ -219,8 +219,9 @@ impl Switcher for MacOs {
 
 /// macOS shows Wi-Fi names only to an app allowed Location: this server, as "Go2 Ctrl.app" (macos_wifi.rs), the
 /// bundle it runs from (nix: $out/Go2 Ctrl.app), else GO2_CTRL_WIFI_APP or ~/Applications (a dev build), run through
-/// `open` so the prompt names Go2 Ctrl. Its first run asks for Location. None: no bundle, or no permission (yet).
-async fn mac_scan() -> Option<Vec<Network>> {
+/// `open` so the prompt names Go2 Ctrl. Its first run asks for Location. None: no bundle; Err: why the scan failed
+/// (e.g. Location denied).
+async fn mac_scan() -> Result<Option<Vec<Network>>, String> {
     // …/Go2 Ctrl.app/Contents/MacOS/dimos-app-server
     let beside = std::env::current_exe()
         .ok()
@@ -230,7 +231,11 @@ async fn mac_scan() -> Option<Vec<Network>> {
     let app = [beside, std::env::var("GO2_CTRL_WIFI_APP").ok().map(Into::into), Some(format!("{home}/Applications/Go2 Ctrl.app").into())]
         .into_iter()
         .flatten()
-        .find(|path: &std::path::PathBuf| path.exists())?;
+        .find(|path: &std::path::PathBuf| path.exists());
+    let Some(app) = app else {
+        crate::dlog!("wifi scan: no Go2 Ctrl.app bundle");
+        return Ok(None);
+    };
     let out = std::env::temp_dir().join(format!("go2-wifi-scan-{}-{}.json", std::process::id(), crate::app::now_ms()));
     let out_path = out.to_string_lossy().to_string();
     // no timeout: the scan ends itself (its Location prompt waits at most 2 min)
@@ -239,10 +244,13 @@ async fn mac_scan() -> Option<Vec<Network>> {
     let _ = std::fs::remove_file(&out);
     let json: Value = serde_json::from_str(&text).unwrap_or_default();
     let Some(networks) = json.as_array() else {
-        crate::dlog!("wifi scan: {:?} {}", ran.err(), json["error"].as_str().unwrap_or("no output"));
-        return None;
+        let error = json["error"].as_str().map(str::to_string).or(ran.err()).unwrap_or_else(|| "the scan wrote nothing".into());
+        crate::dlog!("wifi scan via {}: {error}", app.display());
+        return Err(error);
     };
-    Some(
+    let go2s: Vec<&str> = networks.iter().filter_map(|n| n["ssid"].as_str()).filter(|s| looks_like_go2(s)).collect();
+    crate::dlog!("wifi scan: {} networks, Go2 hotspots {go2s:?}", networks.len());
+    Ok(Some(
         networks
             .iter()
             .filter_map(|network| {
@@ -253,7 +261,7 @@ async fn mac_scan() -> Option<Vec<Network>> {
                 Some(Network { ssid, signal, security })
             })
             .collect(),
-    )
+    ))
 }
 
 async fn mac_wifi_device() -> String {
@@ -343,7 +351,7 @@ impl App {
     pub fn hotspot_state(&self) -> Value {
         let mut state = self.hotspot.lock().unwrap().json();
         state["platform"] = json!(self.wifi.platform());
-        state["canScan"] = json!(self.wifi.platform() != "macos");
+        state["canScan"] = json!(true); // macOS too, through Go2 Ctrl.app (mac_scan); hotspot_scan says when it can't
         state["saved"] = json!(self.hotspot_passwords().keys().cloned().collect::<Vec<_>>());
         state
     }
@@ -357,14 +365,18 @@ impl App {
         std::fs::read_to_string(self.data_dir().join(PASSWORDS_FILE)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
     }
 
-    /// Nearby Go2 hotspots (Linux: nmcli; macOS can't list Wi-Fi names, so it answers `canScan: false`).
+    /// Nearby Go2 hotspots (Linux: nmcli; macOS: Go2 Ctrl.app). When the scan can't list Wi-Fi names it answers
+    /// `canScan: false` and why, so the page offers typing the hotspot's name instead.
     pub async fn hotspot_scan(&self) -> Result<Value, HttpError> {
-        let scanned = self.wifi.scan().await.map_err(|e| HttpError::upstream(format!("Wi-Fi scan failed: {e}")))?;
+        let scanned = self.wifi.scan().await;
         let current = self.wifi.current().await;
+        let type_it = "type the Go2's hotspot name (the Unitree app shows it, e.g. Go2_12345_abcdef12)";
         Ok(match scanned {
-            None => json!({ "canScan": false, "hotspots": [], "current": current,
-                "note": "macOS doesn't let apps list Wi-Fi names: type the Go2's hotspot name (the Unitree app shows it, e.g. GO2-XXXXXX)" }),
-            Some(list) => {
+            Err(error) => json!({ "canScan": false, "hotspots": [], "current": current,
+                "note": format!("Couldn't list Wi-Fi names ({error}): {type_it}") }),
+            Ok(None) => json!({ "canScan": false, "hotspots": [], "current": current,
+                "note": format!("This computer can't list Wi-Fi names: {type_it}") }),
+            Ok(Some(list)) => {
                 let hotspots: Vec<Value> = list
                     .iter()
                     .filter(|n| looks_like_go2(&n.ssid))
@@ -487,7 +499,7 @@ mod tests {
 
     #[test]
     fn go2_names() {
-        for yes in ["GO2-A1B2C3", "Go2_18347", "go2", "Unitree_Go2_123", "unitree-dog", "My Go2", "GO2 lab"] {
+        for yes in ["GO2-A1B2C3", "Go2_18347", "Go2_60968_83d1a1fa", "go2", "Unitree_Go2_123", "unitree-dog", "My Go2", "GO2 lab"] {
             assert!(looks_like_go2(yes), "{yes}");
         }
         for no in ["dimensional-edge", "Ergo2000", "go20", "", "Cargo2x"] {

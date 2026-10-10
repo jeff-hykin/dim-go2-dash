@@ -474,7 +474,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/hotspot/scan",
-            "List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS can't list Wi-Fi names: canScan false). Read-only",
+            "List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS: Go2 Ctrl.app, with Location allowed). canScan false and a note when it can't list Wi-Fi names. Read-only",
             None,
             handler(|app, _| async move { app.hotspot_scan().await }),
         ),

@@ -23,18 +23,26 @@ fn finish(value: Value) -> ! {
 fn scan() -> ! {
     let client = unsafe { CWWiFiClient::sharedWiFiClient() };
     let Some(interface) = (unsafe { client.interface() }) else { finish(json!({ "error": "no Wi-Fi interface" })) };
-    match unsafe { interface.scanForNetworksWithName_error(None) } {
-        Ok(networks) => {
-            let mut found = Vec::new();
-            for network in networks.iter() {
-                let Some(ssid) = (unsafe { network.ssid() }) else { continue };
-                let secured = !unsafe { network.supportsSecurity(CWSecurity::None) };
-                found.push(json!({ "ssid": ssid.to_string(), "rssi": unsafe { network.rssiValue() }, "secured": secured }));
-            }
+    // right after Location is allowed (and without it) CoreWLAN hides every name: retry, then say so, not "none nearby"
+    for attempt in 0..5 {
+        let networks = match unsafe { interface.scanForNetworksWithName_error(None) } {
+            Ok(networks) => networks,
+            Err(error) => finish(json!({ "error": format!("scan failed: {}", error.localizedDescription()) })),
+        };
+        let mut found = Vec::new();
+        for network in networks.iter() {
+            let Some(ssid) = (unsafe { network.ssid() }) else { continue };
+            let secured = !unsafe { network.supportsSecurity(CWSecurity::None) };
+            found.push(json!({ "ssid": ssid.to_string(), "rssi": unsafe { network.rssiValue() }, "secured": secured }));
+        }
+        if !found.is_empty() || networks.count() == 0 {
             finish(Value::Array(found))
         }
-        Err(error) => finish(json!({ "error": format!("scan failed: {}", error.localizedDescription()) })),
+        if attempt < 4 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
     }
+    finish(json!({ "error": "macOS hid every Wi-Fi name: allow Location for Go2 Ctrl in System Settings → Privacy & Security → Location Services" }))
 }
 
 fn on_status(manager: &CLLocationManager) {
