@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { call } from "./api.ts"
 import { openApp } from "./dim-app/source/desktop.js"
 import type { RecordState } from "./state.ts"
@@ -32,9 +32,32 @@ const defaults: Options = {
     compression: "zstd",
     imageFormat: "jpeg",
     recordNew: true,
-    logs: false,
+    logs: true,
     topics: {},
     rates: {},
+}
+
+/** The theme's checkbox, sized for a finger: the whole row toggles it. */
+function Check(
+    { checked, onChange, label, children }: {
+        checked: boolean
+        onChange: (checked: boolean) => void
+        label?: string
+        children?: ReactNode
+    },
+) {
+    return (
+        <label className="dim-check rec-check">
+            <input
+                type="checkbox"
+                aria-label={label}
+                checked={checked}
+                onChange={(event) => onChange(event.target.checked)}
+            />
+            <span className="box" />
+            {children}
+        </label>
+    )
 }
 
 export function RecordOptions(
@@ -97,29 +120,24 @@ export function RecordOptions(
                         rate-limited / excluded
                     </div>
                 )}
-                <label className="rec-check">
-                    <input
-                        type="checkbox"
-                        checked={settings.autoUpload}
-                        onChange={(event) => {
-                            setBusy(true)
-                            call("PUT", "api/settings", { autoUpload: event.target.checked }).then((value) =>
-                                setSettings(value as Settings)
-                            ).catch((error) => onError(error.message)).finally(() => setBusy(false))
-                        }}
-                    />Auto-upload saved recordings
-                </label>
+                <Check
+                    checked={settings.autoUpload}
+                    onChange={(autoUpload) => {
+                        setBusy(true)
+                        call("PUT", "api/settings", { autoUpload }).then((value) => setSettings(value as Settings))
+                            .catch((error) => onError(error.message)).finally(() => setBusy(false))
+                    }}
+                >
+                    Auto-upload saved recordings
+                </Check>
                 <h3>Biggest streams</h3>
                 {top.map((stream) => (
-                    <label className="rec-stream" key={stream.topic}>
-                        <input
-                            type="checkbox"
-                            checked={enabled(stream.topic)}
-                            onChange={(event) => toggle(stream.topic, event.target.checked)}
-                        />
-                        <span>{stream.topic}</span>
+                    <div className="rec-stream" key={stream.topic}>
+                        <Check checked={enabled(stream.topic)} onChange={(value) => toggle(stream.topic, value)}>
+                            {stream.topic}
+                        </Check>
                         <small>{rate(stream.bytesPerSecond)} avg</small>
-                    </label>
+                    </div>
                 ))}
                 {!top.length && <p>Streams appear here as messages arrive.</p>}
                 <button type="button" className="dim-btn sm" onClick={() => openApp("dim-recordings")}>
@@ -142,7 +160,9 @@ export function RecordOptions(
                                 disabled={record.active}
                                 onChange={(event) => save({ imageFormat: event.target.value })}
                             >
-                                <option value="jpeg">JPEG (small)</option>
+                                <option value="jpeg">JPEG, quality 80 (small)</option>
+                                <option value="jpeg-high">JPEG, quality 92</option>
+                                <option value="jpeg-best">JPEG, quality 98 (near lossless, large)</option>
                                 <option value="raw">Raw RGB (exact decoded pixels)</option>
                             </select>
                         </label>
@@ -157,34 +177,25 @@ export function RecordOptions(
                                 <option value="none">Uncompressed</option>
                             </select>
                         </label>
-                        <label className="rec-check">
-                            <input
-                                type="checkbox"
-                                checked={options.recordNew}
-                                onChange={(event) => save({ recordNew: event.target.checked })}
-                            />Record new streams as they appear
-                        </label>
-                        <label className="rec-check">
-                            <input
-                                type="checkbox"
-                                checked={options.logs}
-                                onChange={(event) => save({ logs: event.target.checked })}
-                            />Include Go2 session event logs
-                        </label>
+                        <Check checked={options.recordNew} onChange={(recordNew) => save({ recordNew })}>
+                            Record new streams as they appear
+                        </Check>
+                        <Check checked={options.logs} onChange={(logs) => save({ logs })}>
+                            Include Go2 session event logs
+                        </Check>
                         <div className="rec-stream legend">
-                            <span />
                             <span>Stream</span>
                             <span>Max Hz</span>
                         </div>
                         {TOPICS.map((topic) => (
                             <div className="rec-stream" key={topic}>
-                                <input
-                                    type="checkbox"
-                                    aria-label={`Record ${topic}`}
+                                <Check
+                                    label={`Record ${topic}`}
                                     checked={enabled(topic)}
-                                    onChange={(event) => toggle(topic, event.target.checked)}
-                                />
-                                <span>{topic}</span>
+                                    onChange={(value) => toggle(topic, value)}
+                                >
+                                    {topic}
+                                </Check>
                                 <input
                                     className="dim-input"
                                     type="number"

@@ -1873,16 +1873,40 @@ body.science.dark .nav-focus {
     gap: 5px;
     margin-bottom: 10px;
 }
+/* checkboxes sized for a finger: the whole row is the target */
 .go2-record-options .rec-check {
     flex-direction: row;
     align-items: center;
+    gap: 12px;
+    min-height: 40px;
+    margin: 0;
+    padding: 0 6px;
+    border-radius: var(--radius);
+    user-select: none;
+}
+.go2-record-options .rec-check:hover {
+    background: var(--hover, rgba(255, 255, 255, 0.05));
+}
+.go2-record-options .dim-check .box,
+body.science.dark .go2-record-options .dim-check .box {
+    width: 22px;
+    height: 22px;
+}
+.go2-record-options .dim-check input:checked + .box::after {
+    width: 6px;
+    height: 12px;
+    border-width: 0 2.5px 2.5px 0;
+}
+body.science.dark .go2-record-options .dim-check input:checked + .box::after {
+    width: 10px;
+    height: 10px;
 }
 .go2-record-options .rec-stream {
     display: grid;
-    grid-template-columns: 20px 1fr 95px;
+    grid-template-columns: 1fr 95px;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 2px;
     font-size: 12px;
 }
 .rec-stream .dim-input {

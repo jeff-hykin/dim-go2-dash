@@ -63,7 +63,7 @@ impl Default for RecordOptions {
             compression: "zstd".into(),
             image_format: "jpeg".into(),
             record_new: true,
-            logs: false,
+            logs: true,
             topics: BTreeMap::new(),
             rates: BTreeMap::new(),
         }
@@ -74,8 +74,8 @@ impl RecordOptions {
         if !["zstd", "none"].contains(&self.compression.as_str()) {
             return Err("compression must be zstd or none".into());
         }
-        if !["jpeg", "raw"].contains(&self.image_format.as_str()) {
-            return Err("imageFormat must be jpeg or raw".into());
+        if self.image_format != "raw" && jpeg_quality(&self.image_format).is_none() {
+            return Err("imageFormat must be jpeg, jpeg-high, jpeg-best or raw".into());
         }
         if !self.directory.is_empty() && !Path::new(&self.directory).is_absolute() {
             return Err("recording folder must be an absolute path".into());
@@ -84,6 +84,16 @@ impl RecordOptions {
             return Err("max rates must be between 0 and 1000 Hz (empty = unlimited)".into());
         }
         Ok(())
+    }
+}
+
+/// The JPEG quality of an image format ("jpeg" small, "jpeg-high", "jpeg-best"); None for raw or unknown.
+pub fn jpeg_quality(image_format: &str) -> Option<u8> {
+    match image_format {
+        "jpeg" => Some(80),
+        "jpeg-high" => Some(92),
+        "jpeg-best" => Some(98),
+        _ => None,
     }
 }
 

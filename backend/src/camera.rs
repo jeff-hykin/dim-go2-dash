@@ -11,10 +11,9 @@ use webrtc::rtp::codecs::h264::H264Packet;
 use webrtc::rtp::packet::Packet;
 
 use crate::cdr::{self, CameraInfo, Header};
-use crate::record::{now_ns, Recorder};
+use crate::record::{jpeg_quality, now_ns, Recorder};
 
 const QUEUE: usize = 2048;
-const JPEG_QUALITY: u8 = 80;
 /// at most this many frames a second go into the file
 const MAX_FPS: u64 = 15;
 
@@ -98,16 +97,17 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
             let (width, height) = decoded.dimensions();
             rgb.resize(width * height * 3, 0);
             decoded.write_rgb8(&mut rgb);
-            let mut jpeg = Vec::with_capacity(width * height / 4);
-            let encoder = jpeg_encoder::Encoder::new(&mut jpeg, JPEG_QUALITY);
-            if encoder.encode(&rgb, width as u16, height as u16, jpeg_encoder::ColorType::Rgb).is_err() {
-                continue;
-            }
             let header = Header { stamp_ns: now, frame_id: "camera_optical" };
-            let image = if recorder.image_format() == "raw" {
-                cdr::image(&header, width as u32, height as u32, &rgb)
-            } else {
-                cdr::compressed_image(&header, "jpeg", &jpeg)
+            let image = match jpeg_quality(&recorder.image_format()) {
+                None => cdr::image(&header, width as u32, height as u32, &rgb),
+                Some(quality) => {
+                    let mut jpeg = Vec::with_capacity(width * height / 4);
+                    let encoder = jpeg_encoder::Encoder::new(&mut jpeg, quality);
+                    if encoder.encode(&rgb, width as u16, height as u16, jpeg_encoder::ColorType::Rgb).is_err() {
+                        continue;
+                    }
+                    cdr::compressed_image(&header, "jpeg", &jpeg)
+                }
             };
             recorder.write("/color_image", image, None);
             if now.saturating_sub(last_info_ns) >= 1_000_000_000 {
