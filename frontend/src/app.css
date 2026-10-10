@@ -1966,3 +1966,19 @@ body.science.dark .nav-focus {
     height: 100%;
     object-fit: contain;
 }
+/* controls over the camera: a solid backing, so their labels stay readable over a bright frame (a white wall) */
+.ctl .act,
+.ctl .dbtn,
+.ctl .sit-down,
+.ctl .rec-btn,
+.ctl .ctl-close,
+.ctl .pad-chip,
+.ctl .ctl-pill {
+    background-color: color-mix(in srgb, var(--card) 88%, transparent);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+.ctl .act.ok,
+.ctl .act.err {
+    background-color: color-mix(in srgb, var(--card) 92%, transparent);
+}

@@ -276,6 +276,17 @@ impl Drive {
         match drive.clone().connect_until(Instant::now() + CONNECT_WINDOW).await {
             Ok(()) => {
                 app.record_start().await?;
+                // connected: stand up right away, ready to drive (the same Stand as the button: normal mode, StandUp,
+                // BalanceStand). In the background, so connecting answers now; not on reconnects
+                let standing = drive.clone();
+                tokio::spawn(async move {
+                    if let Some(stand) = COMMANDS.iter().find(|c| c.name == "stand") {
+                        crate::dlog!("connected: standing up");
+                        if let Err(err) = standing.command(stand, false).await {
+                            crate::dlog!("auto stand failed: {}", err.message);
+                        }
+                    }
+                });
                 Ok(drive.snapshot())
             }
             Err(err) => {
