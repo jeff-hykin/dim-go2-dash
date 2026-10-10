@@ -16,6 +16,11 @@
         in {
             packages = forAll (system: pkgs:
                 let
+                    # lcm-msgs (dimos' LCM types, for .db recordings) is a git dependency: `nix build` prints its hash when its rev changes
+                    cargoLock = {
+                        lockFile = ./backend/Cargo.lock;
+                        outputHashes."lcm-msgs-0.1.0" = "sha256-QppayQ82O9hTx3+Lunbc3ErYC+2Aov8P7Y+W0WkHvlA=";
+                    };
                     # a static musl binary linked by zig, so no Linux builder or cross gcc is needed; the frontend is plain JS
                     crossApp = frontend: arch:
                         let
@@ -27,7 +32,7 @@
                                 pname = "go2-dash-backend-${arch}-linux";
                                 version = "0.2.0";
                                 src = ./backend;
-                                cargoLock.lockFile = ./backend/Cargo.lock;
+                                inherit cargoLock;
                                 nativeBuildInputs = [ pkgs.cargo-zigbuild pkgs.zig ];
                                 # cargo-auditable's -Wl,--undefined is another flag zig's linker rejects
                                 auditable = false;
@@ -62,7 +67,7 @@
                     pname = "go2-dash-backend";
                     version = "0.2.0";
                     src = ./backend;
-                    cargoLock.lockFile = ./backend/Cargo.lock;
+                    inherit cargoLock;
                     nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.pkg-config ];
                     buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.dbus ];
                     # the route tests run against the mock app: no Bluetooth, network or robot

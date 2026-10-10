@@ -481,16 +481,19 @@ fn data_dir_and_migration() {
     assert_eq!(migrate_legacy(&old, &new), 0, "only once: the new folder already has saved files");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
-    let t = setup();
+/// Connects (which starts recording), sends commands and a gamepad sample, disconnects: the recording's path.
+async fn record_a_session(t: &Test, format: &str) -> String {
     assert_eq!(t.app.settings()["autoUpload"], true);
     // Prevent any upload attempt: the fake session is only a local regression test.
     t.app.update_settings(Some(false));
+    let mut options = serde_json::to_value(go2_dash::record::RecordOptions::default()).unwrap();
+    options["format"] = json!(format);
+    t.ok("PUT", "api/settings", Some(json!({ "recordOptions": options }))).await;
     t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.30", "dryRun": true }))).await;
     let recording = t.ok("GET", "api/record", None).await;
     assert_eq!(recording["active"], true);
     let path = recording["path"].as_str().unwrap().to_string();
+    assert!(path.ends_with(&format!(".{format}")), "{path}");
     assert_eq!(t.ok("POST", "api/record/start", None).await["file"], recording["file"], "start is idempotent");
     t.ok("POST", "api/drive/stand", None).await;
     t.ok("POST", "api/drive/stop", None).await;
@@ -498,6 +501,16 @@ async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
     t.ok("POST", "api/drive/joy", Some(json!({ "axes": [0.0, -0.5], "buttons": [1, 0] }))).await;
     t.ok("POST", "api/drive/disconnect", None).await;
     assert_eq!(t.app.record_state()["active"], false);
+    let listed = t.ok("GET", "api/recordings", None).await;
+    let listed = listed.as_array().unwrap();
+    assert!(listed.iter().any(|r| r["path"] == path && r["format"] == format), "listed: {listed:?}");
+    path
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
+    let t = setup();
+    let path = record_a_session(&t, "mcap").await;
     let bytes = std::fs::read(path).unwrap();
     assert!(mcap::Summary::read(&bytes).unwrap().is_some(), "complete file, not a partial recording");
     let mut actions = Vec::new();
@@ -520,6 +533,30 @@ async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
     assert!(joy);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_records_to_a_dimos_db_by_default() {
+    let t = setup();
+    assert_eq!(go2_dash::record::RecordOptions::default().format, "db");
+    let path = record_a_session(&t, "db").await;
+    assert!(go2_dash::record::is_finished(std::path::Path::new(&path)), "one self-contained file");
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let actions: Vec<String> = connection
+        .prepare("SELECT data FROM robot_action_blob ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .unwrap()
+        .map(|data| {
+            let text = lcm_msgs::std_msgs::String::decode(&data.unwrap()).unwrap().data;
+            serde_json::from_str::<Value>(&text).unwrap()["name"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(["stand", "sit_down", "stop"].iter().all(|a| actions.contains(&a.to_string())), "{actions:?}");
+    let joy: Vec<u8> = connection.query_row("SELECT data FROM joystick_blob", [], |row| row.get(0)).unwrap();
+    assert_eq!(lcm_msgs::sensor_msgs::Joy::decode(&joy).unwrap().axes, [0.0, -0.5]);
+    let joy_type: String = connection.query_row("SELECT config FROM _streams WHERE name = 'joystick'", [], |row| row.get(0)).unwrap();
+    assert!(joy_type.contains(r#""payload_module": "dimos.msgs.sensor_msgs.Joy.Joy""#));
+}
+
 #[tokio::test]
 async fn record_options_are_validated_and_live_filters_are_saved() {
     let t = setup();
@@ -532,6 +569,9 @@ async fn record_options_are_validated_and_live_filters_are_saved() {
     assert_eq!(t.app.settings()["recordOptions"]["rates"]["/lidar"].as_f64(), Some(2.0));
     t.app.update_settings(Some(false));
     t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.30", "dryRun": true }))).await;
+    options["format"] = json!("mcap");
+    t.ok("PUT", "api/settings", Some(json!({ "recordOptions": options.clone() }))).await;
+    assert_eq!(t.app.recording().unwrap().file.rsplit('.').next(), Some("db"), "a format change is for the next recording");
     options["compression"] = json!("none");
     assert_eq!(t.status("PUT", "api/settings", Some(json!({ "recordOptions": options }))).await, 409);
     t.ok("POST", "api/drive/disconnect", None).await;

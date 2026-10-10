@@ -342,7 +342,7 @@ pub fn spawn(app: Arc<App>) {
                 crate::dlog!("health top: {top}");
                 if let Some(active) = recorder.as_ref().filter(|_| reasons.is_empty()) {
                     let event = json!({ "type": "health_top", "t": t, "top": top });
-                    active.recorder.write("/logs", crate::cdr::string(&event.to_string()), None);
+                    active.recorder.write("/logs", crate::msg::Msg::Text(event.to_string()));
                 }
                 Some(top)
             } else {
@@ -357,14 +357,14 @@ pub fn spawn(app: Arc<App>) {
                 }
                 if let Some(active) = &recorder {
                     let dump = json!({ "type": "health_dump", "reason": reason, "top": top, "samples": samples });
-                    active.recorder.write("/logs", crate::cdr::string(&dump.to_string()), None);
+                    active.recorder.write("/logs", crate::msg::Msg::Text(dump.to_string()));
                 }
                 dumped_to_ms = t;
             } else if sampler.count % LOG_EVERY == 0 {
                 crate::dlog!("health: {sample}");
                 if let Some(active) = &recorder {
                     sample["type"] = json!("health");
-                    active.recorder.write("/logs", crate::cdr::string(&sample.to_string()), None);
+                    active.recorder.write("/logs", crate::msg::Msg::Text(sample.to_string()));
                 }
             }
         }

@@ -411,7 +411,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/record/start",
-            "Record the drive session to an mcap in Desktop's recordings folder (go2/<date>_<time>_<dog>.mcap): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs a drive session; ends with it",
+            "Record the drive session to a dimos memory store (.db, the default) or an mcap (Record options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs a drive session; ends with it",
             None,
             handler(|app, _| async move { app.record_start().await }),
         ),
@@ -432,7 +432,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "PUT",
             "api/recordings/{file}/name",
-            "Rename a recording (the file keeps .mcap)",
+            "Rename a recording (the file keeps its .db / .mcap)",
             Some(json!({ "file": { "type": "string", "required": true }, "name": { "type": "string", "required": true } })),
             handler(|app, args| async move { app.rename_recording(&text(&args, "file").unwrap_or_default(), &text(&args, "name").unwrap_or_default()) }),
         ),

@@ -22,6 +22,11 @@ const POLL: Duration = Duration::from_millis(1000);
 /// retry waits for a failed auto-upload: 10 s, 30 s, 1 min, 2 min, then every 5 min
 const RETRY_WAITS: [u64; 5] = [10, 30, 60, 120, 300];
 
+/// A recording's name: its file without the .db / .mcap
+fn stem(file: &str) -> &str {
+    file.strip_suffix(".db").or_else(|| file.strip_suffix(".mcap")).unwrap_or(file)
+}
+
 impl App {
     pub(crate) fn index(&self) -> Map<String, Value> {
         self.recordings_index.lock().unwrap().clone()
@@ -65,6 +70,7 @@ impl App {
     pub fn update_record_options(self: &Arc<Self>, value: Value) -> Result<Value, HttpError> {
         let options: crate::record::RecordOptions = serde_json::from_value(value).map_err(|error| HttpError::bad(error.to_string()))?;
         options.validate().map_err(HttpError::bad)?;
+        // the format may change mid-recording: it's for the next one (this one keeps its file)
         if self.recording().is_some() {
             let old = self.record_options();
             if old.directory != options.directory || old.compression != options.compression || old.image_format != options.image_format {
@@ -90,7 +96,7 @@ impl App {
         let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
         let mut list: Vec<Value> = entries
             .flatten()
-            .filter(|entry| entry.path().extension().is_some_and(|e| e == "mcap"))
+            .filter(|entry| crate::record::is_recording_file(&entry.path()))
             .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
             .filter_map(|entry| {
                 let meta = entry.metadata().ok()?;
@@ -105,7 +111,8 @@ impl App {
                 let id = root.as_ref().and_then(|root| path.strip_prefix(root).ok()).map(|p| p.to_string_lossy().into_owned());
                 Some(json!({
                     "file": file,
-                    "name": file.trim_end_matches(".mcap"),
+                    "name": stem(&file),
+                    "format": if crate::record::is_db(&path) { "db" } else { "mcap" },
                     "path": path.display().to_string(),
                     "id": id,
                     "bytes": meta.len(),
@@ -127,7 +134,7 @@ impl App {
     }
 
     fn recording_path(&self, file: &str) -> Result<PathBuf, HttpError> {
-        if file.is_empty() || file.contains('/') || file.contains('\\') || file.starts_with('.') || !file.ends_with(".mcap") {
+        if file.is_empty() || file.contains('/') || file.contains('\\') || file.starts_with('.') || !crate::record::is_recording_file(std::path::Path::new(file)) {
             return Err(HttpError::bad("not a recording of this app"));
         }
         let path = recordings_dir(self).join(file);
@@ -145,11 +152,12 @@ impl App {
         if self.upload_running(file) {
             return Err(HttpError::conflict("it's uploading: cancel the upload or wait for it to finish"));
         }
-        let safe = crate::record::safe_name(name.trim().trim_end_matches(".mcap"));
+        let extension = if crate::record::is_db(&path) { "db" } else { "mcap" };
+        let safe = crate::record::safe_name(stem(name.trim()));
         if safe.is_empty() {
             return Err(HttpError::bad("the name needs letters or digits"));
         }
-        let new_file = format!("{safe}.mcap");
+        let new_file = format!("{safe}.{extension}");
         if new_file == file {
             return Ok(json!({ "file": file }));
         }
@@ -158,6 +166,9 @@ impl App {
             return Err(HttpError::conflict(format!("a recording named {safe} already exists")));
         }
         std::fs::rename(&path, &new_path).map_err(|e| HttpError::new(500, e.to_string()))?;
+        for (from, to) in crate::db::companions(&path).iter().zip(crate::db::companions(&new_path)) {
+            let _ = std::fs::rename(from, to);
+        }
         let snapshot = {
             let mut index = self.recordings_index.lock().unwrap();
             if let Some(entry) = index.remove(file) {
@@ -179,6 +190,9 @@ impl App {
             let _ = self.cancel_upload(file).await;
         }
         std::fs::remove_file(&path).map_err(|e| HttpError::new(500, e.to_string()))?;
+        for companion in crate::db::companions(&path) {
+            let _ = std::fs::remove_file(companion);
+        }
         let snapshot = {
             let mut index = self.recordings_index.lock().unwrap();
             index.remove(file);

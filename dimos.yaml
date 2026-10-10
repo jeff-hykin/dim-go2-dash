@@ -352,9 +352,9 @@ provides:
           method: GET
           path: api/record
         - description: >-
-              Record the drive session to an mcap in Desktop's recordings folder (go2/<date>_<time>_<dog>.mcap): camera,
-              lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs
-              a drive session; ends with it
+              Record the drive session to a dimos memory store (.db, the default) or an mcap (Record options) in Desktop's
+              recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU, battery, joints, the
+              gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs a drive session; ends with it
           method: POST
           path: api/record/start
         - description: 'Stop recording and finish the file (then auto-upload it, when that''s on)'
@@ -365,7 +365,7 @@ provides:
               state
           method: GET
           path: api/recordings
-        - description: Rename a recording (the file keeps .mcap)
+        - description: Rename a recording (the file keeps its .db / .mcap)
           method: PUT
           params:
               file:

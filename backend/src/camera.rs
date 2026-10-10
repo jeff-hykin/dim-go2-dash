@@ -10,7 +10,8 @@ use webrtc::media::io::sample_builder::SampleBuilder;
 use webrtc::rtp::codecs::h264::H264Packet;
 use webrtc::rtp::packet::Packet;
 
-use crate::cdr::{self, CameraInfo, Header};
+use crate::cdr::{CameraInfo, Header};
+use crate::msg::Msg;
 use crate::record::{jpeg_quality, now_ns, Recorder};
 
 const QUEUE: usize = 2048;
@@ -99,17 +100,17 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
             decoded.write_rgb8(&mut rgb);
             let header = Header { stamp_ns: now, frame_id: "camera_optical" };
             let image = match jpeg_quality(&recorder.image_format()) {
-                None => cdr::image(&header, width as u32, height as u32, &rgb),
+                None => Msg::Image { header, width: width as u32, height: height as u32, rgb: rgb.clone() },
                 Some(quality) => {
                     let mut jpeg = Vec::with_capacity(width * height / 4);
                     let encoder = jpeg_encoder::Encoder::new(&mut jpeg, quality);
                     if encoder.encode(&rgb, width as u16, height as u16, jpeg_encoder::ColorType::Rgb).is_err() {
                         continue;
                     }
-                    cdr::compressed_image(&header, "jpeg", &jpeg)
+                    Msg::Jpeg { header, width: width as u32, height: height as u32, data: jpeg }
                 }
             };
-            recorder.write("/color_image", image, None);
+            recorder.write("/color_image", image);
             if now.saturating_sub(last_info_ns) >= 1_000_000_000 {
                 last_info_ns = now;
                 let mut info = go2_camera_info();
@@ -123,7 +124,7 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
                 }
                 info.width = width as u32;
                 info.height = height as u32;
-                recorder.write("/camera_info", cdr::camera_info(&header, &info), None);
+                recorder.write("/camera_info", Msg::CameraInfo(header, info));
             }
         }
     }
@@ -192,7 +193,8 @@ mod tests {
     fn mock_camera_round_trips_to_jpeg() {
         let dir = std::env::temp_dir().join(format!("go2_camera_test_{}", now_ns()));
         let path = dir.join("c.mcap");
-        let recorder = Arc::new(Recorder::start(&path, Default::default(), |_| Default::default()).unwrap());
+        let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
+        let recorder = Arc::new(Recorder::start_with_options(&path, Default::default(), |_| Default::default(), options).unwrap());
         let tap = start(recorder.clone(), Arc::new(|| {}));
         let mut camera = MockCamera::new().unwrap();
         for _ in 0..30 {

@@ -223,7 +223,7 @@ impl App {
     pub fn publish(&self, event: Value) {
         if let Some(active) = self.recording() {
             if active.recorder.logs_on() {
-                active.recorder.write("/logs", crate::cdr::string(&event.to_string()), None);
+                active.recorder.write("/logs", crate::msg::Msg::Text(event.to_string()));
             }
         }
         let _ = self.events.send(event.to_string());

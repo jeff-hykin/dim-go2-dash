@@ -8,7 +8,8 @@
 
 use serde_json::Value;
 
-use crate::cdr::{self, Encoded, Header, Transform};
+use crate::cdr::{self, Header, Transform};
+use crate::msg::Msg;
 
 pub const LIDAR: &str = "rt/utlidar/voxel_map_compressed";
 pub const POSE: &str = "rt/utlidar/robot_pose";
@@ -33,10 +34,10 @@ pub const JOINTS: [&str; 12] = [
     "RL_calf_joint",
 ];
 
-/// One message for the file: its topic, CDR, and the robot's own time when it gave one.
+/// One message for the file: its topic and the message.
 pub struct Out {
     pub topic: &'static str,
-    pub encoded: Encoded,
+    pub msg: Msg,
 }
 
 fn f(value: &Value) -> f64 {
@@ -105,7 +106,7 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
             let Some(binary) = binary else { return out };
             match decode_voxels(data, binary) {
                 Ok(points) => out
-                    .push(Out { topic: "/lidar", encoded: cdr::point_cloud_xyz(&Header { stamp_ns: now_ns, frame_id: "world" }, &points) }),
+                    .push(Out { topic: "/lidar", msg: Msg::Points(Header { stamp_ns: now_ns, frame_id: "world" }, points) }),
                 Err(err) => eprintln!("lidar: {err}"),
             }
         }
@@ -116,11 +117,11 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
             let orientation = [f(&o["x"]), f(&o["y"]), f(&o["z"]), o["w"].as_f64().unwrap_or(1.0)];
             out.push(Out {
                 topic: "/odom",
-                encoded: cdr::pose_stamped(&Header { stamp_ns: now_ns, frame_id: "world" }, position, orientation),
+                msg: Msg::Pose(Header { stamp_ns: now_ns, frame_id: "world" }, position, orientation),
             });
             let [mount, optical] = camera_mount();
             let body = Transform { parent: "world", child: "base_link", translation: position, rotation: orientation };
-            out.push(Out { topic: "/tf", encoded: cdr::tf(now_ns, &[body, mount, optical]) });
+            out.push(Out { topic: "/tf", msg: Msg::Tf(now_ns, vec![body, mount, optical]) });
         }
         SPORT_STATE => {
             let imu = &data["imu_state"];
@@ -128,12 +129,12 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
             if let Some(q) = imu["quaternion"].as_array().filter(|q| q.len() == 4) {
                 out.push(Out {
                     topic: "/imu",
-                    encoded: cdr::imu(
-                        &Header { stamp_ns: now_ns, frame_id: "base_link" },
-                        [f(&q[1]), f(&q[2]), f(&q[3]), f(&q[0])],
-                        array3(&imu["gyroscope"]),
-                        array3(&imu["accelerometer"]),
-                    ),
+                    msg: Msg::Imu {
+                        header: Header { stamp_ns: now_ns, frame_id: "base_link" },
+                        orientation: [f(&q[1]), f(&q[2]), f(&q[3]), f(&q[0])],
+                        angular_velocity: array3(&imu["gyroscope"]),
+                        linear_acceleration: array3(&imu["accelerometer"]),
+                    },
                 });
             }
         }
@@ -142,7 +143,7 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
                 let positions: Vec<f64> = motors[..12].iter().map(|m| f(&m["q"])).collect();
                 out.push(Out {
                     topic: "/joint_states",
-                    encoded: cdr::joint_state(&Header { stamp_ns: now_ns, frame_id: "base_link" }, &JOINTS, &positions),
+                    msg: Msg::Joints(Header { stamp_ns: now_ns, frame_id: "base_link" }, &JOINTS, positions),
                 });
             }
             let bms = &data["bms_state"];
@@ -157,7 +158,7 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
                 };
                 out.push(Out {
                     topic: "/battery",
-                    encoded: cdr::battery_state(&Header { stamp_ns: now_ns, frame_id: "base_link" }, &battery),
+                    msg: Msg::Battery(Header { stamp_ns: now_ns, frame_id: "base_link" }, battery),
                 });
             }
         }

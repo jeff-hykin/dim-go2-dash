@@ -1,5 +1,6 @@
-// The Record button: an mcap of the drive session's WebRTC traffic (record.rs writes it), in Desktop's recordings
-// folder under `go2/`, named `<local date>_<time>_<dog name>.mcap`. What goes in:
+// The Record button: a dimos memory store (.db, the default) or an mcap of the drive session's WebRTC traffic (record.rs
+// writes it), in Desktop's recordings folder under `go2/`, named `<local date>_<time>_<dog name>_<machine id>.db`. What
+// goes in (the mcap's topics; a .db's streams drop the slash, msg.rs has their dimos types):
 //   /color_image /camera_info  the camera (camera.rs)        /lidar /odom /tf /imu /battery /joint_states  (sensors.rs)
 //   /joystick  sensor_msgs/Joy: the gamepad's RAW axes and buttons (never velocities; layout in the channel metadata)
 //   /cmd_vel   geometry_msgs/Twist: the velocity actually sent to the dog (m/s, rad/s)
@@ -17,7 +18,8 @@ use serde_json::{json, Value};
 use crate::api::HttpError;
 use crate::app::{now_ms, App};
 use crate::camera::{CameraTap, MockCamera};
-use crate::cdr::{self, Header};
+use crate::cdr::Header;
+use crate::msg::Msg;
 use crate::record::{now_ns, Recorder};
 use crate::robot_rtc::DataMessage;
 
@@ -74,7 +76,7 @@ impl Active {
             if item.topic == "/battery" {
                 self.last_battery_ns.store(now, Ordering::Relaxed);
             }
-            self.recorder.write(item.topic, item.encoded, None);
+            self.recorder.write(item.topic, item.msg);
         }
     }
 
@@ -87,15 +89,15 @@ impl Active {
     }
 
     pub fn cmd_vel(&self, x: f64, y: f64, yaw: f64) {
-        self.recorder.write("/cmd_vel", cdr::twist([x, y, 0.0], [0.0, 0.0, yaw]), None);
+        self.recorder.write("/cmd_vel", Msg::Twist([x, y, 0.0], [0.0, 0.0, yaw]));
     }
 
     pub fn command(&self, record: &Value) {
-        self.recorder.write("/robot_action", cdr::string(&record.to_string()), None);
+        self.recorder.write("/robot_action", Msg::Text(record.to_string()));
     }
 
     pub fn joy(&self, axes: &[f32], buttons: &[i32]) {
-        self.recorder.write("/joystick", cdr::joy(&Header { stamp_ns: now_ns(), frame_id: "" }, axes, buttons), None);
+        self.recorder.write("/joystick", Msg::Joy(Header { stamp_ns: now_ns(), frame_id: "" }, axes.to_vec(), buttons.to_vec()));
     }
 
     pub fn status(&self) -> Value {
@@ -146,11 +148,13 @@ impl App {
         }
         let dir = recordings_dir(self);
         let started = now_ms();
-        let name = crate::record::file_name(&crate::record::local_stamp(started), &drive.name, &crate::record::machine_id());
+        let options = self.record_options();
+        let stamp = crate::record::local_stamp(started);
+        let name = crate::record::file_name(&stamp, &drive.name, &crate::record::machine_id(), &options.format);
         let mut path = dir.join(&name);
         let mut n = 2;
         while path.exists() {
-            path = dir.join(name.replace(".mcap", &format!("-{n}.mcap")));
+            path = dir.join(name.replace(&format!(".{}", options.format), &format!("-{n}.{}", options.format)));
             n += 1;
         }
         let metadata = BTreeMap::from([
@@ -165,7 +169,7 @@ impl App {
             ("started_ms".to_string(), started.to_string()),
         ]);
         let recorder =
-            Arc::new(Recorder::start_with_options(&path, metadata, channel_metadata, self.record_options()).map_err(HttpError::bad)?);
+            Arc::new(Recorder::start_with_options(&path, metadata, channel_metadata, options).map_err(HttpError::bad)?);
         let file = path.file_name().unwrap().to_string_lossy().into_owned();
         let weak_drive = Arc::downgrade(&drive);
         let want_keyframe: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
@@ -244,7 +248,7 @@ impl App {
         let Ok(entries) = std::fs::read_dir(&dir) else { return };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|e| e == "mcap") && !crate::record::is_finished(&path) {
+            if crate::record::is_recording_file(&path) && !crate::record::is_finished(&path) {
                 match crate::record::recover(&path) {
                     Ok(count) => {
                         eprintln!("recovered {} ({count} messages): it was left unfinished", path.display());

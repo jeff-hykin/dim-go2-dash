@@ -32,9 +32,12 @@ regex = "1"
 libc = "0.2"
 # recordings: chunked, zstd-compressed mcap (ROS2 CDR messages, like Controller's recorder)
 mcap = { version = "0.25.0", default-features = false, features = ["zstd"] }
+# recordings as a dimos memory store (.db, the default): SQLite holding dimos' LCM messages (dimos-lcm's generated Rust types)
+rusqlite = { version = "0.37", features = ["bundled"] }
+lcm-msgs = { git = "https://github.com/dimensionalOS/dimos-lcm.git", rev = "4a48f2df20d8632d84705bb44fd5f3ecd2fbf2c4" }
 memmap2 = "0.9"
 # the lidar's voxel map arrives LZ4-compressed
-lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode", "std"] }
+lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode", "std", "frame"] }
 # the camera arrives as H.264: decoded and stored as JPEG CompressedImage
 openh264 = { version = "=0.9.3", features = ["source"] }
 jpeg-encoder = "0.6"

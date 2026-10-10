@@ -7,9 +7,11 @@ pub mod arp;
 pub mod ble;
 pub mod camera;
 pub mod cdr;
+pub mod db;
 mod cloud;
 pub mod discovery;
 pub mod log;
+pub mod msg;
 #[cfg(target_os = "macos")]
 pub mod macos_wifi;
 pub mod drive;

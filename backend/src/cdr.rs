@@ -31,6 +31,7 @@ fn quaternion_msg() -> String {
 }
 
 /// A ROS2 header: a time (ns since the epoch) and a frame.
+#[derive(Clone, Copy)]
 pub struct Header<'a> {
     pub stamp_ns: u64,
     pub frame_id: &'a str,
@@ -163,6 +164,7 @@ pub fn compressed_image(header: &Header, format: &str, data: &[u8]) -> Encoded {
     }
 }
 
+#[derive(Clone)]
 pub struct CameraInfo<'a> {
     pub width: u32,
     pub height: u32,
@@ -257,6 +259,7 @@ pub fn pose_stamped(header: &Header, position: [f64; 3], orientation: [f64; 4]) 
     }
 }
 
+#[derive(Clone)]
 pub struct Transform<'a> {
     pub parent: &'a str,
     pub child: &'a str,
@@ -318,6 +321,7 @@ pub fn imu(header: &Header, orientation: [f64; 4], angular_velocity: Option<[f64
     }
 }
 
+#[derive(Clone)]
 pub struct Battery {
     pub voltage: f32,
     pub current: f32,
@@ -325,6 +329,17 @@ pub struct Battery {
     /// 0..1
     pub percentage: f32,
     pub cell_temperatures: Vec<f32>,
+}
+
+/// power_supply_status from the current: charging, discharging, not charging
+pub fn battery_status(current: f32) -> u8 {
+    if current > 0.05 {
+        1
+    } else if current < -0.05 {
+        2
+    } else {
+        3
+    }
 }
 
 /// sensor_msgs/BatteryState (what Stash's cockpit branch publishes as `battery`).
@@ -338,13 +353,7 @@ pub fn battery_state(header: &Header, battery: &Battery) -> Encoded {
     w.f32(f32::NAN); // capacity
     w.f32(f32::NAN); // design_capacity
     w.f32(battery.percentage);
-    w.u8(if battery.current > 0.05 {
-        1
-    } else if battery.current < -0.05 {
-        2
-    } else {
-        3
-    }); // status: charging, discharging, not charging
+    w.u8(battery_status(battery.current));
     w.u8(0); // power_supply_health: unknown
     w.u8(2); // power_supply_technology: LION
     w.u8(1); // present
