@@ -700,8 +700,14 @@ export function Control(props: {
 }
 
 function PadChip({ pad, linked }: { pad: GamepadStatus; linked: boolean }) {
+    // a browser lists a pad only after a button press on this page (a reload hides it again until then)
     if (!pad.connected) {
-        return null
+        return (
+            <span className="pad-chip dim-badge" title="Press any gamepad button so the page sees the pad">
+                <Icon name="gamepad" size={12} />
+                No gamepad — press a button
+            </span>
+        )
     }
     // the link to the dog dropped (reconnecting): the pad drives nothing until it's back
     const [tone, label] = !linked
