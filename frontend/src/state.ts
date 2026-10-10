@@ -172,7 +172,18 @@ export type Recording = {
     upload: Upload | null
 }
 
-export type Settings = { autoUpload: boolean }
+/** Record options (record.rs RecordOptions); `format` is "db" (a dimos memory store) or "mcap" */
+export type RecordOptions = {
+    directory: string
+    format: string
+    compression: string
+    imageFormat: string
+    recordNew: boolean
+    logs: boolean
+    topics: Record<string, boolean>
+    rates: Record<string, number>
+}
+export type Settings = { autoUpload: boolean; recordOptions: RecordOptions }
 
 /** AP mode: this computer's link to a Go2's own hotspot (GET api/hotspot) */
 export type HotspotState = {

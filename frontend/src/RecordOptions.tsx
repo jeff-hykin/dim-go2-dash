@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Check } from "./Check.tsx"
 import { call } from "./api.ts"
 import { openApp } from "./dim-app/source/desktop.js"
-import type { RecordState } from "./state.ts"
+import type { RecordOptions as Options, RecordState, Settings } from "./state.ts"
 
 const TOPICS = [
     "/color_image",
@@ -18,18 +18,9 @@ const TOPICS = [
     "/robot_action",
     "/logs",
 ]
-type Options = {
-    directory: string
-    compression: string
-    imageFormat: string
-    recordNew: boolean
-    logs: boolean
-    topics: Record<string, boolean>
-    rates: Record<string, number>
-}
-type Settings = { autoUpload: boolean; recordOptions: Options }
 const defaults: Options = {
     directory: "",
+    format: "db",
     compression: "zstd",
     imageFormat: "jpeg-high",
     recordNew: true,
@@ -39,7 +30,13 @@ const defaults: Options = {
 }
 
 export function RecordOptions(
-    { record, onClose, onError }: { record: RecordState; onClose: () => void; onError: (text: string) => void },
+    { record, live, onClose, onError }: {
+        record: RecordState
+        /** the settings as the server last published them (Control's db/mcap switch changes them too) */
+        live?: Settings
+        onClose: () => void
+        onError: (text: string) => void
+    },
 ) {
     const [settings, setSettings] = useState<Settings>({ autoUpload: true, recordOptions: defaults })
     const [loaded, setLoaded] = useState(false)
@@ -54,6 +51,9 @@ export function RecordOptions(
             setLoaded(true)
         }).catch((error) => onError(error.message))
     }, [])
+    useEffect(() => {
+        if (live && loaded) setSettings(live)
+    }, [live])
     const options = settings.recordOptions
     const save = (patch: Partial<Options>) => {
         setBusy(true)
@@ -98,6 +98,17 @@ export function RecordOptions(
                         rate-limited / excluded
                     </div>
                 )}
+                <label>
+                    Format<select
+                        className="dim-input"
+                        value={options.format}
+                        title={record.active ? "for the next recording (this one keeps its file)" : undefined}
+                        onChange={(event) => save({ format: event.target.value })}
+                    >
+                        <option value="db">.db: dimos memory store (dimos LCM types)</option>
+                        <option value="mcap">.mcap: ROS 2 CDR (Foxglove)</option>
+                    </select>
+                </label>
                 <Check
                     checked={settings.autoUpload}
                     onChange={(autoUpload) => {
@@ -145,14 +156,14 @@ export function RecordOptions(
                             </select>
                         </label>
                         <label>
-                            Chunks<select
+                            Compression<select
                                 className="dim-input"
                                 value={options.compression}
                                 disabled={record.active}
                                 onChange={(event) => save({ compression: event.target.value })}
                             >
-                                <option value="zstd">Zstd</option>
-                                <option value="none">Uncompressed</option>
+                                <option value="zstd">On (.mcap: zstd chunks, .db: LZ4 lidar and raw images)</option>
+                                <option value="none">Off</option>
                             </select>
                         </label>
                         <Check checked={options.recordNew} onChange={(recordNew) => save({ recordNew })}>

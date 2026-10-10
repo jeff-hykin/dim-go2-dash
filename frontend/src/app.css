@@ -2117,3 +2117,28 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: var(--muted-fg);
     border-bottom: 1px solid var(--border);
 }
+/* the recording format switch (db / mcap): above the speed readout, as small and see-through */
+.format-toggle {
+    position: absolute;
+    left: 4px;
+    bottom: 26px;
+    z-index: 4;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+    background: color-mix(in srgb, var(--card) 60%, transparent);
+    color: var(--fg);
+    opacity: 0.4;
+    cursor: pointer;
+}
+.format-toggle:hover,
+.format-toggle:focus-visible {
+    opacity: 0.85;
+}
+@media (max-width: 600px) {
+    /* a phone's commands run along the bottom: the switch sits above them */
+    .format-toggle {
+        bottom: calc(84px + var(--dim-inset-bottom));
+    }
+}

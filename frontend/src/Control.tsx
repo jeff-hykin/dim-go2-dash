@@ -17,7 +17,7 @@ import {
 import { RecordOptions } from "./RecordOptions.tsx"
 import { Icon } from "./icons.tsx"
 import { store, stored } from "./util.ts"
-import type { Command, Drive, RecordState } from "./state.ts"
+import type { Command, Drive, RecordState, Settings } from "./state.ts"
 
 type Active = Extract<Drive, { active: true }>
 
@@ -325,7 +325,9 @@ export function megabytes(bytes: number): string {
 }
 
 /** Record / stop, with the time and size while it runs. */
-function RecordButton({ record, onToast }: { record: RecordState; onToast: (text: string) => void }) {
+function RecordButton(
+    { record, settings, onToast }: { record: RecordState; settings?: Settings; onToast: (text: string) => void },
+) {
     const [busy, setBusy] = useState(false)
     const [optionsOpen, setOptionsOpen] = useState(false)
     const [, tick] = useState(0)
@@ -352,7 +354,9 @@ function RecordButton({ record, onToast }: { record: RecordState; onToast: (text
                     disabled={busy}
                     title={record.active
                         ? `Recording to ${record.file} — click to stop and save`
-                        : "Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to an mcap"}
+                        : `Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to ${
+                            settings?.recordOptions.format === "mcap" ? "an .mcap" : "a .db (a dimos memory store)"
+                        }`}
                     onClick={toggle}
                 >
                     <span className="rec-dot" />
@@ -373,7 +377,14 @@ function RecordButton({ record, onToast }: { record: RecordState; onToast: (text
                     ⋯
                 </button>
             </div>
-            {optionsOpen && <RecordOptions record={record} onError={onToast} onClose={() => setOptionsOpen(false)} />}
+            {optionsOpen && (
+                <RecordOptions
+                    record={record}
+                    live={settings}
+                    onError={onToast}
+                    onClose={() => setOptionsOpen(false)}
+                />
+            )}
         </div>
     )
 }
@@ -382,6 +393,7 @@ export function Control(props: {
     drive: Active
     commands: Command[]
     record: RecordState
+    settings?: Settings
     keyboardActive: boolean
     flash: { name: string; ok: boolean; n: number } | null
     onFlash: (name: string, ok: boolean) => void
@@ -389,7 +401,7 @@ export function Control(props: {
     /** shown in the top bar after the robot's name (the hotspot's way back) */
     topSlot?: React.ReactNode
 }) {
-    const { drive, commands, record, keyboardActive, flash, onFlash, onToast } = props
+    const { drive, commands, record, settings, keyboardActive, flash, onFlash, onToast } = props
     const video = useRef<HTMLVideoElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
     const [showControls, setShowControls] = useState<boolean>(() => stored(SHOW_CONTROLS_KEY, false))
@@ -602,7 +614,7 @@ export function Control(props: {
                     </div>
                     <div className="ctl-top-center">{props.topSlot}</div>
                     <div className="ctl-top-side end">
-                        <RecordButton record={record} onToast={onToast} />
+                        <RecordButton record={record} settings={settings} onToast={onToast} />
                         <button
                             type="button"
                             className="ctl-close dim-btn sm"
@@ -615,6 +627,7 @@ export function Control(props: {
                     </div>
                 </div>
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
+                {settings && <FormatToggle settings={settings} onToast={onToast} />}
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
                     {`  ·  trig ${boost.toFixed(2)}`}
@@ -705,6 +718,25 @@ export function Control(props: {
                 </button>
             </div>
         </div>
+    )
+}
+
+/** The recording format (Record options' Format) as a tiny switch over the speed readout: db / mcap. */
+function FormatToggle({ settings, onToast }: { settings: Settings; onToast: (text: string) => void }) {
+    const format = settings.recordOptions.format
+    const next = format === "mcap" ? "db" : "mcap"
+    const what = format === "db" ? " (a dimos memory store)" : ""
+    return (
+        <button
+            type="button"
+            className="format-toggle dim-mono"
+            title={`Recordings are saved as .${format}${what}: click for .${next} (from the next recording)`}
+            onClick={() =>
+                call("PUT", "api/settings", { recordOptions: { ...settings.recordOptions, format: next } })
+                    .catch((e) => onToast(e.message))}
+        >
+            {format}
+        </button>
     )
 }
 

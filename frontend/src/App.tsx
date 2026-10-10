@@ -601,6 +601,7 @@ export function App() {
                     onFlash={showFlash}
                     onToast={showToast}
                     record={state.record}
+                    settings={state.settings}
                     topSlot={<HotspotBanner state={state.hotspot} inline />}
                 />
             )}
