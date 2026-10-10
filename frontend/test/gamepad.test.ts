@@ -93,12 +93,13 @@ Deno.test("disconnect zeroes", () => {
     assertEquals(axes(), { forward: 0, strafe: 0, turn: 0 })
 })
 
-Deno.test("Joy samples are the raw axes and 0/1 buttons", () => {
+Deno.test("Joy samples are the raw axes, then the triggers' analog travel, and 0/1 buttons", () => {
     const { pad, press } = fake()
     pad.axes = [0.12345, -1, 0, 0.5]
     press(7, true)
+    ;(pad.buttons[6] as { value: number }).value = 0.4567
     const sample = joySample(pad)
-    assertEquals(sample.axes, [0.123, -1, 0, 0.5])
+    assertEquals(sample.axes, [0.123, -1, 0, 0.5, 0.457, pad.buttons[7].value])
     assertEquals(sample.buttons[7], 1)
     assertEquals(sample.buttons.length, 17)
 })
