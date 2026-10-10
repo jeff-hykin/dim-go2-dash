@@ -61,7 +61,7 @@ impl Default for RecordOptions {
         Self {
             directory: String::new(),
             compression: "zstd".into(),
-            image_format: "jpeg".into(),
+            image_format: "jpeg-high".into(),
             record_new: true,
             logs: true,
             topics: BTreeMap::new(),

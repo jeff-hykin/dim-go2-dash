@@ -148,7 +148,7 @@ body.science:not(.dark) .ctl-top {
 .vel {
     position: absolute;
     left: 4px;
-    bottom: 2px; /* the very bottom, under Desktop's inset */
+    bottom: 4px; /* near the very bottom, under Desktop's inset */
     font-size: 10px;
     padding: 2px 6px;
     opacity: 0.4;
@@ -1865,7 +1865,7 @@ body.science.dark .nav-focus {
     margin-bottom: 10px;
 }
 /* checkboxes sized for a finger: the whole row is the target */
-.go2-record-options .rec-check {
+.big-check.big-check {
     flex-direction: row;
     align-items: center;
     gap: 12px;
@@ -1875,20 +1875,20 @@ body.science.dark .nav-focus {
     border-radius: var(--radius);
     user-select: none;
 }
-.go2-record-options .rec-check:hover {
+.big-check.big-check:hover {
     background: var(--hover);
 }
-.go2-record-options .dim-check .box,
-body.science.dark .go2-record-options .dim-check .box {
+.big-check .box.box,
+body.science.dark .big-check .box.box {
     width: 22px;
     height: 22px;
 }
-.go2-record-options .dim-check input:checked + .box::after {
+.big-check input:checked + .box.box::after {
     width: 6px;
     height: 12px;
     border-width: 0 2.5px 2.5px 0;
 }
-body.science.dark .go2-record-options .dim-check input:checked + .box::after {
+body.science.dark .big-check input:checked + .box.box::after {
     width: 10px;
     height: 10px;
 }

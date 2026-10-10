@@ -1,3 +1,4 @@
+import { Check } from "./Check.tsx"
 import { ErrorNotice } from "./errors.tsx"
 // This app's recordings (Desktop's recordings folder, go2/), newest first. The row's button uploads it through
 // Desktop's upload queue (Upload → progress → Uploaded); ⋯ has Open in Recordings, Rename, Delete, Cancel upload.
@@ -350,25 +351,23 @@ export function Recordings(
                     <span className="rec-title">Recordings</span>
                     <span className="rec-count">{sorted.length}</span>
                     <span className="spacer" />
-                    <label
+                    <span
                         className="rec-auto"
                         title="Upload each recording when it ends (through Desktop's upload queue); failures are retried, and while offline it waits"
                     >
-                        <input
-                            type="checkbox"
+                        <Check
                             checked={settings.autoUpload}
-                            onChange={(e) =>
-                                call("PUT", "api/settings", { autoUpload: e.target.checked }).catch((err) =>
-                                    setError(err.message)
-                                )}
-                        />
-                        Auto-upload
+                            onChange={(autoUpload) =>
+                                call("PUT", "api/settings", { autoUpload }).catch((err) => setError(err.message))}
+                        >
+                            Auto-upload
+                        </Check>
                         {settings.autoUpload && (
                             <span className={`dim-badge ${pending ? "warn" : "ok"}`}>
                                 {pending ? `${pending} waiting for network` : "on"}
                             </span>
                         )}
-                    </label>
+                    </span>
                     <button type="button" className="dim-btn ghost icon sm" title="Close (Esc)" onClick={onClose}>
                         <Icon name="close" size={15} />
                     </button>

@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
+import { Check } from "./Check.tsx"
 import { call } from "./api.ts"
 import { openApp } from "./dim-app/source/desktop.js"
 import type { RecordState } from "./state.ts"
@@ -30,34 +31,11 @@ type Settings = { autoUpload: boolean; recordOptions: Options }
 const defaults: Options = {
     directory: "",
     compression: "zstd",
-    imageFormat: "jpeg",
+    imageFormat: "jpeg-high",
     recordNew: true,
     logs: true,
     topics: {},
     rates: {},
-}
-
-/** The theme's checkbox, sized for a finger: the whole row toggles it. */
-function Check(
-    { checked, onChange, label, children }: {
-        checked: boolean
-        onChange: (checked: boolean) => void
-        label?: string
-        children?: ReactNode
-    },
-) {
-    return (
-        <label className="dim-check rec-check">
-            <input
-                type="checkbox"
-                aria-label={label}
-                checked={checked}
-                onChange={(event) => onChange(event.target.checked)}
-            />
-            <span className="box" />
-            {children}
-        </label>
-    )
 }
 
 export function RecordOptions(

@@ -618,7 +618,8 @@ export function Control(props: {
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
-                    {boost ? `  ·  boost ${Math.round(boost * 100)}%` : "  ·  shift / LT = boost"}
+                    {`  ·  trig ${boost.toFixed(2)}`}
+                    {boost ? "" : "  ·  shift / LT = boost"}
                 </div>
                 {showControls && (
                     <div className="dpad">
