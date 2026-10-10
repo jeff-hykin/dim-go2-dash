@@ -186,7 +186,7 @@ impl Switcher for MacOs {
         "macos"
     }
     async fn scan(&self) -> Result<Option<Vec<Network>>, String> {
-        Ok(None)
+        Ok(mac_scan().await)
     }
     async fn current(&self) -> Option<String> {
         let device = mac_wifi_device().await;
@@ -215,6 +215,45 @@ impl Switcher for MacOs {
     async fn on_hotspot(&self) -> bool {
         has_hotspot_address()
     }
+}
+
+/// macOS shows Wi-Fi names only to an app allowed Location: this server, as "Go2 Ctrl.app" (macos_wifi.rs), the
+/// bundle it runs from (nix: $out/Go2 Ctrl.app), else GO2_CTRL_WIFI_APP or ~/Applications (a dev build), run through
+/// `open` so the prompt names Go2 Ctrl. Its first run asks for Location. None: no bundle, or no permission (yet).
+async fn mac_scan() -> Option<Vec<Network>> {
+    // …/Go2 Ctrl.app/Contents/MacOS/dimos-app-server
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.parent()?.to_path_buf()))
+        .filter(|app| app.extension().is_some_and(|e| e == "app"));
+    let home = std::env::var("HOME").unwrap_or_default();
+    let app = [beside, std::env::var("GO2_CTRL_WIFI_APP").ok().map(Into::into), Some(format!("{home}/Applications/Go2 Ctrl.app").into())]
+        .into_iter()
+        .flatten()
+        .find(|path: &std::path::PathBuf| path.exists())?;
+    let out = std::env::temp_dir().join(format!("go2-wifi-scan-{}-{}.json", std::process::id(), crate::app::now_ms()));
+    let out_path = out.to_string_lossy().to_string();
+    // no timeout: the scan ends itself (its Location prompt waits at most 2 min)
+    let ran = run("open", &["-W", "-g", "-n", "-a", &app.to_string_lossy(), "--args", "--wifi-scan", &out_path]).await;
+    let text = std::fs::read_to_string(&out).unwrap_or_default();
+    let _ = std::fs::remove_file(&out);
+    let json: Value = serde_json::from_str(&text).unwrap_or_default();
+    let Some(networks) = json.as_array() else {
+        crate::dlog!("wifi scan: {:?} {}", ran.err(), json["error"].as_str().unwrap_or("no output"));
+        return None;
+    };
+    Some(
+        networks
+            .iter()
+            .filter_map(|network| {
+                let ssid = network["ssid"].as_str()?.to_string();
+                // RSSI (dBm) → 0..100 like nmcli's signal
+                let signal = network["rssi"].as_i64().map(|rssi| ((rssi + 100) * 2).clamp(0, 100) as u8);
+                let security = if network["secured"].as_bool().unwrap_or(true) { "WPA2" } else { "" }.to_string();
+                Some(Network { ssid, signal, security })
+            })
+            .collect(),
+    )
 }
 
 async fn mac_wifi_device() -> String {

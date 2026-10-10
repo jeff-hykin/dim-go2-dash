@@ -10,6 +10,8 @@ pub mod cdr;
 mod cloud;
 pub mod discovery;
 pub mod log;
+#[cfg(target_os = "macos")]
+pub mod macos_wifi;
 pub mod drive;
 pub mod hotspot;
 mod lan;

@@ -40,6 +40,12 @@ jpeg-encoder = "0.6"
 bytes = "1"
 async-trait = "0.1"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-core-location = "0.3"
+objc2-core-wlan = "0.3"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus = { version = "0.9", optional = true }
 

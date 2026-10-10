@@ -67,9 +67,18 @@
                     buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.dbus ];
                     # the route tests run against the mock app: no Bluetooth, network or robot
                     doCheck = true;
+                    # macOS: the server lives in "Go2 Ctrl.app", the app Location (Wi-Fi names) is granted to (src/macos_wifi.rs)
+                    postInstall = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+                        app="$out/Go2 Ctrl.app/Contents"
+                        mkdir -p "$app/MacOS"
+                        mv $out/bin/dimos-app-server "$app/MacOS/dimos-app-server"
+                        cp macos/Info.plist "$app/Info.plist"
+                        ln -s "$app/MacOS/dimos-app-server" $out/bin/dimos-app-server
+                    '';
                 };
+                # on macOS straight to the binary in its bundle (not the bin/ link), so it finds the bundle it runs from
                 dimosApp = pkgs.writeShellScriptBin "dimos-app-server" ''
-                    exec ${backend}/bin/dimos-app-server --frontend ${frontend} "$@"
+                    exec "${backend}/${if pkgs.stdenv.isDarwin then "Go2 Ctrl.app/Contents/MacOS" else "bin"}/dimos-app-server" --frontend ${frontend} "$@"
                 '';
                 default = dimosApp;
                 dimosApp-aarch64-linux = crossApp frontend "aarch64";

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>org.dimensional.go2-ctrl</string>
+    <key>CFBundleName</key><string>Go2 Ctrl</string>
+    <key>CFBundleDisplayName</key><string>Go2 Ctrl</string>
+    <key>CFBundleExecutable</key><string>dimos-app-server</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>LSUIElement</key><true/>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>Go2 Ctrl finds robot dogs over Bluetooth and sends them Wi-Fi settings.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Go2 Ctrl finds and drives robot dogs on your network.</string>
+    <key>NSLocationUsageDescription</key><string>Go2 Ctrl reads nearby Wi-Fi names to find robot dogs in AP mode (their own hotspot).</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>Go2 Ctrl reads nearby Wi-Fi names to find robot dogs in AP mode (their own hotspot).</string>
+</dict>
+</plist>

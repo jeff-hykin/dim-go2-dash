@@ -16,6 +16,10 @@ fn flag(name: &str) -> Option<String> {
 
 #[tokio::main]
 async fn main() {
+    #[cfg(target_os = "macos")]
+    if std::env::args().any(|arg| arg == "--wifi-scan") {
+        go2_dash::macos_wifi::run();
+    }
     let mock = std::env::var("GO2_DASH_MOCK").is_ok_and(|v| v == "1" || v == "true");
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
     let desktop_dir = dimos_app::get().and_then(|given| given.data_dir.clone()).map(PathBuf::from);
