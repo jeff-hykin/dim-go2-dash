@@ -167,7 +167,11 @@ const ZERO: Axes = { forward: 0, strafe: 0, turn: 0 }
 
 /** Steam Input can expose several virtual pads: the one used most recently drives. */
 export function activePad(pads: readonly (PadLike | null)[]): PadLike | null {
-    const connected = pads.filter((pad): pad is PadLike => !!pad && pad.connected)
+    const all = pads.filter((pad): pad is PadLike => !!pad && pad.connected)
+    // a handheld can also show its raw pad (e.g. a Legion Go S variant's 1a86:e310) with its own axis order: when a
+    // standard-mapped pad (Steam's virtual one) is there, only those count
+    const standard = all.filter((pad) => pad.mapping === "standard")
+    const connected = standard.length ? standard : all
     if (connected.length < 2) {
         return connected[0] ?? null
     }

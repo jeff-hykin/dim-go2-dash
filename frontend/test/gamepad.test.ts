@@ -1,5 +1,5 @@
 // deno test frontend/test — the pad's safety rules (gamepad.ts), with a fake pad and target.
-import { type Axes, boostOf, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "../src/gamepad.ts"
+import { activePad, type Axes, boostOf, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "../src/gamepad.ts"
 
 function assertEquals(actual: unknown, expected: unknown) {
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -151,4 +151,20 @@ Deno.test("LT boost follows how far it's pulled", () => {
     ;(pad.buttons as { pressed: boolean; value: number }[])[6] = { pressed: false, value: 0.3 }
     driver.poll([pad], 60)
     assertEquals(log, ["boost 0.25"])
+})
+
+Deno.test("a standard-mapped pad wins over a raw one, even if the raw one moved last", () => {
+    const pad = (id: string, mapping: string, timestamp: number): PadLike => ({
+        index: 0,
+        id,
+        mapping,
+        connected: true,
+        timestamp,
+        axes: [0, 0, 0, 0],
+        buttons: [],
+    })
+    const raw = pad("1a86-e310 Legion Go S", "", 99)
+    const steam = pad("Steam Virtual Gamepad", "standard", 5)
+    assertEquals(activePad([raw, steam])?.id, steam.id)
+    assertEquals(activePad([raw])?.id, raw.id)
 })
