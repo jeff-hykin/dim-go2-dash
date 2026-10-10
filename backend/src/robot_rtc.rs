@@ -314,6 +314,7 @@ impl RobotConn {
                 let last_key = last_key.clone();
                 let on_event = on_data.clone();
                 Box::pin(async move {
+                    crate::health::robot_rx();
                     if !message.is_string {
                         log_once("binary", || format!("dc ← binary ({} bytes); later binary frames aren't logged", message.data.len()));
                         if let Some(data) = parse_binary(&message.data) {
@@ -326,6 +327,9 @@ impl RobotConn {
                         return;
                     };
                     let kind = message["type"].as_str().unwrap_or("");
+                    if kind == "msg" && message["topic"] == "rt/lf/sportmodestate" {
+                        crate::health::robot_motion(&message["data"]);
+                    }
                     if kind == "validation" {
                         let data = message["data"].as_str().unwrap_or("").to_string();
                         if data == "Validation Ok." {
