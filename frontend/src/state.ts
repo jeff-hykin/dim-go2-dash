@@ -196,6 +196,9 @@ export type State = {
     hotspot: HotspotState
 }
 
+/** how often the page re-reads the state while the zenoh-gateway connection is down */
+const POLL_MS = 1000
+
 /** The backend's state, or an error string when it can't be reached. `onCommand` sees every robot command, whoever sent it. */
 export function useBackend(onCommand: (command: CommandRecord) => void): [State | null, string | null] {
     const [state, setState] = useState<State | null>(null)
@@ -210,7 +213,10 @@ export function useBackend(onCommand: (command: CommandRecord) => void): [State 
                 (e) => setError(e.message),
             )
         load()
-        return events((event) => {
+        // without the zenoh-gateway (it's down, or can't connect on this machine) the page polls instead of going stale
+        let live = false
+        const poll = setInterval(() => live || load(), POLL_MS)
+        const stop = events((event) => {
             if (event.type === "command") {
                 onCommand(event.command as CommandRecord)
                 return
@@ -233,7 +239,16 @@ export function useBackend(onCommand: (command: CommandRecord) => void): [State 
             if (slice) {
                 setState((s) => (s ? { ...s, [slice]: event[slice] } : s))
             }
-        }, load)
+        }, () => {
+            live = true
+            load()
+        }, () => {
+            live = false
+        })
+        return () => {
+            clearInterval(poll)
+            stop()
+        }
     }, [])
     return [state, error]
 }
