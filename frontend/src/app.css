@@ -144,16 +144,18 @@ body.science:not(.dark) .ctl-top {
     font-size: 40px;
     opacity: 0.5;
 }
+/* the speed readout: tucked in the bottom-left corner, see-through until a command moves the dog */
 .vel {
     position: absolute;
-    left: 12px;
-    bottom: calc(84px + var(--dim-inset-bottom)); /* above the command bar (and Desktop's dock) */
-    font-size: 10.5px;
-    padding: 6px 9px;
-    min-width: 118px;
+    left: 4px;
+    bottom: calc(3px + var(--dim-inset-bottom));
+    font-size: 10px;
+    padding: 2px 6px;
+    opacity: 0.4;
+    pointer-events: none;
 }
 .vel.on {
-    border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+    opacity: 0.75;
 }
 
 /* commands: horizontally-scrollable bar centered along the bottom of the camera */
@@ -1353,10 +1355,6 @@ body.science.dark .nav-focus {
         right: 8px;
         bottom: calc(128px + var(--dim-inset-bottom)); /* above the Recordings button */
     }
-    .vel {
-        left: 8px;
-        bottom: calc(232px + var(--dim-inset-bottom)); /* above the d-pad (two 44px rows) */
-    }
     /* the setup panel stops above the Recordings button */
     .panel {
         bottom: calc(132px + var(--dim-inset-bottom));
@@ -1455,21 +1453,6 @@ body.science.dark .nav-focus {
     align-items: center;
     gap: 5px;
     white-space: nowrap;
-}
-/* apart from the command bar, bottom left: it's the way down, not a trick */
-.sit-down {
-    position: absolute;
-    left: 14px;
-    bottom: calc(14px + var(--dim-inset-bottom));
-    z-index: 4;
-    gap: 6px;
-    color: var(--warn);
-    border-color: color-mix(in srgb, var(--warn) 60%, transparent);
-    background: linear-gradient(
-        to right,
-        color-mix(in srgb, var(--warn) 35%, transparent) calc(var(--hold, 0) * 100%),
-        var(--card) calc(var(--hold, 0) * 100%)
-    );
 }
 
 /* ── the recordings list ── */
@@ -1684,11 +1667,6 @@ body.science.dark .nav-focus {
         right: calc(8px + var(--dim-inset-right));
         bottom: calc(80px + var(--dim-inset-bottom)); /* above the command bar */
     }
-    /* Sit down: same row as Recordings, on the left, above the command bar */
-    .sit-down {
-        left: 8px;
-        bottom: calc(80px + var(--dim-inset-bottom));
-    }
 }
 
 /* the cloud account under the Recordings header */
@@ -1803,13 +1781,13 @@ body.science.dark .nav-focus {
 }
 
 /* Camera overlays must keep their contrast over bright video. */
-.act.dim-btn, .sit-down.dim-btn, .ctl-close.dim-btn, .dbtn.dim-btn {
+.act.dim-btn, .ctl-close.dim-btn, .dbtn.dim-btn {
     background: rgba(12, 18, 28, 0.88);
     color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.45);
     box-shadow: 0 2px 8px #0005;
 }
-.act.dim-btn:hover, .sit-down.dim-btn:hover {
+.act.dim-btn:hover {
     background: rgba(35, 45, 60, 0.96);
 }
 .go2-record-control {
@@ -1987,7 +1965,6 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
 /* controls over the camera: a solid backing, so their labels stay readable over a bright frame (a white wall) */
 .ctl .act,
 .ctl .dbtn,
-.ctl .sit-down,
 .ctl .rec-btn,
 .ctl .ctl-close,
 .ctl .pad-chip,
@@ -2000,16 +1977,13 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
 .ctl .act.err {
     background-color: color-mix(in srgb, var(--card) 92%, transparent);
 }
-/* the on-screen driving buttons hide behind this (touchscreens hit them by accident); Sit down sits above it */
+/* the on-screen driving buttons hide behind this (touchscreens hit them by accident) */
 .controls-toggle {
     position: absolute;
     left: 14px;
-    bottom: calc(14px + var(--dim-inset-bottom));
+    bottom: calc(26px + var(--dim-inset-bottom)); /* above the speed readout */
     z-index: 4;
     gap: 6px;
-}
-.ctl .sit-down {
-    bottom: calc(56px + var(--dim-inset-bottom));
 }
 /* the panel's open-session row: which dog is being driven, and Disconnect */
 .p-session {

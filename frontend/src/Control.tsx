@@ -693,19 +693,6 @@ export function Control(props: {
                     <Icon name={showControls ? "close" : "gamepad"} size={13} />
                     {showControls ? "Hide controls" : "Show controls"}
                 </button>
-                {showControls && (
-                    <button
-                        type="button"
-                        className={`sit-down dim-btn sm${pad.sitHold > 0 ? " holding" : ""}`}
-                        style={{ "--hold": pad.sitHold } as React.CSSProperties}
-                        disabled={!ready}
-                        title="Sit the dog down safely without closing the app (low battery, bad link): stop, then lie down. Gamepad: hold B for 1 s"
-                        onClick={sitDown}
-                    >
-                        <Icon name="power" size={13} />
-                        Sit down
-                    </button>
-                )}
             </div>
         </div>
     )
