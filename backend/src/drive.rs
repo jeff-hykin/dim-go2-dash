@@ -144,8 +144,6 @@ pub struct Drive {
     conn: tokio::sync::Mutex<Option<Arc<RobotConn>>>,
     video: Mutex<Option<Arc<TrackLocalStaticRTP>>>,
     viewers: tokio::sync::Mutex<Vec<Arc<RTCPeerConnection>>>,
-    /// the camera as JPEG frames (GET api/drive/camera.jpg), for pages that can't play the WebRTC video
-    pub preview: crate::preview::Preview,
     closed: AtomicBool,
     app: Weak<App>,
 }
@@ -228,20 +226,6 @@ impl Drive {
         crate::dlog!("drive open: robot {robot:?} ip {ip} dry {} ({} aes keys known)", dry_run || app.mock, aes_keys.len());
         close(app).await;
         let dry = dry_run || app.mock;
-        // the preview decoder asks this session's robot for a keyframe when it (re)starts
-        let this: Arc<std::sync::OnceLock<Weak<Drive>>> = Arc::new(std::sync::OnceLock::new());
-        let runtime = tokio::runtime::Handle::current();
-        let want_keyframe: Arc<dyn Fn() + Send + Sync> = {
-            let this = this.clone();
-            Arc::new(move || {
-                let Some(drive) = this.get().and_then(Weak::upgrade) else { return };
-                runtime.spawn(async move {
-                    if let Ok(conn) = drive.conn().await {
-                        conn.request_keyframe().await;
-                    }
-                });
-            })
-        };
         let drive = Arc::new(Drive {
             robot,
             ip,
@@ -262,11 +246,9 @@ impl Drive {
             conn: tokio::sync::Mutex::new(None),
             video: Mutex::new(dry.then(crate::video::placeholder_track)),
             viewers: tokio::sync::Mutex::new(Vec::new()),
-            preview: crate::preview::Preview::start(want_keyframe),
             closed: AtomicBool::new(false),
             app: Arc::downgrade(app),
         });
-        let _ = this.set(Arc::downgrade(&drive));
         *app.drive.lock().await = Some(drive.clone());
         drive.publish();
         drive.clone().start_ticker();
@@ -308,7 +290,6 @@ impl Drive {
                             tokio::spawn(drive.reconnect());
                         }
                         ConnEvent::Rtp(packet) => {
-                            drive.preview.push(packet.clone());
                             if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
                                 active.on_rtp(packet);
                             }
