@@ -146,7 +146,7 @@ impl App {
         }
         let dir = recordings_dir(self);
         let started = now_ms();
-        let name = crate::record::file_name(&crate::record::local_stamp(started), &drive.name);
+        let name = crate::record::file_name(&crate::record::local_stamp(started), &drive.name, &crate::record::machine_id());
         let mut path = dir.join(&name);
         let mut n = 2;
         while path.exists() {
