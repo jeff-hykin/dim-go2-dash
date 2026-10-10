@@ -175,7 +175,11 @@ impl Switcher for Nmcli {
             }
             run("nmcli", &["connection", "up", "id", &profile]).await.map(|_| ())
         } else {
-            run("nmcli", &["dev", "wifi", "connect", ssid]).await.map(|_| ())
+            run("nmcli", &["dev", "wifi", "connect", ssid]).await?;
+            // that saves a profile that joins on its own: a dog's hotspot (no internet) must never win at boot over the
+            // real Wi-Fi (Steam then hangs at "Logging In...")
+            let _ = run("nmcli", &["connection", "modify", "id", ssid, "connection.autoconnect", "no"]).await;
+            Ok(())
         }
     }
     async fn rejoin(&self, ssid: &str) -> Result<(), String> {
