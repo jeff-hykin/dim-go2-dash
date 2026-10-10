@@ -204,7 +204,12 @@ function useCamera(
                 setTimeout(resolve, 2000)
             })
             try {
-                const answer = await call<{ sdp: string }>("POST", "api/drive/video", { sdp: pc.localDescription!.sdp })
+                const answer = await call<{ sdp: string }>(
+                    "POST",
+                    "api/drive/video",
+                    { sdp: pc.localDescription!.sdp },
+                    { quiet: true },
+                )
                 if (!stopped) {
                     await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp })
                 }

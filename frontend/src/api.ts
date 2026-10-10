@@ -4,7 +4,13 @@ import { appEvents } from "./dim-app/source/events.js"
 
 export class ApiError extends Error {}
 
-export async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+/** `quiet`: a failure only throws, without a Desktop notification (calls that retry on their own) */
+export async function call<T = unknown>(
+    method: string,
+    path: string,
+    body?: unknown,
+    { quiet = false }: { quiet?: boolean } = {},
+): Promise<T> {
     const response = await fetch(path, {
         method,
         headers: body === undefined ? undefined : { "content-type": "application/json" },
@@ -13,7 +19,7 @@ export async function call<T = unknown>(method: string, path: string, body?: unk
     const data = await response.json().catch(() => null)
     if (!response.ok) {
         const message = data?.error ?? `${response.status} ${response.statusText}`
-        void reportError(message)
+        if (!quiet) void reportError(message)
         throw new ApiError(message)
     }
     return data as T
