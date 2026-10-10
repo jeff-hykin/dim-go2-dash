@@ -2024,3 +2024,23 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
     left: calc(var(--panel-w) + 32px + (100vw - var(--panel-w) - 32px) / 2);
     max-width: calc(100vw - var(--panel-w) - 56px);
 }
+
+/* every button over the camera gets a backing: the dark theme's .dim-btn (body.science.dark, more specific than the
+   rules above) is transparent, so the classes are repeated here to win */
+.ctl .dim-btn.dim-btn.dim-btn:not(.primary):not(.rec-btn):not(.rec-more-btn) {
+    background-color: color-mix(in srgb, var(--muted-fg) 40%, transparent);
+}
+.ctl .dim-btn.dim-btn.dim-btn:not(.primary):not(.rec-btn):not(.rec-more-btn):hover {
+    background-color: color-mix(in srgb, var(--muted-fg) 60%, transparent);
+}
+.ctl .rec-btn.dim-btn.dim-btn,
+.ctl .rec-more-btn.dim-btn.dim-btn {
+    background-color: #b91c1c;
+}
+.ctl .rec-btn.dim-btn.dim-btn:hover,
+.ctl .rec-more-btn.dim-btn.dim-btn:hover {
+    background-color: #dc2626;
+}
+.ctl .dim-btn.dim-btn.dim-btn.primary {
+    background-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
