@@ -2117,6 +2117,3 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: var(--muted-fg);
     border-bottom: 1px solid var(--border);
 }
-.p-keys.none {
-    color: var(--warn);
-}
