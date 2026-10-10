@@ -386,11 +386,10 @@ export function Control(props: {
     flash: { name: string; ok: boolean; n: number } | null
     onFlash: (name: string, ok: boolean) => void
     onToast: (text: string) => void
-    onSignIn: () => void
     /** shown in the top bar after the robot's name (the hotspot's way back) */
     topSlot?: React.ReactNode
 }) {
-    const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
+    const { drive, commands, record, keyboardActive, flash, onFlash, onToast } = props
     const video = useRef<HTMLVideoElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
     const [showControls, setShowControls] = useState<boolean>(() => stored(SHOW_CONTROLS_KEY, false))

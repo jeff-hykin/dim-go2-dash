@@ -600,7 +600,6 @@ export function App() {
                     flash={flash}
                     onFlash={showFlash}
                     onToast={showToast}
-                    onSignIn={openAccounts}
                     record={state.record}
                     topSlot={<HotspotBanner state={state.hotspot} inline />}
                 />
