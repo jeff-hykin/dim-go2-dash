@@ -28,6 +28,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 webrtc = "0.12"
 socket2 = { version = "0.5", features = ["all"] }
 if-addrs = "0.13"
+regex = "1"
 libc = "0.2"
 # recordings: chunked, zstd-compressed mcap (ROS2 CDR messages, like Controller's recorder)
 mcap = { version = "0.25.0", default-features = false, features = ["zstd"] }

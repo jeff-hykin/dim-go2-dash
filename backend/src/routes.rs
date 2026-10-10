@@ -486,10 +486,18 @@ pub fn routes() -> Vec<Route> {
                 "ssid": { "type": "string", "required": true },
                 "password": { "type": "string", "description": "the hotspot's password (default: the saved one)" },
                 "robot": { "type": "string", "description": "a key from GET api/robots: which dog it is (its name and AES key)" },
+                "name": { "type": "string", "description": "the dog's name, when it isn't a found robot (default: read from the SSID, Go2_60968_83d1a1fa → Go2_60968)" },
                 "dryRun": { "type": "boolean", "description": "true: say what would happen, change nothing" },
             })),
             handler(|app, args| async move {
-                app.hotspot_connect(&text(&args, "ssid").unwrap_or_default(), text(&args, "password"), text(&args, "robot"), flag(&args, "dryRun")?).await
+                app.hotspot_connect(
+                    &text(&args, "ssid").unwrap_or_default(),
+                    text(&args, "password"),
+                    text(&args, "robot"),
+                    text(&args, "name"),
+                    flag(&args, "dryRun")?,
+                )
+                .await
             }),
         ),
         route(

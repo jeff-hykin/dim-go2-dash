@@ -1,5 +1,5 @@
 title: Go2 Ctrl
-spec-version: v1.0 # the dimos.yaml spec version this file follows
+spec-version: v1.0
 uses:
     "@dimos-gateway":
         - GET /runs
@@ -7,12 +7,10 @@ uses:
         - POST /runs/stop
         - GET /global-config
         - PUT /global-config
-        # recordings' uploads, through Desktop's queue (the backend calls these: backend/src/uploads.rs)
         - GET /uploads
         - POST /uploads
         - "DELETE /uploads/{id}"
         - "POST /uploads/{id}/retry"
-        # sign-in for uploads: the account (backend), Desktop's login page (framed by the Recordings sheet), sign out
         - GET /cloud/account
         - POST /cloud/login
         - GET /cloud/login/page
@@ -23,13 +21,11 @@ uses:
         - POST /api/desktop/shell
         - "GET /api/desktop/shell/{id}"
         - "POST /api/desktop/shell/{id}/cancel"
-    # the dim-app SDK's zenoh client (backend state, events): the zenoh bridge and how it finds it
     "@zenoh-gateway": ">=0.5 <0.6"
 caches:
     - url: "https://dimos-desktop.cachix.org"
       key: "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ="
 provides:
-    # what its server answers only its own pages (its endpoints: below are the public API)
     private:
         - api/state/*
         - api/drive/*
@@ -89,6 +85,13 @@ provides:
               Every saved AES key with its robot (key, name, serial, aesKey): for the page's download button (private: only
               this app's pages can read it)
           method: GET
+          path: api/aes-keys
+        - description: Import a downloaded AES keys JSON file locally
+          method: POST
+          params:
+              keys:
+                  required: true
+                  type: array
           path: api/aes-keys
         - description: Stop the running scan (and its sweep) now; what it found so far stays
           method: POST
@@ -349,7 +352,7 @@ provides:
           path: api/record
         - description: >-
               Record the drive session to an mcap in Desktop's recordings folder (go2/<date>_<time>_<dog>.mcap): camera,
-              lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and actions (/robot_action). Needs
+              lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs
               a drive session; ends with it
           method: POST
           path: api/record/start
@@ -407,8 +410,8 @@ provides:
           method: GET
           path: api/hotspot
         - description: >-
-              List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS can't list Wi-Fi names:
-              canScan false). Read-only
+              List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS: Go2 Ctrl.app, with
+              Location allowed). canScan false and a note when it can't list Wi-Fi names. Read-only
           method: POST
           path: api/hotspot/scan
         - description: >-
@@ -419,6 +422,9 @@ provides:
               dryRun:
                   description: "true: say what would happen, change nothing"
                   type: boolean
+              name:
+                  description: 'the dog''s name, when it isn''t a found robot (default: read from the SSID, Go2_60968_83d1a1fa → Go2_60968)'
+                  type: string
               password:
                   description: 'the hotspot''s password (default: the saved one)'
                   type: string
@@ -459,6 +465,13 @@ provides:
                   description: "true: check everything and say what would be sent, without touching the robot"
                   type: boolean
           path: api/drive/stand
+        - description: Lie down (StandDown) (on the robot of the open drive session)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+          path: api/drive/lie_down
         - description: >-
               Balance-stand in pose mode: api/drive/move then tilts/turns the body in place instead of walking (on the robot
               of the open drive session)
@@ -475,13 +488,6 @@ provides:
                   description: "true: check everything and say what would be sent, without touching the robot"
                   type: boolean
           path: api/drive/sit
-        - description: Lie down (StandDown) (on the robot of the open drive session)
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/lie_down
         - description: Jump forward (FrontJump) — needs clear space in front (on the robot of the open drive session)
           method: POST
           params:

@@ -19,6 +19,8 @@ use crate::app::App;
 
 /// where a Go2 in AP mode answers
 pub const AP_IP: &str = "192.168.12.1";
+/// a Go2 hotspot's password when none was typed or saved: Unitree's AP-mode default
+pub const DEFAULT_PASSWORD: &str = "12345678";
 pub const PASSWORDS_FILE: &str = "go2_dash_hotspots.json";
 /// how long to wait for the new link (an address on the hotspot, the dog's port answering)
 const LINK_TIMEOUT: Duration = Duration::from_secs(30);
@@ -33,6 +35,15 @@ pub struct Network {
 
 /// A Go2's hotspot name: the Unitree app suggests `GO2-XXXXXX`; people also keep `Go2_…` (its Bluetooth name) or a
 /// `Unitree…` prefix. Matches a `go2` word or a `unitree` prefix, any case.
+/// The dog's name in its hotspot's SSID: "Go2_60968_83d1a1fa" → "Go2_60968" (G1s too); None for other names.
+pub fn dog_name_from_ssid(ssid: &str) -> Option<String> {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| regex::Regex::new(r"(?i)^(go2|g1)[_-]([0-9a-z]{3,})").unwrap());
+    let found = pattern.captures(ssid)?;
+    let model = if found[1].eq_ignore_ascii_case("g1") { "G1" } else { "Go2" };
+    Some(format!("{model}_{}", &found[2]))
+}
+
 pub fn looks_like_go2(ssid: &str) -> bool {
     let lower = ssid.trim().to_lowercase();
     if lower.starts_with("unitree") {
@@ -394,6 +405,7 @@ impl App {
         ssid: &str,
         password: Option<String>,
         robot: Option<String>,
+        name: Option<String>,
         dry_run: bool,
     ) -> Result<Value, HttpError> {
         let ssid = ssid.trim();
@@ -404,7 +416,8 @@ impl App {
             return Err(HttpError::conflict("already switching Wi-Fi"));
         }
         let saved = self.hotspot_passwords();
-        let password = password.filter(|p| !p.is_empty()).or_else(|| saved.get(ssid).cloned());
+        // typed, else saved for this hotspot, else Unitree's default (what most dogs in AP mode still use)
+        let password = password.filter(|p| !p.is_empty()).or_else(|| saved.get(ssid).cloned()).or_else(|| Some(DEFAULT_PASSWORD.into()));
         let previous = self.wifi.current().await;
         if dry_run {
             return Ok(
@@ -452,7 +465,9 @@ impl App {
             tokio::time::sleep(Duration::from_millis(700)).await;
         }
         self.set_hotspot(|l| l.status = "linked");
-        let drive = crate::drive::Drive::open(self, robot, AP_IP.into(), ssid.into(), None, false).await?;
+        // the session's name: the dog's, read from its hotspot's (Go2_60968_83d1a1fa → Go2_60968)
+        let name = name.filter(|n| !n.trim().is_empty()).or_else(|| dog_name_from_ssid(ssid)).unwrap_or_else(|| ssid.to_string());
+        let drive = crate::drive::Drive::open(self, robot, AP_IP.into(), name, None, false).await?;
         Ok(json!({ "hotspot": self.hotspot_state(), "drive": drive }))
     }
 
@@ -495,6 +510,15 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dog_names_from_hotspot_ssids() {
+        assert_eq!(super::dog_name_from_ssid("Go2_60968_83d1a1fa").as_deref(), Some("Go2_60968"));
+        assert_eq!(super::dog_name_from_ssid("go2-59030").as_deref(), Some("Go2_59030"));
+        assert_eq!(super::dog_name_from_ssid("G1_13469_ab12").as_deref(), Some("G1_13469"));
+        assert_eq!(super::dog_name_from_ssid("GO2-A1B2C3").as_deref(), Some("Go2_A1B2C3"));
+        assert_eq!(super::dog_name_from_ssid("dimensional-edge"), None);
+    }
+
     use super::*;
 
     #[test]
@@ -521,9 +545,11 @@ mod tests {
     async fn connect_and_switch_back_with_the_mock() {
         let dir = std::env::temp_dir().join(format!("go2_hotspot_{}", crate::app::now_ms()));
         let app = App::new(dir.clone(), true);
-        let wrong = app.hotspot_connect("GO2-A1B2C3", None, None, false).await.unwrap_err();
+        // a too-short password is refused; none typed or saved means Unitree's default, which the mock dog takes
+        let wrong = app.hotspot_connect("GO2-A1B2C3", Some("short".into()), None, None, false).await.unwrap_err();
         assert_eq!(wrong.status, 401, "{}", wrong.message);
-        let done = app.hotspot_connect("GO2-A1B2C3", Some("12345678".into()), None, false).await.unwrap();
+        let done = app.hotspot_connect("GO2-A1B2C3", None, None, None, false).await.unwrap();
+        assert_eq!(done["drive"]["name"], "Go2_A1B2C3");
         assert_eq!(done["hotspot"]["status"], "linked");
         assert_eq!(done["hotspot"]["previous"], "Office Wi-Fi");
         assert_eq!(done["drive"]["ip"], AP_IP);

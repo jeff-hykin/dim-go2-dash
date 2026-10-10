@@ -11,6 +11,12 @@ export type ScannedHotspot = { ssid: string; signal: number | null; security: st
 export type HotspotScan = { canScan: boolean; hotspots: ScannedHotspot[]; current: string | null; note?: string }
 export type HotspotAsk = { ssid: string; robot?: string }
 
+/** The dog's name in its hotspot's SSID: "Go2_60968_83d1a1fa" → "Go2_60968" (G1s too); null for other names. */
+export function dogNameFromSsid(ssid: string): string | null {
+    const found = /^(go2|g1)[_-]([0-9a-z]{3,})/i.exec(ssid)
+    return found ? `${found[1].toLowerCase() === "g1" ? "G1" : "Go2"}_${found[2]}` : null
+}
+
 /** The dog a hotspot belongs to: a Go2's hotspot is named after its Bluetooth name (Go2_60968 → Go2_60968_83d1a1fa). */
 export function robotForHotspot(ssid: string, robots: Robot[]): Robot | undefined {
     const name = ssid.toLowerCase()
@@ -29,15 +35,24 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
     onClose: () => void
 }) {
     const [password, setPassword] = useState("")
-    const [robot, setRobot] = useState(forRobot ?? "")
+    const [dogTyped, setDogTyped] = useState(robots.find((r) => r.key === forRobot)?.name ?? "")
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [needsPassword, setNeedsPassword] = useState(!state.saved.includes(ssid))
     const leaving = state.current ?? "the Wi-Fi it's on"
+    // a Go2's hotspot names its dog: no need to ask which one
+    const dogName = dogNameFromSsid(ssid)
     const go = () => {
         setBusy(true)
         setError(null)
-        call("POST", "api/hotspot/connect", { ssid, password: password || undefined, robot: robot || undefined })
+        const typed = dogTyped.trim()
+        const robot = forRobot ?? robots.find((r) => r.name === typed || r.bleName === typed)?.key
+        call("POST", "api/hotspot/connect", {
+            ssid,
+            password: password || undefined,
+            robot: robot || undefined,
+            name: (!dogName && typed) || undefined,
+        })
             .then(onClose, (e) => {
                 setError(e.message)
                 if (/password/i.test(e.message)) {
@@ -62,24 +77,36 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
                 </p>
                 {needsPassword && (
                     <label className="hs-field">
-                        Hotspot password (set in the Unitree app's AP mode; saved on this computer)
+                        Hotspot password (empty: Unitree's default, 12345678; whichever works is saved on this computer)
                         <input
                             className="dim-input"
                             type="password"
-                            autoFocus
+                            placeholder="12345678"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && go()}
                         />
                     </label>
                 )}
-                {robots.length > 0 && (
+                {dogName && (
+                    <div className="hs-field">
+                        Dog: <b>{dogName}</b> (from its Wi-Fi name; its AES key comes from the saved keys)
+                    </div>
+                )}
+                {!dogName && (
                     <label className="hs-field">
-                        Which dog is it? (for its name and AES key)
-                        <select className="dim-input" value={robot} onChange={(e) => setRobot(e.target.value)}>
-                            <option value="">Not sure</option>
-                            {robots.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
-                        </select>
+                        Which dog is it? (its name finds its AES key; leave empty if unsure)
+                        <input
+                            className="dim-input"
+                            list="hs-dogs"
+                            placeholder="e.g. Go2_60968"
+                            value={dogTyped}
+                            onChange={(e) => setDogTyped(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && go()}
+                        />
+                        <datalist id="hs-dogs">
+                            {robots.map((r) => <option key={r.key} value={r.name} />)}
+                        </datalist>
                     </label>
                 )}
                 <ErrorNotice message={error} />
@@ -88,7 +115,7 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
                     <button
                         type="button"
                         className="dim-btn primary"
-                        disabled={busy || (needsPassword && password.length < 8)}
+                        disabled={busy || (password.length > 0 && password.length < 8)}
                         onClick={go}
                     >
                         {busy ? "Switching Wi-Fi…" : `Switch to ${ssid}`}
