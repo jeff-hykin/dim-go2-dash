@@ -2069,3 +2069,9 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
 .reopen.reopen.dim-tab.dim-tab.dim-tab {
     background-color: color-mix(in srgb, var(--muted-fg) 40%, transparent);
 }
+/* the action buttons are touch targets: a bit bigger than the theme's small button */
+.ctl .cmd-scroll .act.dim-btn {
+    font-size: 13px;
+    padding: 8px 14px;
+    min-height: 34px;
+}
