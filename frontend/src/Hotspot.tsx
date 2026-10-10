@@ -205,28 +205,34 @@ export function HotspotBanner({ state, besidePanel }: { state: HotspotState; bes
         return null
     }
     const back = () => call("POST", "api/hotspot/restore").catch((e) => setError(e.message))
+    // a small pill in the top bar, not a box over the camera: just the way back while linked
+    const linked = state.status === "linked"
     const text = state.status === "joining"
-        ? `Switching this computer's Wi-Fi to ${state.ssid}…`
+        ? `Joining ${state.ssid}…`
         : state.status === "restoring"
         ? `Switching back to ${state.previous}…`
         : state.status === "error"
-        ? "Hotspot connection failed"
-        : `Connected through ${state.ssid} (no internet)`
+        ? "Hotspot failed"
+        : null
     return (
         <div
-            className={`hs-banner dim-alert ${state.status === "error" ? "danger" : "warn"}${
-                besidePanel ? " beside-panel" : ""
-            }`}
+            className={`hs-banner${state.status === "error" ? " danger" : ""}${besidePanel ? " beside-panel" : ""}`}
             role="status"
+            title={linked ? `Connected through ${state.ssid} (no internet)` : undefined}
         >
-            <Icon name="signal" size={14} />
-            <span>{text}</span>
-            <ErrorNotice message={error ?? (state.status === "error" ? state.error : null)} />
-            {(state.status === "linked" || state.status === "error") && (
+            {text && (
+                <span className="hs-text">
+                    <Icon name="signal" size={12} />
+                    {text}
+                </span>
+            )}
+            {(linked || state.status === "error") && (
                 <button type="button" className="dim-btn sm" onClick={back}>
+                    <Icon name="signal" size={12} />
                     {state.previous ? `Switch back to ${state.previous}` : "Leave the hotspot"}
                 </button>
             )}
+            <ErrorNotice message={error ?? (state.status === "error" ? state.error : null)} />
         </div>
     )
 }

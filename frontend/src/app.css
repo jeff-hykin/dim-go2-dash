@@ -1768,16 +1768,29 @@ body.science.dark .nav-focus {
 /* while on a Go2's hotspot: always visible, top center, above everything but dialogs */
 .hs-banner {
     position: fixed;
-    top: calc(56px + var(--dim-inset-top));
+    top: calc(12px + var(--dim-inset-top)); /* in the top bar, between the dog's name and Record */
     left: 50%;
     transform: translateX(-50%);
     z-index: 46;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
     gap: 8px;
-    max-width: calc(100% - 24px);
-    box-shadow: var(--shadow-lg);
+    max-width: min(420px, calc(100% - 24px));
+}
+.hs-banner .hs-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--warn);
+    white-space: nowrap;
+}
+.hs-banner.danger .hs-text {
+    color: var(--danger);
+}
+.hs-banner .dim-btn {
+    gap: 6px;
+    white-space: nowrap;
 }
 
 /* Camera overlays must keep their contrast over bright video. */
