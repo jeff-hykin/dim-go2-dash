@@ -416,7 +416,15 @@ impl App {
 
     pub fn scan_state(&self) -> Value {
         let state = self.state.lock().unwrap();
-        json!({ "scanning": state.scanning, "lastCount": state.last_count, "notice": state.notice, "sweep": state.sweep })
+        let saved = state.aes_keys.len();
+        drop(state);
+        // the AES keys a connect will try: saved per robot, and the fleet file's (the panel shows both counts)
+        let fleet = self.known_aes_keys().len().saturating_sub(saved);
+        let state = self.state.lock().unwrap();
+        json!({
+            "scanning": state.scanning, "lastCount": state.last_count, "notice": state.notice, "sweep": state.sweep,
+            "keys": { "saved": saved, "fleet": fleet },
+        })
     }
 
     fn on_discovery(self: &Arc<Self>, event: Value) {

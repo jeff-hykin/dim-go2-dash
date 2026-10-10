@@ -495,6 +495,7 @@ export function App() {
                         Setup guide
                     </button>
                 </div>
+                {state?.scan.keys && <KeysLine keys={state.scan.keys} />}
                 <div className="list" ref={list}>
                     {state?.scan.notice && <div className="none warn">{state.scan.notice}</div>}
                     {state && (
@@ -638,5 +639,23 @@ export function App() {
                 </div>
             </div>
         </>
+    )
+}
+
+/** Under Scan: how many AES keys a connect will try (newer dogs refuse a connection without their key). */
+function KeysLine({ keys }: { keys: { saved: number; fleet: number } }) {
+    const total = keys.saved + keys.fleet
+    const parts = [keys.saved && `${keys.saved} saved here`, keys.fleet && `${keys.fleet} from the fleet key file`]
+        .filter(Boolean)
+    return (
+        <div
+            className={`p-keys${total ? "" : " none"}`}
+            title="A connect tries each of these keys; the fleet file is ~/.config/dimos/go2-keys"
+        >
+            <Icon name="link" size={12} />
+            {total
+                ? `${total} AES key${total === 1 ? "" : "s"} loaded (${parts.join(", ")})`
+                : "No AES keys loaded: newer Go2s need one (Unitree accounts, below)"}
+        </div>
     )
 }

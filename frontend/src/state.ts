@@ -42,7 +42,14 @@ export type Sweep = {
     error?: string
 }
 
-export type Scan = { scanning: boolean; lastCount: number | null; notice: string | null; sweep?: Sweep | null }
+export type Scan = {
+    scanning: boolean
+    lastCount: number | null
+    notice: string | null
+    sweep?: Sweep | null
+    /** the AES keys a connect tries: saved per robot here, and from the fleet file (~/.config/dimos/go2-keys) */
+    keys?: { saved: number; fleet: number }
+}
 
 export type Wifi = {
     status: "idle" | "running" | "ok" | "error" | "cancelled" | "dry-run"

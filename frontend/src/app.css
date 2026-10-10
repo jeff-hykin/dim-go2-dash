@@ -2107,3 +2107,16 @@ body.science.dark .big-check input:checked + .box.box::after {
     flex: none;
     display: flex;
 }
+/* under Scan: the AES keys a connect will try */
+.p-keys {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 15px;
+    font-size: 11.5px;
+    color: var(--muted-fg);
+    border-bottom: 1px solid var(--border);
+}
+.p-keys.none {
+    color: var(--warn);
+}
