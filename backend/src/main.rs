@@ -50,6 +50,8 @@ async fn main() {
         let app = app.clone();
         move || app.recover_recordings()
     });
+    // CPU and Wi-Fi every few seconds in the log, to piece a lost connection back together
+    go2_dash::health::spawn(app.clone());
     // uploads still open from the last run: follow them again
     app.clone().watch_uploads();
     // Desktop stops apps with SIGTERM: finish a recording first, so its file is complete
