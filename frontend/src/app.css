@@ -2093,3 +2093,17 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
 .ctl-top .rec-more-btn.dim-btn.dim-btn.dim-btn {
     padding: 0 8px;
 }
+.ctl-top-side {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+.ctl-top-side.end {
+    justify-content: flex-end;
+}
+.ctl-top-center {
+    flex: none;
+    display: flex;
+}

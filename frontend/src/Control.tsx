@@ -579,32 +579,36 @@ export function Control(props: {
                     </div>
                     <div>{placeholder}</div>
                 </div>
+                {/* three flex regions: who and how (left), the hotspot's way back (centered), Record and Disconnect (right) */}
                 <div className="ctl-top">
-                    <div className="ctl-id">
-                        <span className="nm">{drive.name}</span>
-                        <span className="ctl-ip dim-mono">{drive.ip}</span>
+                    <div className="ctl-top-side">
+                        <div className="ctl-id">
+                            <span className="nm">{drive.name}</span>
+                            <span className="ctl-ip dim-mono">{drive.ip}</span>
+                        </div>
+                        {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
+                        {drive.status !== "ready" && (
+                            <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
+                                <span className="dot" />
+                                {STATUS_LABEL[drive.status] ?? drive.status}
+                            </span>
+                        )}
+                        {drive.dryRun && <span className="dim-badge warn">Dry run</span>}
+                        <PadChip pad={pad} linked={ready} />
                     </div>
-                    {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
-                    {drive.status !== "ready" && (
-                        <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
-                            <span className="dot" />
-                            {STATUS_LABEL[drive.status] ?? drive.status}
-                        </span>
-                    )}
-                    {drive.dryRun && <span className="dim-badge warn">Dry run</span>}
-                    <PadChip pad={pad} linked={ready} />
-                    {props.topSlot}
-                    <span className="spacer" />
-                    <RecordButton record={record} onToast={onToast} />
-                    <button
-                        type="button"
-                        className="ctl-close dim-btn sm"
-                        title="Disconnect"
-                        onClick={() => call("POST", "api/drive/disconnect").catch(() => {})}
-                    >
-                        <Icon name="close" size={14} />
-                        Disconnect
-                    </button>
+                    <div className="ctl-top-center">{props.topSlot}</div>
+                    <div className="ctl-top-side end">
+                        <RecordButton record={record} onToast={onToast} />
+                        <button
+                            type="button"
+                            className="ctl-close dim-btn sm"
+                            title="Disconnect"
+                            onClick={() => call("POST", "api/drive/disconnect").catch(() => {})}
+                        >
+                            <Icon name="close" size={14} />
+                            Disconnect
+                        </button>
+                    </div>
                 </div>
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
@@ -703,9 +707,12 @@ function PadChip({ pad, linked }: { pad: GamepadStatus; linked: boolean }) {
     // a browser lists a pad only after a button press on this page (a reload hides it again until then)
     if (!pad.connected) {
         return (
-            <span className="pad-chip dim-badge" title="Press any gamepad button so the page sees the pad">
+            <span
+                className="pad-chip dim-badge"
+                title="No gamepad seen yet: press any gamepad button (a browser lists a pad only after a press on this page)"
+            >
                 <Icon name="gamepad" size={12} />
-                No gamepad — press a button
+                No gamepad
             </span>
         )
     }
