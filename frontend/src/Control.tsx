@@ -119,11 +119,13 @@ function useCamera(
 ): { live: boolean; status: string; jpeg: string | null } {
     const [live, setLive] = useState(false)
     const [status, setStatus] = useState("")
-    const want = drive.status === "ready" && drive.video
+    // not waiting for the `video` flag: its event can be lost (the Wi-Fi switching to the dog's hotspot drops the
+    // page's zenoh link); until the robot's track exists the backend says so and this retries
+    const want = drive.status === "ready" && !drive.dryRun
     useEffect(() => {
         setLive(false)
         if (!want) {
-            setStatus(drive.status === "ready" ? "Waiting for the robot's video track…" : "")
+            setStatus("")
             return
         }
         let stopped = false
