@@ -47,6 +47,7 @@ async fn negotiate(pc: &Arc<RTCPeerConnection>, track: Arc<TrackLocalStaticRTP>,
     {
         let weak = Arc::downgrade(pc);
         pc.on_peer_connection_state_change(Box::new(move |state| {
+            crate::dlog!("viewer peer state: {state}");
             let weak = weak.clone();
             Box::pin(async move {
                 if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {

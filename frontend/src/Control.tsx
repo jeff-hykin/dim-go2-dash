@@ -54,12 +54,15 @@ const MODE_LABEL: Record<string, string> = {
 }
 
 /** The camera: a receive-only WebRTC peer with the backend, which forwards the robot's track. */
-function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null>): boolean {
+/** The camera's live state and, while it isn't live, which step it's stuck on (shown in the placeholder). */
+function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null>): { live: boolean; status: string } {
     const [live, setLive] = useState(false)
+    const [status, setStatus] = useState("")
     const want = drive.status === "ready" && drive.video
     useEffect(() => {
         setLive(false)
         if (!want) {
+            setStatus(drive.status === "ready" ? "Waiting for the robot's video track…" : "")
             return
         }
         let stopped = false
@@ -76,10 +79,17 @@ function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null
                 }
             }
             pc.onconnectionstatechange = () => {
+                const state = pc?.connectionState
+                setStatus(
+                    state === "connected"
+                        ? "Video link up; waiting for the first frame…"
+                        : `Video link: ${state}${state === "failed" ? " (retrying)" : ""}`,
+                )
                 if (pc?.connectionState === "failed" && !stopped) {
                     retry = setTimeout(open, 1500)
                 }
             }
+            setStatus("Opening the video link…")
             await pc.setLocalDescription(await pc.createOffer())
             await new Promise<void>((resolve) => {
                 if (pc!.iceGatheringState === "complete") {
@@ -93,8 +103,9 @@ function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null
                 if (!stopped) {
                     await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp })
                 }
-            } catch {
+            } catch (e) {
                 if (!stopped) {
+                    setStatus(`Video request failed: ${(e as Error).message} (retrying)`)
                     retry = setTimeout(open, 1000)
                 }
             }
@@ -115,7 +126,7 @@ function useCamera(drive: Active, video: React.RefObject<HTMLVideoElement | null
         element.addEventListener("loadeddata", onFrame)
         return () => element.removeEventListener("loadeddata", onFrame)
     }, [video.current])
-    return live && want
+    return { live: live && want, status }
 }
 
 /** The page has the user's focus: this document, or Desktop's shell around it (a Steam Deck user never clicks in). */
@@ -284,7 +295,7 @@ export function Control(props: {
 }) {
     const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
     const video = useRef<HTMLVideoElement>(null)
-    const live = useCamera(drive, video)
+    const { live, status: cameraStatus } = useCamera(drive, video)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
     const [boost, setBoost] = useState(false)
     const [searching, setSearching] = useState(false)
@@ -442,7 +453,7 @@ export function Control(props: {
     const placeholder = drive.dryRun
         ? "Dry run — nothing is sent to a robot, and there's no camera."
         : ready
-        ? "Waiting for video…"
+        ? cameraStatus || "Waiting for video…"
         : drive.status === "reconnecting"
         ? `Reconnecting to ${drive.name}…`
         : `Connecting to ${drive.name}…`

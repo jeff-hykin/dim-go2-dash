@@ -360,14 +360,20 @@ impl RobotConn {
                     if track.kind() != RTPCodecType::Video {
                         return;
                     }
+                    crate::dlog!("video track from the robot: {} ssrc {}", track.codec().capability.mime_type, track.ssrc());
                     *video_ssrc.lock().await = Some(track.ssrc());
                     let local = Arc::new(TrackLocalStaticRTP::new(track.codec().capability.clone(), "video".into(), "go2".into()));
                     on_event(ConnEvent::Video(local.clone()));
                     let on_event = on_event.clone();
                     tokio::spawn(async move {
+                        let mut packets = 0u64;
                         while let Ok((packet, _)) = track.read_rtp().await {
                             if closed.load(Ordering::Relaxed) {
                                 break;
+                            }
+                            packets += 1;
+                            if packets == 1 || packets == 1000 {
+                                crate::dlog!("video: {packets} RTP packets from the robot so far");
                             }
                             let _ = local.write_rtp(&packet).await;
                             on_event(ConnEvent::Rtp(packet));

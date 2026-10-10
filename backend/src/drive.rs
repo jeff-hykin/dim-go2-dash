@@ -637,9 +637,18 @@ impl Drive {
 
     /// A page's WebRTC offer for the camera → the answer that streams it.
     pub async fn video(&self, offer_sdp: String) -> Result<Value, HttpError> {
-        let track =
-            self.video.lock().unwrap().clone().ok_or_else(|| HttpError::conflict("no video from the robot yet — try again in a second"))?;
-        let (sdp, pc) = crate::video::answer_viewer(track, offer_sdp).await.map_err(HttpError::bad)?;
+        let candidates = offer_sdp.lines().filter(|l| l.starts_with("a=candidate")).count();
+        let h264 = offer_sdp.contains("H264");
+        crate::dlog!("viewer offer: {candidates} candidates, H264 {h264}");
+        let track = self.video.lock().unwrap().clone().ok_or_else(|| {
+            crate::dlog!("viewer refused: no video from the robot yet");
+            HttpError::conflict("no video from the robot yet — try again in a second")
+        })?;
+        let (sdp, pc) = crate::video::answer_viewer(track, offer_sdp).await.map_err(|err| {
+            crate::dlog!("viewer answer failed: {err}");
+            HttpError::bad(err)
+        })?;
+        crate::dlog!("viewer answer: {} candidates", sdp.lines().filter(|l| l.starts_with("a=candidate")).count());
         {
             let mut viewers = self.viewers.lock().await;
             viewers.retain(|viewer| {
