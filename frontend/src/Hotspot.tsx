@@ -198,7 +198,9 @@ export function Hotspots({ scan, state, robots, onScan, onAsk }: {
 }
 
 /** While on a Go2's hotspot: say so (no internet) and offer the way back. */
-export function HotspotBanner({ state, besidePanel }: { state: HotspotState; besidePanel?: boolean }) {
+export function HotspotBanner(
+    { state, besidePanel, inline }: { state: HotspotState; besidePanel?: boolean; inline?: boolean },
+) {
     const [error, setError] = useState<string | null>(null)
     useEffect(() => setError(null), [state.status])
     if (state.status === "idle") {
@@ -216,7 +218,9 @@ export function HotspotBanner({ state, besidePanel }: { state: HotspotState; bes
         : null
     return (
         <div
-            className={`hs-banner${state.status === "error" ? " danger" : ""}${besidePanel ? " beside-panel" : ""}`}
+            className={`hs-banner${state.status === "error" ? " danger" : ""}${besidePanel ? " beside-panel" : ""}${
+                inline ? " inline" : ""
+            }`}
             role="status"
             title={linked ? `Connected through ${state.ssid} (no internet)` : undefined}
         >

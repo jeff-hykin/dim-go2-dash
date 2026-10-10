@@ -162,7 +162,7 @@ body.science:not(.dark) .ctl-top {
 .cmd-dock {
     position: absolute;
     left: 50%;
-    bottom: calc(12px + var(--dim-inset-bottom));
+    bottom: calc(22px + var(--dim-inset-bottom)); /* the speed readout runs under it */
     transform: translateX(-50%);
     z-index: 4;
     display: flex;
@@ -1364,7 +1364,7 @@ body.science.dark .nav-focus {
         flex: none;
     }
     .ctl-top .ctl-ip {
-        display: none;
+        display: block;
     }
 }
 
@@ -2043,4 +2043,29 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
 }
 .ctl .dim-btn.dim-btn.dim-btn.primary {
     background-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+
+/* the robot's name with its IP under it, on a backing so they read over the video */
+.ctl-id {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--muted-fg) 40%, transparent);
+}
+.ctl-id .ctl-ip {
+    color: var(--fg);
+    opacity: 0.85;
+}
+/* in the top bar (driving), the hotspot's way back is part of the row, not floating over it */
+.hs-banner.inline {
+    position: static;
+    transform: none;
+    max-width: none;
+}
+/* Recordings and the Robots tab float over the video too: the same backing */
+.rec-fab.rec-fab.dim-btn.dim-btn.dim-btn,
+.reopen.reopen.dim-tab.dim-tab.dim-tab {
+    background-color: color-mix(in srgb, var(--muted-fg) 40%, transparent);
 }

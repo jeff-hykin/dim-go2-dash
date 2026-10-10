@@ -382,6 +382,8 @@ export function Control(props: {
     onFlash: (name: string, ok: boolean) => void
     onToast: (text: string) => void
     onSignIn: () => void
+    /** shown in the top bar after the robot's name (the hotspot's way back) */
+    topSlot?: React.ReactNode
 }) {
     const { drive, commands, record, keyboardActive, flash, onFlash, onToast, onSignIn } = props
     const video = useRef<HTMLVideoElement>(null)
@@ -578,14 +580,20 @@ export function Control(props: {
                     <div>{placeholder}</div>
                 </div>
                 <div className="ctl-top">
-                    <span className="nm">{drive.name}</span>
-                    <span className="ctl-ip dim-mono">{drive.ip}</span>
-                    <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
-                        <span className="dot" />
-                        {STATUS_LABEL[drive.status] ?? drive.status}
-                    </span>
+                    <div className="ctl-id">
+                        <span className="nm">{drive.name}</span>
+                        <span className="ctl-ip dim-mono">{drive.ip}</span>
+                    </div>
+                    {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
+                    {drive.status !== "ready" && (
+                        <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
+                            <span className="dot" />
+                            {STATUS_LABEL[drive.status] ?? drive.status}
+                        </span>
+                    )}
                     {drive.dryRun && <span className="dim-badge warn">Dry run</span>}
                     <PadChip pad={pad} linked={ready} />
+                    {props.topSlot}
                     <span className="spacer" />
                     <RecordButton record={record} onToast={onToast} />
                     <button

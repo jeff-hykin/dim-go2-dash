@@ -599,9 +599,11 @@ export function App() {
                     onToast={showToast}
                     onSignIn={openAccounts}
                     record={state.record}
+                    topSlot={<HotspotBanner state={state.hotspot} inline />}
                 />
             )}
-            {state && <HotspotBanner state={state.hotspot} besidePanel={!slid} />}
+            {/* driving: it sits in the top bar instead (Control's topSlot) */}
+            {state && !drive.active && <HotspotBanner state={state.hotspot} besidePanel={!slid} />}
             {/* this app's recordings: one floating button, bottom right, connected or not */}
             <button
                 type="button"
