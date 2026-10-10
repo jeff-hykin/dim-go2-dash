@@ -1977,11 +1977,14 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
 .ctl .act.err {
     background-color: color-mix(in srgb, var(--card) 92%, transparent);
 }
-/* the on-screen driving buttons hide behind this (touchscreens hit them by accident) */
+/* the on-screen arrows hide behind this (touchscreens hit them by accident); the d-pad sits above it */
+.ctl .dpad {
+    bottom: calc(100px + var(--dim-inset-bottom));
+}
 .controls-toggle {
     position: absolute;
-    left: 14px;
-    bottom: calc(26px + var(--dim-inset-bottom)); /* above the speed readout */
+    right: 12px;
+    bottom: calc(60px + var(--dim-inset-bottom)); /* above the Recordings button */
     z-index: 4;
     gap: 6px;
 }

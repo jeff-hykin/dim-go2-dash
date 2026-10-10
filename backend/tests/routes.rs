@@ -212,7 +212,12 @@ async fn drive_dry_session_commands_move_stop_video() {
     assert_eq!(t.status("POST", "api/drive/move", Some(json!({ "forward": 2 }))).await, 400);
     assert_eq!(t.status("POST", "api/drive/move", Some(json!({ "forward": 1, "durationMs": 10 }))).await, 400);
     let moved = t.ok("POST", "api/drive/move", Some(json!({ "forward": 1, "turn": -0.5, "durationMs": 300, "dryRun": true }))).await;
-    assert_eq!(moved["metersPerSecond"]["forward"], 0.6);
+    assert_eq!(moved["metersPerSecond"]["forward"], 1.0);
+    let half = t.ok("POST", "api/drive/move", Some(json!({ "forward": 1, "boost": 0.5, "dryRun": true }))).await;
+    assert_eq!(half["metersPerSecond"]["forward"], 1.25);
+    let run = t.ok("POST", "api/drive/move", Some(json!({ "forward": 1, "run": true, "dryRun": true }))).await;
+    assert_eq!(run["metersPerSecond"]["forward"], 1.5);
+    assert_eq!(t.status("POST", "api/drive/move", Some(json!({ "forward": 1, "boost": 2, "dryRun": true }))).await, 400);
     assert_eq!(t.ok("POST", "api/drive/stop", Some(json!({ "dryRun": true }))).await["stopped"], true);
     assert_eq!(t.status("POST", "api/drive/stop", Some(json!({ "dryRun": "maybe" }))).await, 400);
     t.ok("POST", "api/drive/sit", Some(json!({ "dryRun": true }))).await;

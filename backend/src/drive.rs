@@ -25,11 +25,16 @@ const SPORT_MOVE: u32 = 1008;
 const SPORT_POSE: u32 = 1028;
 /// after StandUp, wait before BalanceStand so joystick control latches (issued mid-rise it doesn't stick)
 const STAND_SETTLE: Duration = Duration::from_millis(3000);
-/// velocity envelope: a normalized -1..1 axis maps to these maxima; `run` scales them
-const MAX_FORWARD: f64 = 0.6;
-const MAX_LATERAL: f64 = 0.4;
-const MAX_YAW: f64 = 1.1;
-const RUN_MULT: f64 = 2.2;
+/// velocity envelope: a normalized -1..1 axis maps to these maxima; `boost` (0..1, the trigger's pull) scales them up
+/// to BOOST_MULT
+const MAX_FORWARD: f64 = 1.0;
+const MAX_LATERAL: f64 = 0.6;
+const MAX_YAW: f64 = 1.5;
+const BOOST_MULT: f64 = 1.5;
+
+fn boost_mult(boost: f64) -> f64 {
+    1.0 + (BOOST_MULT - 1.0) * boost.clamp(0.0, 1.0)
+}
 /// sport Move decays on the robot, so a held velocity is re-sent at this rate
 const DRIVE_TICK: Duration = Duration::from_millis(120);
 /// the first connect is flaky while the robot frees its stale peer slot: keep retrying this long
@@ -127,7 +132,7 @@ struct DriveState {
     /// resting | rising | stand | pose
     mode: &'static str,
     velocity: (f64, f64, f64),
-    run: bool,
+    boost: f64,
     move_until: Option<Instant>,
     moving: bool,
     last_command: Option<Value>,
@@ -167,7 +172,7 @@ impl Drive {
             "status": state.status,
             "error": state.error,
             "mode": state.mode,
-            "velocity": { "forward": forward, "strafe": strafe, "turn": turn, "run": state.run },
+            "velocity": { "forward": forward, "strafe": strafe, "turn": turn, "run": state.boost > 0.0, "boost": state.boost },
             "moving": state.moving,
             "video": self.video.lock().unwrap().is_some(),
             "lastCommand": state.last_command,
@@ -240,7 +245,7 @@ impl Drive {
                 error: None,
                 mode: "resting",
                 velocity: (0.0, 0.0, 0.0),
-                run: false,
+                boost: 0.0,
                 move_until: None,
                 moving: false,
                 last_command: None,
@@ -418,7 +423,7 @@ impl Drive {
                     match state.move_until {
                         Some(until) if Instant::now() < until => {
                             state.moving = true;
-                            let mult = if state.run { RUN_MULT } else { 1.0 };
+                            let mult = boost_mult(state.boost);
                             let (f, s, t) = state.velocity;
                             Tick::Move(f * MAX_FORWARD * mult, s * MAX_LATERAL * mult, t * MAX_YAW * mult)
                         }
@@ -542,8 +547,8 @@ impl Drive {
     }
 
     /// Drives at a normalized velocity for `duration` (re-sent every 120 ms, then a stop), replacing any earlier move.
-    pub fn drive(&self, forward: f64, strafe: f64, turn: f64, run: bool, duration: Duration, dry_run: bool) -> Result<Value, HttpError> {
-        crate::dlog!("move forward {forward} strafe {strafe} turn {turn} run {run} for {duration:?} (dry {dry_run})");
+    pub fn drive(&self, forward: f64, strafe: f64, turn: f64, boost: f64, duration: Duration, dry_run: bool) -> Result<Value, HttpError> {
+        crate::dlog!("move forward {forward} strafe {strafe} turn {turn} boost {boost} for {duration:?} (dry {dry_run})");
         if let Err(err) = self.ready() {
             crate::dlog!("move refused: {}", err.message);
             return Err(err);
@@ -553,7 +558,7 @@ impl Drive {
             crate::dlog!("move refused: the robot isn't standing (mode {mode})");
             return Err(HttpError::conflict(format!("the robot isn't standing (mode: {mode}) — POST api/drive/stand first")));
         }
-        let mult = if run { RUN_MULT } else { 1.0 };
+        let mult = boost_mult(boost);
         let mut reply = json!({
             "dryRun": dry_run || self.dry,
             "sent": !(dry_run || self.dry),
@@ -566,7 +571,7 @@ impl Drive {
         }
         self.set(|s| {
             s.velocity = (forward, strafe, turn);
-            s.run = run;
+            s.boost = boost.clamp(0.0, 1.0);
             s.move_until = Some(Instant::now() + duration);
         });
         reply["mode"] = json!(mode);
@@ -656,7 +661,7 @@ impl Drive {
         let state = self.state.lock().unwrap();
         match state.move_until {
             Some(until) if Instant::now() < until => {
-                let mult = if state.run { RUN_MULT } else { 1.0 };
+                let mult = boost_mult(state.boost);
                 let (f, s, t) = state.velocity;
                 (f * MAX_FORWARD * mult, s * MAX_LATERAL * mult, t * MAX_YAW * mult)
             }

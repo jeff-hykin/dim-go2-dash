@@ -256,7 +256,7 @@ const ZERO_AXES: Axes = { forward: 0, strafe: 0, turn: 0 }
 function useGamepad(handlers: {
     stop: () => void
     sitDown: () => void
-    setBoost: (boost: boolean) => void
+    setBoost: (boost: number) => void
 }): [GamepadStatus, Axes] {
     const [status, setStatus] = useState<GamepadStatus>(noPad())
     const [axes, setAxes] = useState<Axes>(ZERO_AXES)
@@ -334,11 +334,6 @@ function RecordButton({ record, onToast }: { record: RecordState; onToast: (text
     const toggle = () => {
         setBusy(true)
         call("POST", record.active ? "api/record/stop" : "api/record/start")
-            .then((r) => {
-                if (record.active) {
-                    onToast(`Saved ${(r as { file?: string })?.file ?? "the recording"}`)
-                }
-            })
             .catch((e) => onToast(e.message))
             .finally(() => setBusy(false))
     }
@@ -395,7 +390,7 @@ export function Control(props: {
     useEffect(() => store(SHOW_CONTROLS_KEY, showControls), [showControls])
     const { live, status: cameraStatus, ws } = useCamera(drive, video, canvas)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
-    const [boost, setBoost] = useState(false)
+    const [boost, setBoost] = useState(0)
     const [searching, setSearching] = useState(false)
     const [query, setQuery] = useState("")
     const searchInput = useRef<HTMLInputElement>(null)
@@ -467,7 +462,7 @@ export function Control(props: {
             return
         }
         const send = () =>
-            call("POST", "api/drive/move", { ...vectorRef.current, run: boostRef.current, durationMs: MOVE_HOLD_MS })
+            call("POST", "api/drive/move", { ...vectorRef.current, boost: boostRef.current, durationMs: MOVE_HOLD_MS })
                 .catch((e) => onToast(e.message))
         send()
         const timer = setInterval(send, MOVE_TICK_MS)
@@ -499,7 +494,7 @@ export function Control(props: {
                 return
             }
             if (e.key === "Shift") {
-                setBoost(true)
+                setBoost(1)
                 return
             }
             const k = codeKey(e)
@@ -511,7 +506,7 @@ export function Control(props: {
         }
         const up = (e: KeyboardEvent) => {
             if (e.key === "Shift") {
-                setBoost(false)
+                setBoost(0)
                 return
             }
             const k = codeKey(e)
@@ -522,7 +517,7 @@ export function Control(props: {
         // drop held keys if focus leaves the window (no stuck throttle)
         const blur = () => {
             setPressed(new Set())
-            setBoost(false)
+            setBoost(0)
         }
         globalThis.addEventListener("keydown", down)
         globalThis.addEventListener("keyup", up)
@@ -536,7 +531,7 @@ export function Control(props: {
     useEffect(() => {
         if (!keyboardActive) {
             setPressed(new Set())
-            setBoost(false)
+            setBoost(0)
         }
     }, [keyboardActive])
 
@@ -606,7 +601,7 @@ export function Control(props: {
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
-                    {boost ? "  ·  run" : "  ·  shift = run"}
+                    {boost ? `  ·  boost ${Math.round(boost * 100)}%` : "  ·  shift / LT = boost"}
                 </div>
                 {showControls && (
                     <div className="dpad">
@@ -633,61 +628,59 @@ export function Control(props: {
                     <span className={`mode-badge dim-badge ${MODE_TONE[drive.mode] ?? ""}`} title="Current dog mode">
                         Mode: {MODE_LABEL[drive.mode] ?? "—"}
                     </span>
-                    {showControls && (
-                        <div className={`cmd-bar${searching ? " searching" : ""}`}>
-                            <div className="cmd-search dim-panel glass">
-                                <span className="ico">
-                                    <Icon name="search" size={13} />
-                                </span>
-                                <input
-                                    ref={searchInput}
-                                    className="dim-input"
-                                    type="text"
-                                    placeholder="Search commands…"
-                                    autoComplete="off"
-                                    spellCheck={false}
-                                    value={query}
-                                    onChange={(e) => setQuery(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Escape") {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            closeSearch()
-                                        } else if (e.key === "Enter") {
-                                            e.preventDefault()
-                                            if (visible[0]) {
-                                                doCommand(visible[0].name)
-                                            }
-                                            closeSearch()
+                    <div className={`cmd-bar${searching ? " searching" : ""}`}>
+                        <div className="cmd-search dim-panel glass">
+                            <span className="ico">
+                                <Icon name="search" size={13} />
+                            </span>
+                            <input
+                                ref={searchInput}
+                                className="dim-input"
+                                type="text"
+                                placeholder="Search commands…"
+                                autoComplete="off"
+                                spellCheck={false}
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Escape") {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        closeSearch()
+                                    } else if (e.key === "Enter") {
+                                        e.preventDefault()
+                                        if (visible[0]) {
+                                            doCommand(visible[0].name)
                                         }
-                                    }}
-                                />
-                            </div>
-                            <div className="cmd-scroll">
-                                {commands.map((c, i) => {
-                                    const flashing = flash && flash.name === c.name ? (flash.ok ? " ok" : " err") : ""
-                                    const hidden = !visible.includes(c) ? " nomatch" : ""
-                                    return (
-                                        <button
-                                            type="button"
-                                            key={`${c.name}-${flash?.name === c.name ? flash.n : 0}`}
-                                            className={`act dim-btn sm${i === 0 ? " primary" : ""}${flashing}${hidden}`}
-                                            title={c.description}
-                                            onClick={() => doCommand(c.name)}
-                                        >
-                                            {c.label}
-                                        </button>
-                                    )
-                                })}
-                            </div>
+                                        closeSearch()
+                                    }
+                                }}
+                            />
                         </div>
-                    )}
+                        <div className="cmd-scroll">
+                            {commands.map((c, i) => {
+                                const flashing = flash && flash.name === c.name ? (flash.ok ? " ok" : " err") : ""
+                                const hidden = !visible.includes(c) ? " nomatch" : ""
+                                return (
+                                    <button
+                                        type="button"
+                                        key={`${c.name}-${flash?.name === c.name ? flash.n : 0}`}
+                                        className={`act dim-btn sm${i === 0 ? " primary" : ""}${flashing}${hidden}`}
+                                        title={c.description}
+                                        onClick={() => doCommand(c.name)}
+                                    >
+                                        {c.label}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
                 </div>
-                {/* on a touchscreen the on-screen controls are easy to hit by accident: hidden until asked for */}
+                {/* on a touchscreen the on-screen arrows are easy to hit by accident: hidden until asked for */}
                 <button
                     type="button"
                     className="controls-toggle dim-btn sm"
-                    title="Show or hide the on-screen driving buttons (keyboard and gamepad work either way)"
+                    title="Show or hide the on-screen arrow and turn buttons (keyboard and gamepad work either way)"
                     onClick={() => setShowControls((shown) => !shown)}
                 >
                     <Icon name={showControls ? "close" : "gamepad"} size={13} />

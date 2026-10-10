@@ -220,12 +220,13 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/drive/move",
-            "Walk (or, in pose mode, tilt) at a velocity for a while, then stop; a new move replaces the last. Axes are -1..1 of 0.6 m/s forward, 0.4 m/s sideways, 1.1 rad/s turning (×2.2 with run). Needs stand first",
+            "Walk (or, in pose mode, tilt) at a velocity for a while, then stop; a new move replaces the last. Axes are -1..1 of 1.0 m/s forward, 0.6 m/s sideways, 1.5 rad/s turning, up to ×1.5 with boost. Needs stand first",
             Some(json!({
                 "forward": { "type": "number", "description": "-1..1, positive = forward" },
                 "strafe": { "type": "number", "description": "-1..1, positive = left" },
                 "turn": { "type": "number", "description": "-1..1, positive = turn left" },
-                "run": { "type": "boolean", "description": "2.2× faster" },
+                "boost": { "type": "number", "description": "0..1 (a trigger's pull): up to 1.5× faster" },
+                "run": { "type": "boolean", "description": "full boost (boost: 1)" },
                 "durationMs": { "type": "number", "description": "how long, 100..5000 (default 500)" },
                 "dryRun": { "type": "boolean", "description": DRY_RUN },
             })),
@@ -242,10 +243,16 @@ pub fn routes() -> Vec<Route> {
                 if !(100.0..=5000.0).contains(&duration) {
                     return Err(HttpError::bad("durationMs must be between 100 and 5000"));
                 }
+                let boost = match number(&args, "boost")? {
+                    Some(boost) if (0.0..=1.0).contains(&boost) => boost,
+                    Some(_) => return Err(HttpError::bad("boost must be between 0 and 1")),
+                    None if flag(&args, "run")? => 1.0,
+                    None => 0.0,
+                };
                 let dry_run = flag(&args, "dryRun")?;
                 let drive = app.drive.lock().await.clone();
                 match drive {
-                    Some(drive) => drive.drive(axes[0], axes[1], axes[2], flag(&args, "run")?, Duration::from_millis(duration as u64), dry_run),
+                    Some(drive) => drive.drive(axes[0], axes[1], axes[2], boost, Duration::from_millis(duration as u64), dry_run),
                     None if dry_run => Ok(json!({ "dryRun": true, "sent": false, "note": "no drive session is open: nothing reaches a robot until POST api/drive/connect" })),
                     None => Err(HttpError::conflict("no robot connected — POST api/drive/connect first")),
                 }

@@ -1,5 +1,5 @@
 // deno test frontend/test — the pad's safety rules (gamepad.ts), with a fake pad and target.
-import { type Axes, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "../src/gamepad.ts"
+import { type Axes, boostOf, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "../src/gamepad.ts"
 
 function assertEquals(actual: unknown, expected: unknown) {
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -110,21 +110,21 @@ Deno.test("LT boosts while held, releases on blur, and both triggers still stop"
     pad.axes = [0, -1, 0, 0]
     press(6, true)
     driver.poll([pad], 30)
-    assertEquals(log, ["boost true"])
+    assertEquals(log, ["boost 1"])
     assertEquals(axes().forward, 1)
     press(6, false)
     driver.poll([pad], 60)
-    assertEquals(log, ["boost true", "boost false"])
+    assertEquals(log, ["boost 1", "boost 0"])
     press(6, true)
     driver.poll([pad], 90)
     press(7, true)
     driver.poll([pad], 120)
     assertEquals(log, [
-        "boost true",
-        "boost false",
-        "boost true",
+        "boost 1",
+        "boost 0",
+        "boost 1",
         "stop",
-        "boost false",
+        "boost 0",
     ])
     assertEquals(axes().forward, 0)
     assertEquals(driver.status.stopped, true)
@@ -136,8 +136,19 @@ Deno.test("LT boost is cleared on blur and requires rest before driving again", 
     press(6, true)
     driver.poll([pad], 30)
     driver.release()
-    assertEquals(log, ["boost true", "boost false"])
+    assertEquals(log, ["boost 1", "boost 0"])
     driver.poll([pad], 60)
     assertEquals(driver.status.ready, false)
-    assertEquals(log, ["boost true", "boost false"])
+    assertEquals(log, ["boost 1", "boost 0"])
+})
+
+Deno.test("LT boost follows how far it's pulled", () => {
+    assertEquals([boostOf(0), boostOf(0.04), boostOf(0.5), boostOf(1)], [0, 0, 0.45, 1])
+    const { pad, driver, log } = fake()
+    driver.poll([pad], 0)
+    ;(pad.buttons as { pressed: boolean; value: number }[])[6] = { pressed: false, value: 0.3 }
+    driver.poll([pad], 30)
+    ;(pad.buttons as { pressed: boolean; value: number }[])[6] = { pressed: false, value: 0.3 }
+    driver.poll([pad], 60)
+    assertEquals(log, ["boost 0.25"])
 })

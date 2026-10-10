@@ -39,6 +39,14 @@ export const DEAD_ZONE = 0.15
 export const EXPO = 1.6
 /** a trigger counts as pulled past this */
 const TRIGGER = 0.5
+/** LT's travel below this is slack, not boost */
+const BOOST_SLACK = 0.05
+
+/** How much LT boosts: 0 released .. 1 fully pulled (past a little slack), in 0.05 steps so it isn't resent per tick. */
+export function boostOf(value: number): number {
+    const pulled = Math.min(1, Math.max(0, (value - BOOST_SLACK) / (1 - BOOST_SLACK)))
+    return Math.round(pulled * 20) / 20
+}
 /** how long B must be held to sit down */
 export const SIT_HOLD_MS = 1000
 /** standard mapping buttons (w3.org/TR/gamepad) */
@@ -95,6 +103,7 @@ export function readPad(pad: PadLike) {
         rb: button(BUTTON.rb),
         lt: button(BUTTON.lt),
         rt: button(BUTTON.rt),
+        ltValue: pad.buttons[BUTTON.lt]?.value ?? 0,
     }
 }
 
@@ -146,7 +155,8 @@ export function joySample(pad: PadLike): { axes: number[]; buttons: number[] } {
 export interface PadTarget {
     /** the pad's axes; all zero = let go */
     setAxes: (axes: Axes) => void
-    setBoost: (boost: boolean) => void
+    /** 0..1: LT's pull (RB: all of it) */
+    setBoost: (boost: number) => void
     /** STOP now */
     stop: () => void
     /** the safe way down (stop, StandDown) */
@@ -170,7 +180,7 @@ export function activePad(pads: readonly (PadLike | null)[]): PadLike | null {
 export class GamepadDriver {
     status: GamepadStatus = noPad()
     #index: number | null = null
-    #last = { a: false, b: false, combo: false, boost: false }
+    #last = { a: false, b: false, combo: false, boost: 0 }
     #bSince: number | null = null
     #sitSent = false
     #sent = JSON.stringify(ZERO)
@@ -202,7 +212,7 @@ export class GamepadDriver {
         if (pad.index !== this.#index) {
             this.release()
             this.#index = pad.index
-            this.#last = { a: false, b: false, combo: false, boost: false }
+            this.#last = { a: false, b: false, combo: false, boost: 0 }
             this.#update({
                 connected: true,
                 id: pad.id,
@@ -245,8 +255,7 @@ export class GamepadDriver {
         if (!this.status.ready && !this.status.stopped && atRest(read)) {
             this.#update({ ready: true })
         }
-        const boost = this.status.ready && !this.status.stopped &&
-            (read.lt || read.rb)
+        const boost = this.status.ready && !this.status.stopped ? (read.rb ? 1 : boostOf(read.ltValue)) : 0
         if (boost !== this.#last.boost) {
             this.#last.boost = boost
             this.target.setBoost(boost)
@@ -263,8 +272,8 @@ export class GamepadDriver {
         this.#zero()
         this.#bSince = null
         if (this.#last.boost) {
-            this.#last.boost = false
-            this.target.setBoost(false)
+            this.#last.boost = 0
+            this.target.setBoost(0)
         }
         if (this.status.connected) {
             this.#update({ ready: false, sitHold: 0 })
