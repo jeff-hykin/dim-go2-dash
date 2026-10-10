@@ -2075,3 +2075,21 @@ body.science.dark .go2-record-options .dim-check input:checked + .box::after {
     padding: 8px 14px;
     min-height: 34px;
 }
+/* the top bar's chips and buttons are one row of equal boxes: same height, type and gray backing (Record keeps red) */
+.ctl-top .dim-badge.dim-badge,
+.ctl-top .dim-btn.dim-btn.dim-btn {
+    box-sizing: border-box;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    font: 400 11.5px/1 var(--hud);
+    border-radius: var(--radius);
+}
+.ctl-top .dim-badge.dim-badge {
+    background-color: color-mix(in srgb, var(--muted-fg) 40%, transparent);
+}
+.ctl-top .rec-more-btn.dim-btn.dim-btn.dim-btn {
+    padding: 0 8px;
+}
