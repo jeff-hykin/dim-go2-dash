@@ -15,8 +15,6 @@ use crate::msg::Msg;
 use crate::record::{jpeg_quality, now_ns, Recorder};
 
 const QUEUE: usize = 2048;
-/// at most this many frames a second go into the file
-const MAX_FPS: u64 = 15;
 
 /// Feeds the camera thread; dropping it ends the thread.
 pub struct CameraTap {
@@ -61,13 +59,15 @@ pub fn has_keyframe(annex_b: &[u8]) -> bool {
 }
 
 fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<dyn Fn() + Send + Sync>) {
-    let Ok(mut decoder) = openh264::decoder::Decoder::new() else {
+    // NoFlush: the crate's default flushes after every decode, which on a stream with reordered frames errors on all
+    // but the frames right after a keyframe (recordings had ~1 fps: a keyframe, a frame, then nothing until the next)
+    let config = openh264::decoder::DecoderConfig::new().flush_after_decode(openh264::decoder::Flush::NoFlush);
+    let Ok(mut decoder) = openh264::decoder::Decoder::with_api_config(openh264::OpenH264API::from_source(), config) else {
         eprintln!("camera: openh264 didn't start; no /color_image in this recording");
         return;
     };
     let mut builder = SampleBuilder::new(64, H264Packet::default(), 90_000);
     let mut synced = false;
-    let mut last_frame_ns = 0u64;
     let mut last_info_ns = 0u64;
     let mut rgb = Vec::new();
     want_keyframe();
@@ -83,17 +83,14 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
             let decoded = match decoder.decode(&sample.data) {
                 Ok(Some(yuv)) => yuv,
                 Ok(None) => continue,
-                Err(_) => {
+                Err(error) => {
+                    eprintln!("camera: decode failed ({error}); waiting for a keyframe");
                     synced = false;
                     want_keyframe();
                     continue;
                 }
             };
             let now = now_ns();
-            if now.saturating_sub(last_frame_ns) < 1_000_000_000 / MAX_FPS {
-                continue;
-            }
-            last_frame_ns = now;
             use openh264::formats::YUVSource;
             let (width, height) = decoded.dimensions();
             rgb.resize(width * height * 3, 0);
@@ -188,6 +185,7 @@ impl MockCamera {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use webrtc::rtp::packetizer::Packetizer;
 
     #[test]
     fn mock_camera_round_trips_to_jpeg() {
@@ -215,4 +213,52 @@ mod tests {
         assert!(images[0].data.windows(3).any(|w| w == [0xFF, 0xD8, 0xFF]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// A stream with reordered (B) frames, like the robot's: every frame has to come out, not just the keyframe's.
+    #[test]
+    fn reordered_stream_records_every_frame() {
+        let stream = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bframes_320x180_30fps.h264")).unwrap();
+        // one access unit per picture: the parameter sets and SEI ride with the slice after them
+        let mut units = Vec::new();
+        let mut unit = Vec::new();
+        for nal in openh264::nal_units(&stream) {
+            let header = nal.iter().position(|&b| b == 1).unwrap() + 1;
+            unit.extend_from_slice(nal);
+            if matches!(nal[header] & 0x1f, 1 | 5) {
+                units.push(std::mem::take(&mut unit));
+            }
+        }
+        assert_eq!(units.len(), 60);
+        let mut packetizer = webrtc::rtp::packetizer::new_packetizer(
+            1200,
+            102,
+            0x1234_5678,
+            Box::new(webrtc::rtp::codecs::h264::H264Payloader::default()),
+            Box::new(webrtc::rtp::sequence::new_random_sequencer()),
+            90_000,
+        );
+        let dir = std::env::temp_dir().join(format!("go2_camera_reorder_{}", now_ns()));
+        let path = dir.join("c.mcap");
+        let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
+        let recorder = Arc::new(Recorder::start_with_options(&path, Default::default(), |_| Default::default(), options).unwrap());
+        let tap = start(recorder.clone(), Arc::new(|| {}));
+        for unit in units {
+            for packet in packetizer.packetize(&bytes::Bytes::from(unit), 90_000 / 30).unwrap() {
+                assert!(tap.push(packet));
+            }
+        }
+        // the sample builder holds the last picture until the next timestamp arrives
+        for packet in packetizer.packetize(&bytes::Bytes::from_static(&[0, 0, 0, 1, 9, 0xF0]), 90_000 / 30).unwrap() {
+            assert!(tap.push(packet));
+        }
+        drop(tap);
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        recorder.finish().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let images = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").count();
+        // all 60 but the one or two the decoder still holds for reordering when the stream ends
+        assert!(images >= 57, "{images} of 60 frames recorded");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
+
