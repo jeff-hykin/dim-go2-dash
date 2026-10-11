@@ -51,19 +51,22 @@ impl CameraTap {
     }
 }
 
-/// Capture times for decoded frames: the decoder hands frames out in display order, which a stream with reordered
-/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting. The robot's RTP
-/// clock isn't trusted to run at 90 kHz (the Go2's advances about 60 ticks a frame): its rate is measured from the
-/// first frame's arrival to the latest frame's, and every stamp is placed from the first frame's arrival at that rate.
+/// Capture times for decoded frames. The decoder hands frames out in display order, which a stream with reordered
+/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting. The RTP clock's
+/// rate isn't assumed (the Go2's advances about 60 ticks a frame, not 90 kHz): an anchor is a frame whose ticks top
+/// every earlier one, sent as soon as it was captured, and the rate is nanoseconds per tick from the second anchor's
+/// arrival to the latest anchor's. The first anchor is left out: on a stream that sends in decode order, the frames
+/// right after it are sent a whole reorder window ahead of their capture spacing. Until the third anchor the clock
+/// can't stamp, and the caller holds the frames.
 #[derive(Default)]
 struct CaptureClock {
     /// RTP timestamps (unwrapped) of frames given to the decoder and not yet out of it
     waiting: BinaryHeap<Reverse<i64>>,
     last_rtp: Option<u32>,
     unwrapped: i64,
-    /// the first frame: its ticks and when its first packet arrived (wall clock ns)
+    /// the first, second and latest anchors: ticks and the arrival of the first packet (wall clock ns)
     first: Option<(i64, u64)>,
-    /// the frame with the largest ticks so far and its arrival: a frame sent as soon as it was captured
+    second: Option<(i64, u64)>,
     latest: Option<(i64, u64)>,
 }
 
@@ -85,8 +88,12 @@ impl CaptureClock {
     /// A frame went into the decoder: its RTP timestamp and when its first packet arrived.
     fn submitted(&mut self, rtp: u32, arrived_ns: u64) {
         let ticks = self.unwrap(rtp);
-        self.first.get_or_insert((ticks, arrived_ns));
         if self.latest.is_none_or(|(t, _)| ticks > t) {
+            if self.first.is_none() {
+                self.first = Some((ticks, arrived_ns));
+            } else if self.second.is_none() {
+                self.second = Some((ticks, arrived_ns));
+            }
             self.latest = Some((ticks, arrived_ns));
         }
         self.waiting.push(Reverse(ticks));
@@ -96,19 +103,31 @@ impl CaptureClock {
         }
     }
 
-    /// Wall-clock nanoseconds per RTP tick, measured; 90 kHz until two frames have arrived.
-    fn ns_per_tick(&self) -> f64 {
-        match (self.first, self.latest) {
-            (Some((t0, a0)), Some((t1, a1))) if t1 > t0 && a1 > a0 => (a1 - a0) as f64 / (t1 - t0) as f64,
-            _ => 1e9 / 90_000.0,
+    /// The ticks of the frame the decoder just handed out (the earliest still waiting).
+    fn decoded(&mut self) -> Option<i64> {
+        self.waiting.pop().map(|Reverse(ticks)| ticks)
+    }
+
+    /// The capture time (wall clock ns) of a decoded frame, once the rate is known: three anchors.
+    fn stamp(&self, ticks: i64) -> Option<u64> {
+        let ((t0, a0), (t1, a1)) = (self.second?, self.latest?);
+        (t1 > t0 && a1 > a0).then(|| Self::place(ticks, (t0, a0), (a1 - a0) as f64 / (t1 - t0) as f64))
+    }
+
+    /// `stamp` with what there is, for the frames left when a stream ends: two anchors, else arrival order.
+    fn stamp_rough(&self, ticks: i64) -> Option<u64> {
+        if let Some(stamp) = self.stamp(ticks) {
+            return Some(stamp);
+        }
+        let (t0, a0) = self.first?;
+        match self.latest {
+            Some((t1, a1)) if t1 > t0 && a1 > a0 => Some(Self::place(ticks, (t0, a0), (a1 - a0) as f64 / (t1 - t0) as f64)),
+            _ => Some(a0),
         }
     }
 
-    /// The capture time (wall clock ns) of the frame the decoder just handed out.
-    fn decoded(&mut self) -> Option<u64> {
-        let Reverse(ticks) = self.waiting.pop()?;
-        let (t0, a0) = self.first?;
-        Some((a0 as i64 + ((ticks - t0) as f64 * self.ns_per_tick()) as i64).max(0) as u64)
+    fn place(ticks: i64, (t0, a0): (i64, u64), ns_per_tick: f64) -> u64 {
+        (a0 as i64 + ((ticks - t0) as f64 * ns_per_tick) as i64).max(0) as u64
     }
 }
 
@@ -162,7 +181,9 @@ fn run(
     let mut clock = CaptureClock::default();
     // when each RTP timestamp's first packet arrived (a frame's packets share one); a frame is popped after its last
     let mut first_arrival: std::collections::VecDeque<(u32, u64)> = Default::default();
-    let mut last_info_ns = 0u64;
+    // decoded frames waiting for the clock's rate (the first few of a recording)
+    let mut pending: Vec<(i64, Msg, u32, u32)> = Vec::new();
+    let mut written = Written::default();
     let mut rgb = Vec::new();
     want_keyframe();
     while let Ok((packet, arrived_ns)) = receiver.recv() {
@@ -200,12 +221,12 @@ fn run(
                     continue;
                 }
             };
-            let now = clock.decoded().unwrap_or_else(now_ns);
+            let ticks = clock.decoded();
             use openh264::formats::YUVSource;
             let (width, height) = decoded.dimensions();
             rgb.resize(width * height * 3, 0);
             decoded.write_rgb8(&mut rgb);
-            let header = Header { stamp_ns: now, frame_id: "camera_optical" };
+            let header = Header { stamp_ns: 0, frame_id: "camera_optical" };
             let image = match jpeg_quality(&recorder.image_format()) {
                 None => Msg::Image { header, width: width as u32, height: height as u32, rgb: rgb.clone() },
                 Some(quality) => {
@@ -217,22 +238,50 @@ fn run(
                     Msg::Jpeg { header, width: width as u32, height: height as u32, data: jpeg }
                 }
             };
-            recorder.write("/color_image", image);
-            if now.saturating_sub(last_info_ns) >= 1_000_000_000 {
-                last_info_ns = now;
-                let mut info = go2_camera_info();
-                // the calibration is for 1280×720: scale it to the stream's size
-                let (sx, sy) = (width as f64 / info.width as f64, height as f64 / info.height as f64);
-                for (i, s) in [(0, sx), (2, sx), (4, sy), (5, sy)] {
-                    info.k[i] *= s;
-                }
-                for (i, s) in [(0, sx), (2, sx), (5, sy), (6, sy)] {
-                    info.p[i] *= s;
-                }
-                info.width = width as u32;
-                info.height = height as u32;
-                recorder.write("/camera_info", Msg::CameraInfo(header, info));
+            match ticks {
+                Some(ticks) => pending.push((ticks, image, width as u32, height as u32)),
+                None => written.write(&recorder, now_ns(), image, width as u32, height as u32),
             }
+            if clock.stamp(pending.first().map_or(0, |f| f.0)).is_some() {
+                for (ticks, image, width, height) in pending.drain(..) {
+                    written.write(&recorder, clock.stamp(ticks).unwrap_or_else(now_ns), image, width, height);
+                }
+            }
+        }
+    }
+    // the stream ended before the clock had three anchors (a short recording): stamp with what there is
+    for (ticks, image, width, height) in pending.drain(..) {
+        written.write(&recorder, clock.stamp_rough(ticks).unwrap_or_else(now_ns), image, width, height);
+    }
+}
+
+/// Writes a stamped frame, and the camera's calibration once a second alongside it.
+#[derive(Default)]
+struct Written {
+    last_info_ns: u64,
+}
+
+impl Written {
+    fn write(&mut self, recorder: &Recorder, stamp_ns: u64, mut image: Msg, width: u32, height: u32) {
+        if let Msg::Image { header, .. } | Msg::Jpeg { header, .. } = &mut image {
+            header.stamp_ns = stamp_ns;
+        }
+        recorder.write("/color_image", image);
+        if stamp_ns.saturating_sub(self.last_info_ns) >= 1_000_000_000 {
+            self.last_info_ns = stamp_ns;
+            let header = Header { stamp_ns, frame_id: "camera_optical" };
+            let mut info = go2_camera_info();
+            // the calibration is for 1280×720: scale it to the stream's size
+            let (sx, sy) = (width as f64 / info.width as f64, height as f64 / info.height as f64);
+            for (i, s) in [(0, sx), (2, sx), (4, sy), (5, sy)] {
+                info.k[i] *= s;
+            }
+            for (i, s) in [(0, sx), (2, sx), (5, sy), (6, sy)] {
+                info.p[i] *= s;
+            }
+            info.width = width;
+            info.height = height;
+            recorder.write("/camera_info", Msg::CameraInfo(header, info));
         }
     }
 }
@@ -346,31 +395,40 @@ mod tests {
         }
         out.push(clock.decoded().unwrap());
         // display order, 1/30 s apart, each at its capture time plus the 50 ms the quickest frames took
-        for (i, &stamp) in out.iter().enumerate() {
+        for (i, &ticks) in out.iter().enumerate() {
             let expected = base_ns + i as u64 * 33_333_333 + 50_000_000;
+            let stamp = clock.stamp(ticks).unwrap();
             assert!(stamp.abs_diff(expected) < 10, "frame {i}: {stamp} vs {expected}");
         }
         assert!(clock.decoded().is_none());
     }
 
-    /// A stream with reordered (B) frames, like the robot's: every frame has to come out, not just the keyframe's.
     /// The Go2's RTP timestamps advance about 60 ticks a frame, not 6000: read as 90 kHz, a minute of video
     /// collapsed into half a second. The clock takes its rate from the arrivals instead.
     #[test]
     fn capture_clock_measures_the_robot_clock_rate() {
         let mut clock = CaptureClock::default();
         let base_ns = 1_000_000_000_000u64;
-        let mut out = Vec::new();
+        let mut ticks = Vec::new();
         for i in 0..30u64 {
             clock.submitted(1000 + i as u32 * 60, base_ns + i * 66_666_667);
-            out.push(clock.decoded().unwrap());
+            ticks.push(clock.decoded().unwrap());
+            assert_eq!(clock.stamp(ticks[0]).is_some(), i >= 2, "stamps once three anchors are in, frame {i}");
         }
-        for (i, &stamp) in out.iter().enumerate() {
+        for (i, &t) in ticks.iter().enumerate() {
             let expected = base_ns + i as u64 * 66_666_667;
+            let stamp = clock.stamp(t).unwrap();
             assert!(stamp.abs_diff(expected) < 1000, "frame {i}: {stamp} vs {expected}");
         }
+        // a stream that ends after two frames still gets stamps, from the two anchors
+        let mut short = CaptureClock::default();
+        short.submitted(5, base_ns);
+        short.submitted(65, base_ns + 66_666_667);
+        assert!(short.stamp(5).is_none());
+        assert_eq!(short.stamp_rough(65), Some(base_ns + 66_666_667));
     }
 
+    /// A stream with reordered (B) frames, like the robot's: every frame has to come out, not just the keyframe's.
     #[test]
     fn reordered_stream_records_every_frame_on_the_camera_clock() {
         let stream = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bframes_320x180_30fps.h264")).unwrap();
