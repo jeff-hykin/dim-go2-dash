@@ -162,7 +162,9 @@ export function RecordOptions(
                                 disabled={record.active}
                                 onChange={(event) => save({ compression: event.target.value })}
                             >
-                                <option value="zstd">On (LZ4 lidar and raw images; .mcap chunks are always zstd)</option>
+                                <option value="zstd">
+                                    On (LZ4 lidar and raw images; .mcap chunks are always zstd)
+                                </option>
                                 <option value="none">Off</option>
                             </select>
                         </label>
