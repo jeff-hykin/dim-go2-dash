@@ -19,17 +19,32 @@ use crate::msg::Msg;
 use crate::record::{jpeg_quality, now_ns, Recorder};
 
 const QUEUE: usize = 2048;
+/// RTP packets the sample builder waits for before giving up on a frame. 720p keyframes can run to a few hundred
+/// packets; at webrtc's default of 64 the builder emits such a frame truncated and the frames after it fail to
+/// decode. Latency is unaffected: a frame is still released as soon as the next one's first packet arrives.
+const MAX_LATE_PACKETS: u16 = 4096;
 
-/// Feeds the camera thread; dropping it ends the thread.
+/// Feeds the camera thread; dropping it ends the thread once it has written every frame already queued.
 pub struct CameraTap {
-    sender: SyncSender<(Packet, u64)>,
+    sender: Option<SyncSender<(Packet, u64)>>,
     dropped: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for CameraTap {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl CameraTap {
     /// Returns false when the queue is full (the packet was dropped; the camera thread then resyncs on a keyframe).
     pub fn push(&self, packet: Packet) -> bool {
-        let full = matches!(self.sender.try_send((packet, now_ns())), Err(TrySendError::Full(_)));
+        let Some(sender) = &self.sender else { return false };
+        let full = matches!(sender.try_send((packet, now_ns())), Err(TrySendError::Full(_)));
         if full {
             self.dropped.store(true, Ordering::Relaxed);
         }
@@ -38,15 +53,19 @@ impl CameraTap {
 }
 
 /// Capture times for decoded frames: the decoder hands frames out in display order, which a stream with reordered
-/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting.
+/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting. The robot's RTP
+/// clock isn't trusted to run at 90 kHz (the Go2's advances about 60 ticks a frame): its rate is measured from the
+/// first frame's arrival to the latest frame's, and every stamp is placed from the first frame's arrival at that rate.
 #[derive(Default)]
 struct CaptureClock {
     /// RTP timestamps (unwrapped) of frames given to the decoder and not yet out of it
     waiting: BinaryHeap<Reverse<i64>>,
     last_rtp: Option<u32>,
     unwrapped: i64,
-    /// wall clock ns minus RTP time in ns, the smallest seen: the packet that arrived with the least delay
-    offset_ns: Option<i64>,
+    /// the first frame: its ticks and when its first packet arrived (wall clock ns)
+    first: Option<(i64, u64)>,
+    /// the frame with the largest ticks so far and its arrival: a frame sent as soon as it was captured
+    latest: Option<(i64, u64)>,
 }
 
 impl CaptureClock {
@@ -67,8 +86,10 @@ impl CaptureClock {
     /// A frame went into the decoder: its RTP timestamp and when its first packet arrived.
     fn submitted(&mut self, rtp: u32, arrived_ns: u64) {
         let ticks = self.unwrap(rtp);
-        let offset = arrived_ns as i64 - ticks * 1_000_000 / 9 / 10;
-        self.offset_ns = Some(self.offset_ns.map_or(offset, |o| o.min(offset)));
+        self.first.get_or_insert((ticks, arrived_ns));
+        if self.latest.is_none_or(|(t, _)| ticks > t) {
+            self.latest = Some((ticks, arrived_ns));
+        }
         self.waiting.push(Reverse(ticks));
         // a frame the decoder never hands out mustn't shift every later frame's time
         while self.waiting.len() > 16 {
@@ -76,10 +97,19 @@ impl CaptureClock {
         }
     }
 
+    /// Wall-clock nanoseconds per RTP tick, measured; 90 kHz until two frames have arrived.
+    fn ns_per_tick(&self) -> f64 {
+        match (self.first, self.latest) {
+            (Some((t0, a0)), Some((t1, a1))) if t1 > t0 && a1 > a0 => (a1 - a0) as f64 / (t1 - t0) as f64,
+            _ => 1e9 / 90_000.0,
+        }
+    }
+
     /// The capture time (wall clock ns) of the frame the decoder just handed out.
     fn decoded(&mut self) -> Option<u64> {
         let Reverse(ticks) = self.waiting.pop()?;
-        Some((ticks * 1_000_000 / 9 / 10 + self.offset_ns?).max(0) as u64)
+        let (t0, a0) = self.first?;
+        Some((a0 as i64 + ((ticks - t0) as f64 * self.ns_per_tick()) as i64).max(0) as u64)
     }
 }
 
@@ -88,11 +118,11 @@ pub fn start(recorder: Arc<Recorder>, want_keyframe: Arc<dyn Fn() + Send + Sync>
     let (sender, receiver) = sync_channel(QUEUE);
     let dropped = Arc::new(AtomicBool::new(false));
     let thread_dropped = dropped.clone();
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("go2-camera".into())
         .spawn(move || run(receiver, thread_dropped, recorder, want_keyframe))
         .expect("spawn the camera thread");
-    CameraTap { sender, dropped }
+    CameraTap { sender: Some(sender), dropped, thread: Some(thread) }
 }
 
 /// dimos/robot/unitree/go2/front_camera_720.yaml
@@ -128,7 +158,7 @@ fn run(
         eprintln!("camera: openh264 didn't start; no /color_image in this recording");
         return;
     };
-    let mut builder = SampleBuilder::new(64, H264Packet::default(), 90_000);
+    let mut builder = SampleBuilder::new(MAX_LATE_PACKETS, H264Packet::default(), 90_000);
     let mut synced = false;
     let mut clock = CaptureClock::default();
     // when each RTP timestamp's first packet arrived (a frame's packets share one); a frame is popped after its last
@@ -325,6 +355,23 @@ mod tests {
     }
 
     /// A stream with reordered (B) frames, like the robot's: every frame has to come out, not just the keyframe's.
+    /// The Go2's RTP timestamps advance about 60 ticks a frame, not 6000: read as 90 kHz, a minute of video
+    /// collapsed into half a second. The clock takes its rate from the arrivals instead.
+    #[test]
+    fn capture_clock_measures_the_robot_clock_rate() {
+        let mut clock = CaptureClock::default();
+        let base_ns = 1_000_000_000_000u64;
+        let mut out = Vec::new();
+        for i in 0..30u64 {
+            clock.submitted(1000 + i as u32 * 60, base_ns + i * 66_666_667);
+            out.push(clock.decoded().unwrap());
+        }
+        for (i, &stamp) in out.iter().enumerate() {
+            let expected = base_ns + i as u64 * 66_666_667;
+            assert!(stamp.abs_diff(expected) < 1000, "frame {i}: {stamp} vs {expected}");
+        }
+    }
+
     #[test]
     fn reordered_stream_records_every_frame_on_the_camera_clock() {
         let stream = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bframes_320x180_30fps.h264")).unwrap();
@@ -393,5 +440,60 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
+    /// 720p keyframes can span several hundred RTP packets. A sample builder that gives up on a frame after 64 late
+    /// packets hands the decoder a truncated keyframe; the frames referencing it then fail to decode.
+    #[test]
+    fn large_keyframes_record_every_frame() {
+        use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, QpRange, RateControlMode};
+        use webrtc::rtp::packetizer::Packetizer;
+        let (w, h, fps, frames) = (1280usize, 720usize, 15u32, 90usize);
+        let config = EncoderConfig::new()
+            .max_frame_rate(FrameRate::from_hz(fps as f32))
+            .intra_frame_period(IntraFramePeriod::from_num_frames(30))
+            .rate_control_mode(RateControlMode::Off)
+            .qp(QpRange::new(12, 16))
+            .bitrate(BitRate::from_bps(20_000_000));
+        let mut encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), config).unwrap();
+        let mut packetizer = webrtc::rtp::packetizer::new_packetizer(
+            1200,
+            102,
+            0x1234_5678,
+            Box::new(webrtc::rtp::codecs::h264::H264Payloader::default()),
+            Box::new(webrtc::rtp::sequence::new_random_sequencer()),
+            90_000,
+        );
+        // a fixed noisy texture (compresses badly: big keyframes) with a moving bar (small P-frames)
+        let texture: Vec<u8> = (0..w * h * 3).map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+        let dir = std::env::temp_dir().join(format!("go2_camera_big_{}", now_ns()));
+        let path = dir.join("c.mcap");
+        let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
+        let recorder = Arc::new(Recorder::start_with_options(&path, Default::default(), |_| Default::default(), options).unwrap());
+        let tap = start(recorder.clone(), Arc::new(|| {}));
+        let mut biggest = 0;
+        for t in 0..frames {
+            let mut rgb = texture.clone();
+            let bar = (t * 8) % w;
+            for y in 0..h {
+                for x in bar..(bar + 16).min(w) {
+                    let i = (y * w + x) * 3;
+                    rgb[i..i + 3].copy_from_slice(&[255, 255, 255]);
+                }
+            }
+            let yuv = openh264::formats::YUVBuffer::from_rgb8_source(openh264::formats::RgbSliceU8::new(&rgb, (w, h)));
+            let annex_b = encoder.encode(&yuv).unwrap().to_vec();
+            let packets = packetizer.packetize(&bytes::Bytes::from(annex_b), 90_000 / fps).unwrap();
+            biggest = biggest.max(packets.len());
+            for packet in packets {
+                assert!(tap.push(packet));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(70));
+        }
+        drop(tap);
+        recorder.finish().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let images = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").count();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(biggest > 64, "the test needs a keyframe over 64 packets, biggest was {biggest}");
+        assert!(images >= frames - 10, "{images} of {frames} frames recorded (biggest frame {biggest} packets)");
+    }
 }
-
