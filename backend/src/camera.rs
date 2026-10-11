@@ -53,15 +53,19 @@ impl CameraTap {
 }
 
 /// Capture times for decoded frames: the decoder hands frames out in display order, which a stream with reordered
-/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting.
+/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting. The robot's RTP
+/// clock isn't trusted to run at 90 kHz (the Go2's advances about 60 ticks a frame): its rate is measured from the
+/// first frame's arrival to the latest frame's, and every stamp is placed from the first frame's arrival at that rate.
 #[derive(Default)]
 struct CaptureClock {
     /// RTP timestamps (unwrapped) of frames given to the decoder and not yet out of it
     waiting: BinaryHeap<Reverse<i64>>,
     last_rtp: Option<u32>,
     unwrapped: i64,
-    /// wall clock ns minus RTP time in ns, the smallest seen: the packet that arrived with the least delay
-    offset_ns: Option<i64>,
+    /// the first frame: its ticks and when its first packet arrived (wall clock ns)
+    first: Option<(i64, u64)>,
+    /// the frame with the largest ticks so far and its arrival: a frame sent as soon as it was captured
+    latest: Option<(i64, u64)>,
 }
 
 impl CaptureClock {
@@ -82,8 +86,10 @@ impl CaptureClock {
     /// A frame went into the decoder: its RTP timestamp and when its first packet arrived.
     fn submitted(&mut self, rtp: u32, arrived_ns: u64) {
         let ticks = self.unwrap(rtp);
-        let offset = arrived_ns as i64 - ticks * 1_000_000 / 9 / 10;
-        self.offset_ns = Some(self.offset_ns.map_or(offset, |o| o.min(offset)));
+        self.first.get_or_insert((ticks, arrived_ns));
+        if self.latest.is_none_or(|(t, _)| ticks > t) {
+            self.latest = Some((ticks, arrived_ns));
+        }
         self.waiting.push(Reverse(ticks));
         // a frame the decoder never hands out mustn't shift every later frame's time
         while self.waiting.len() > 16 {
@@ -91,10 +97,19 @@ impl CaptureClock {
         }
     }
 
+    /// Wall-clock nanoseconds per RTP tick, measured; 90 kHz until two frames have arrived.
+    fn ns_per_tick(&self) -> f64 {
+        match (self.first, self.latest) {
+            (Some((t0, a0)), Some((t1, a1))) if t1 > t0 && a1 > a0 => (a1 - a0) as f64 / (t1 - t0) as f64,
+            _ => 1e9 / 90_000.0,
+        }
+    }
+
     /// The capture time (wall clock ns) of the frame the decoder just handed out.
     fn decoded(&mut self) -> Option<u64> {
         let Reverse(ticks) = self.waiting.pop()?;
-        Some((ticks * 1_000_000 / 9 / 10 + self.offset_ns?).max(0) as u64)
+        let (t0, a0) = self.first?;
+        Some((a0 as i64 + ((ticks - t0) as f64 * self.ns_per_tick()) as i64).max(0) as u64)
     }
 }
 
@@ -340,6 +355,23 @@ mod tests {
     }
 
     /// A stream with reordered (B) frames, like the robot's: every frame has to come out, not just the keyframe's.
+    /// The Go2's RTP timestamps advance about 60 ticks a frame, not 6000: read as 90 kHz, a minute of video
+    /// collapsed into half a second. The clock takes its rate from the arrivals instead.
+    #[test]
+    fn capture_clock_measures_the_robot_clock_rate() {
+        let mut clock = CaptureClock::default();
+        let base_ns = 1_000_000_000_000u64;
+        let mut out = Vec::new();
+        for i in 0..30u64 {
+            clock.submitted(1000 + i as u32 * 60, base_ns + i * 66_666_667);
+            out.push(clock.decoded().unwrap());
+        }
+        for (i, &stamp) in out.iter().enumerate() {
+            let expected = base_ns + i as u64 * 66_666_667;
+            assert!(stamp.abs_diff(expected) < 1000, "frame {i}: {stamp} vs {expected}");
+        }
+    }
+
     #[test]
     fn reordered_stream_records_every_frame_on_the_camera_clock() {
         let stream = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bframes_320x180_30fps.h264")).unwrap();
