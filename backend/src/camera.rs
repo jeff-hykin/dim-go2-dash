@@ -19,17 +19,32 @@ use crate::msg::Msg;
 use crate::record::{jpeg_quality, now_ns, Recorder};
 
 const QUEUE: usize = 2048;
+/// RTP packets the sample builder waits for before giving up on a frame. 720p keyframes can run to a few hundred
+/// packets; at webrtc's default of 64 the builder emits such a frame truncated and the frames after it fail to
+/// decode. Latency is unaffected: a frame is still released as soon as the next one's first packet arrives.
+const MAX_LATE_PACKETS: u16 = 4096;
 
-/// Feeds the camera thread; dropping it ends the thread.
+/// Feeds the camera thread; dropping it ends the thread once it has written every frame already queued.
 pub struct CameraTap {
-    sender: SyncSender<(Packet, u64)>,
+    sender: Option<SyncSender<(Packet, u64)>>,
     dropped: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for CameraTap {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl CameraTap {
     /// Returns false when the queue is full (the packet was dropped; the camera thread then resyncs on a keyframe).
     pub fn push(&self, packet: Packet) -> bool {
-        let full = matches!(self.sender.try_send((packet, now_ns())), Err(TrySendError::Full(_)));
+        let Some(sender) = &self.sender else { return false };
+        let full = matches!(sender.try_send((packet, now_ns())), Err(TrySendError::Full(_)));
         if full {
             self.dropped.store(true, Ordering::Relaxed);
         }
@@ -88,11 +103,11 @@ pub fn start(recorder: Arc<Recorder>, want_keyframe: Arc<dyn Fn() + Send + Sync>
     let (sender, receiver) = sync_channel(QUEUE);
     let dropped = Arc::new(AtomicBool::new(false));
     let thread_dropped = dropped.clone();
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("go2-camera".into())
         .spawn(move || run(receiver, thread_dropped, recorder, want_keyframe))
         .expect("spawn the camera thread");
-    CameraTap { sender, dropped }
+    CameraTap { sender: Some(sender), dropped, thread: Some(thread) }
 }
 
 /// dimos/robot/unitree/go2/front_camera_720.yaml
@@ -128,7 +143,7 @@ fn run(
         eprintln!("camera: openh264 didn't start; no /color_image in this recording");
         return;
     };
-    let mut builder = SampleBuilder::new(64, H264Packet::default(), 90_000);
+    let mut builder = SampleBuilder::new(MAX_LATE_PACKETS, H264Packet::default(), 90_000);
     let mut synced = false;
     let mut clock = CaptureClock::default();
     // when each RTP timestamp's first packet arrived (a frame's packets share one); a frame is popped after its last
@@ -393,5 +408,60 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
+    /// 720p keyframes can span several hundred RTP packets. A sample builder that gives up on a frame after 64 late
+    /// packets hands the decoder a truncated keyframe; the frames referencing it then fail to decode.
+    #[test]
+    fn large_keyframes_record_every_frame() {
+        use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, QpRange, RateControlMode};
+        use webrtc::rtp::packetizer::Packetizer;
+        let (w, h, fps, frames) = (1280usize, 720usize, 15u32, 90usize);
+        let config = EncoderConfig::new()
+            .max_frame_rate(FrameRate::from_hz(fps as f32))
+            .intra_frame_period(IntraFramePeriod::from_num_frames(30))
+            .rate_control_mode(RateControlMode::Off)
+            .qp(QpRange::new(12, 16))
+            .bitrate(BitRate::from_bps(20_000_000));
+        let mut encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), config).unwrap();
+        let mut packetizer = webrtc::rtp::packetizer::new_packetizer(
+            1200,
+            102,
+            0x1234_5678,
+            Box::new(webrtc::rtp::codecs::h264::H264Payloader::default()),
+            Box::new(webrtc::rtp::sequence::new_random_sequencer()),
+            90_000,
+        );
+        // a fixed noisy texture (compresses badly: big keyframes) with a moving bar (small P-frames)
+        let texture: Vec<u8> = (0..w * h * 3).map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+        let dir = std::env::temp_dir().join(format!("go2_camera_big_{}", now_ns()));
+        let path = dir.join("c.mcap");
+        let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
+        let recorder = Arc::new(Recorder::start_with_options(&path, Default::default(), |_| Default::default(), options).unwrap());
+        let tap = start(recorder.clone(), Arc::new(|| {}));
+        let mut biggest = 0;
+        for t in 0..frames {
+            let mut rgb = texture.clone();
+            let bar = (t * 8) % w;
+            for y in 0..h {
+                for x in bar..(bar + 16).min(w) {
+                    let i = (y * w + x) * 3;
+                    rgb[i..i + 3].copy_from_slice(&[255, 255, 255]);
+                }
+            }
+            let yuv = openh264::formats::YUVBuffer::from_rgb8_source(openh264::formats::RgbSliceU8::new(&rgb, (w, h)));
+            let annex_b = encoder.encode(&yuv).unwrap().to_vec();
+            let packets = packetizer.packetize(&bytes::Bytes::from(annex_b), 90_000 / fps).unwrap();
+            biggest = biggest.max(packets.len());
+            for packet in packets {
+                assert!(tap.push(packet));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(70));
+        }
+        drop(tap);
+        recorder.finish().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let images = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").count();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(biggest > 64, "the test needs a keyframe over 64 packets, biggest was {biggest}");
+        assert!(images >= frames - 10, "{images} of {frames} frames recorded (biggest frame {biggest} packets)");
+    }
 }
-
