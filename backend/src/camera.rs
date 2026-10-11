@@ -1,8 +1,12 @@
 // The camera for recordings: the robot's H.264 RTP packets → frames (openh264) → JPEG → /color_image
 // (sensor_msgs/CompressedImage, frame camera_optical), plus /camera_info once a second (dimos' Go2 front-camera
 // calibration). Runs on its own thread with a bounded queue: when it falls behind it drops packets, waits for the next
-// keyframe and asks the robot for one, so memory never grows.
+// keyframe and asks the robot for one, so memory never grows. A frame is stamped with when the robot captured it: its
+// RTP timestamp (the camera's 90 kHz clock) placed on the wall clock by the earliest packet arrival, not decode time.
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 
@@ -18,24 +22,77 @@ const QUEUE: usize = 2048;
 
 /// Feeds the camera thread; dropping it ends the thread.
 pub struct CameraTap {
-    sender: SyncSender<Packet>,
+    sender: SyncSender<(Packet, u64)>,
+    dropped: Arc<AtomicBool>,
 }
 
 impl CameraTap {
-    /// Returns false when the queue is full (the packet was dropped).
+    /// Returns false when the queue is full (the packet was dropped; the camera thread then resyncs on a keyframe).
     pub fn push(&self, packet: Packet) -> bool {
-        !matches!(self.sender.try_send(packet), Err(TrySendError::Full(_)))
+        let full = matches!(self.sender.try_send((packet, now_ns())), Err(TrySendError::Full(_)));
+        if full {
+            self.dropped.store(true, Ordering::Relaxed);
+        }
+        !full
+    }
+}
+
+/// Capture times for decoded frames: the decoder hands frames out in display order, which a stream with reordered
+/// frames doesn't send them in, so a decoded frame takes the earliest RTP timestamp still waiting.
+#[derive(Default)]
+struct CaptureClock {
+    /// RTP timestamps (unwrapped) of frames given to the decoder and not yet out of it
+    waiting: BinaryHeap<Reverse<i64>>,
+    last_rtp: Option<u32>,
+    unwrapped: i64,
+    /// wall clock ns minus RTP time in ns, the smallest seen: the packet that arrived with the least delay
+    offset_ns: Option<i64>,
+}
+
+impl CaptureClock {
+    fn reset(&mut self) {
+        *self = CaptureClock::default();
+    }
+
+    fn unwrap(&mut self, rtp: u32) -> i64 {
+        if let Some(last) = self.last_rtp {
+            self.unwrapped += rtp.wrapping_sub(last) as i32 as i64;
+        } else {
+            self.unwrapped = rtp as i64;
+        }
+        self.last_rtp = Some(rtp);
+        self.unwrapped
+    }
+
+    /// A frame went into the decoder: its RTP timestamp and when its first packet arrived.
+    fn submitted(&mut self, rtp: u32, arrived_ns: u64) {
+        let ticks = self.unwrap(rtp);
+        let offset = arrived_ns as i64 - ticks * 1_000_000 / 9 / 10;
+        self.offset_ns = Some(self.offset_ns.map_or(offset, |o| o.min(offset)));
+        self.waiting.push(Reverse(ticks));
+        // a frame the decoder never hands out mustn't shift every later frame's time
+        while self.waiting.len() > 16 {
+            self.waiting.pop();
+        }
+    }
+
+    /// The capture time (wall clock ns) of the frame the decoder just handed out.
+    fn decoded(&mut self) -> Option<u64> {
+        let Reverse(ticks) = self.waiting.pop()?;
+        Some((ticks * 1_000_000 / 9 / 10 + self.offset_ns?).max(0) as u64)
     }
 }
 
 /// `want_keyframe` is called when the decoder needs a keyframe (start, after a drop).
 pub fn start(recorder: Arc<Recorder>, want_keyframe: Arc<dyn Fn() + Send + Sync>) -> CameraTap {
     let (sender, receiver) = sync_channel(QUEUE);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let thread_dropped = dropped.clone();
     std::thread::Builder::new()
         .name("go2-camera".into())
-        .spawn(move || run(receiver, recorder, want_keyframe))
+        .spawn(move || run(receiver, thread_dropped, recorder, want_keyframe))
         .expect("spawn the camera thread");
-    CameraTap { sender }
+    CameraTap { sender, dropped }
 }
 
 /// dimos/robot/unitree/go2/front_camera_720.yaml
@@ -58,7 +115,12 @@ pub fn has_keyframe(annex_b: &[u8]) -> bool {
     annex_b.windows(4).any(|w| w[0] == 0 && w[1] == 0 && w[2] == 1 && matches!(w[3] & 0x1f, 5 | 7))
 }
 
-fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<dyn Fn() + Send + Sync>) {
+fn run(
+    receiver: Receiver<(Packet, u64)>,
+    dropped: Arc<AtomicBool>,
+    recorder: Arc<Recorder>,
+    want_keyframe: Arc<dyn Fn() + Send + Sync>,
+) {
     // NoFlush: the crate's default flushes after every decode, which on a stream with reordered frames errors on all
     // but the frames right after a keyframe (recordings had ~1 fps: a keyframe, a frame, then nothing until the next)
     let config = openh264::decoder::DecoderConfig::new().flush_after_decode(openh264::decoder::Flush::NoFlush);
@@ -68,18 +130,37 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
     };
     let mut builder = SampleBuilder::new(64, H264Packet::default(), 90_000);
     let mut synced = false;
+    let mut clock = CaptureClock::default();
+    // when each RTP timestamp's first packet arrived (a frame's packets share one); a frame is popped after its last
+    let mut first_arrival: std::collections::VecDeque<(u32, u64)> = Default::default();
     let mut last_info_ns = 0u64;
     let mut rgb = Vec::new();
     want_keyframe();
-    while let Ok(packet) = receiver.recv() {
+    while let Ok((packet, arrived_ns)) = receiver.recv() {
+        if first_arrival.back().is_none_or(|&(rtp, _)| rtp != packet.header.timestamp) {
+            first_arrival.push_back((packet.header.timestamp, arrived_ns));
+            if first_arrival.len() > 64 {
+                first_arrival.pop_front();
+            }
+        }
         builder.push(packet);
         while let Some(sample) = builder.pop() {
+            // packets lost on the way, or dropped here when the queue was full: the frames after them can't decode
+            if dropped.swap(false, Ordering::Relaxed) || sample.prev_dropped_packets > 0 {
+                if synced {
+                    synced = false;
+                    want_keyframe();
+                }
+            }
             if !synced {
                 if !has_keyframe(&sample.data) {
                     continue;
                 }
                 synced = true;
+                clock.reset();
             }
+            let arrived = first_arrival.iter().find(|&&(rtp, _)| rtp == sample.packet_timestamp).map_or_else(now_ns, |&(_, at)| at);
+            clock.submitted(sample.packet_timestamp, arrived);
             let decoded = match decoder.decode(&sample.data) {
                 Ok(Some(yuv)) => yuv,
                 Ok(None) => continue,
@@ -90,7 +171,7 @@ fn run(receiver: Receiver<Packet>, recorder: Arc<Recorder>, want_keyframe: Arc<d
                     continue;
                 }
             };
-            let now = now_ns();
+            let now = clock.decoded().unwrap_or_else(now_ns);
             use openh264::formats::YUVSource;
             let (width, height) = decoded.dimensions();
             rgb.resize(width * height * 3, 0);
@@ -214,9 +295,38 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Frames go into the decoder in send order (I P B B …) and come out in display order: each takes the earliest
+    /// capture time still waiting, placed by the packet that arrived soonest after its capture.
+    #[test]
+    fn capture_clock_stamps_reordered_frames_in_display_order() {
+        let mut clock = CaptureClock::default();
+        let start = u32::MAX - 6000; // wraps
+        // send order with display index: 0, 3, 1, 2, 6, 4, 5; a frame can't be sent before the latest frame it follows
+        // in send order was captured, and each arrives 50 ms after that (B frames wait longer)
+        let sent = [0u32, 3, 1, 2, 6, 4, 5];
+        let base_ns = 1_000_000_000_000u64;
+        let mut out = Vec::new();
+        let mut latest = 0;
+        for (i, &frame) in sent.iter().enumerate() {
+            latest = latest.max(frame);
+            clock.submitted(start.wrapping_add(frame * 3000), base_ns + latest as u64 * 33_333_333 + 50_000_000);
+            // the decoder holds one frame back for reordering
+            if i >= 1 {
+                out.push(clock.decoded().unwrap());
+            }
+        }
+        out.push(clock.decoded().unwrap());
+        // display order, 1/30 s apart, each at its capture time plus the 50 ms the quickest frames took
+        for (i, &stamp) in out.iter().enumerate() {
+            let expected = base_ns + i as u64 * 33_333_333 + 50_000_000;
+            assert!(stamp.abs_diff(expected) < 10, "frame {i}: {stamp} vs {expected}");
+        }
+        assert!(clock.decoded().is_none());
+    }
+
     /// A stream with reordered (B) frames, like the robot's: every frame has to come out, not just the keyframe's.
     #[test]
-    fn reordered_stream_records_every_frame() {
+    fn reordered_stream_records_every_frame_on_the_camera_clock() {
         let stream = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bframes_320x180_30fps.h264")).unwrap();
         // one access unit per picture: the parameter sets and SEI ride with the slice after them
         let mut units = Vec::new();
@@ -242,22 +352,45 @@ mod tests {
         let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
         let recorder = Arc::new(Recorder::start_with_options(&path, Default::default(), |_| Default::default(), options).unwrap());
         let tap = start(recorder.clone(), Arc::new(|| {}));
+        // RTP timestamps rise in send order and don't wrap here: webrtc-rs's sample builder subtracts them, which
+        // overflows (panics in a debug build only) when one goes back or wraps; CaptureClock's test covers both
+        let mut rtp = 1_000_000u32;
         for unit in units {
-            for packet in packetizer.packetize(&bytes::Bytes::from(unit), 90_000 / 30).unwrap() {
+            rtp = rtp.wrapping_add(3000);
+            for mut packet in packetizer.packetize(&bytes::Bytes::from(unit), 90_000 / 30).unwrap() {
+                packet.header.timestamp = rtp;
                 assert!(tap.push(packet));
             }
+            // in real time, as the robot sends them: the clock is placed by the arrival times
+            std::thread::sleep(std::time::Duration::from_micros(33_333));
         }
         // the sample builder holds the last picture until the next timestamp arrives
-        for packet in packetizer.packetize(&bytes::Bytes::from_static(&[0, 0, 0, 1, 9, 0xF0]), 90_000 / 30).unwrap() {
+        for mut packet in packetizer.packetize(&bytes::Bytes::from_static(&[0, 0, 0, 1, 9, 0xF0]), 90_000 / 30).unwrap() {
+            packet.header.timestamp = rtp.wrapping_add(3000);
             assert!(tap.push(packet));
         }
         drop(tap);
         std::thread::sleep(std::time::Duration::from_millis(1500));
         recorder.finish().unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        let images = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").count();
+        let images: Vec<_> =
+            mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").collect();
         // all 60 but the one or two the decoder still holds for reordering when the stream ends
-        assert!(images >= 57, "{images} of 60 frames recorded");
+        assert!(images.len() >= 57, "{} of 60 frames recorded", images.len());
+        // header stamps (after the CDR encapsulation): the capture times, 1/30 s apart, not when decoding finished
+        let stamps: Vec<i64> = images
+            .iter()
+            .map(|m| {
+                let sec = i32::from_le_bytes(m.data[4..8].try_into().unwrap()) as i64;
+                let nsec = u32::from_le_bytes(m.data[8..12].try_into().unwrap()) as i64;
+                sec * 1_000_000_000 + nsec
+            })
+            .collect();
+        for pair in stamps.windows(2) {
+            let gap_ms = (pair[1] - pair[0]) as f64 / 1e6;
+            // the camera's clock spaces them exactly; the first few may sit later until the quickest arrival is seen
+            assert!((gap_ms - 33.33).abs() < 8.0, "frames {gap_ms} ms apart: {stamps:?}");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
