@@ -12,7 +12,7 @@ const TOPICS = [
     "/tf",
     "/imu",
     "/battery",
-    "/joint_states",
+    "/joint_state",
     "/joystick",
     "/cmd_vel",
     "/robot_action",
@@ -106,7 +106,7 @@ export function RecordOptions(
                         onChange={(event) => save({ format: event.target.value })}
                     >
                         <option value="db">.db: dimos memory store (dimos LCM types)</option>
-                        <option value="mcap">.mcap: ROS 2 CDR (Foxglove)</option>
+                        <option value="mcap">.mcap: dimos layout (the same LCM rows)</option>
                     </select>
                 </label>
                 <Check
@@ -162,7 +162,7 @@ export function RecordOptions(
                                 disabled={record.active}
                                 onChange={(event) => save({ compression: event.target.value })}
                             >
-                                <option value="zstd">On (.mcap: zstd chunks, .db: LZ4 lidar and raw images)</option>
+                                <option value="zstd">On (LZ4 lidar and raw images; .mcap chunks are always zstd)</option>
                                 <option value="none">Off</option>
                             </select>
                         </label>

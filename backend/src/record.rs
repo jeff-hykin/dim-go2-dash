@@ -1,12 +1,13 @@
-// The writer behind the Record button: one file per recording, either a dimos memory store (.db, the default: dimos'
-// LCM types in SQLite, db.rs) or an mcap (ROS2 CDR messages with ros2msg schemas, cdr.rs, the same encoding
-// Controller's recorder uses, zstd chunks). A message is encoded for the file's format as it's queued (msg.rs).
+// The writer behind the Record button: one file per recording, through dimos' own recorder stores
+// (dimos-memory-recorder's `store`): a dimos memory store (.db, the default) or an mcap in the dimos layout (one
+// zstd-chunked channel per stream, its codec as the message encoding, `dimos.*` channel metadata). Both hold the same
+// rows: dimos' LCM types (msg.rs), LZ4-framed where the stream's codec says so.
 //
 // Crash-safe and bounded: a writer thread drains a queue capped by bytes (a full queue drops the newest message and
-// counts it, it never grows), and closes a chunk (mcap) or commits (.db) at least once a second, so a run killed
-// mid-way leaves every message up to that second readable. A file a killed run left unfinished (an mcap without its
-// summary, a .db with its -wal beside it) is finished on the next start (`recover`). Nothing ever-growing is recorded:
-// the lidar is the robot's local voxel window, not a global map.
+// counts it, it never grows) and hands the store a batch at least once a second (a .db commits it, so a run killed
+// mid-way keeps every row up to that second; an mcap keeps every chunk it closed). A file a killed run left unfinished
+// (an mcap without its summary, a .db with its -wal beside it) is finished on the next start (`recover`). Nothing
+// ever-growing is recorded: the lidar is the robot's local voxel window, not a global map.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -18,21 +19,17 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use mcap::{WriteOptions, Writer};
+use dimos_memory_recorder::store::{self, Observation, RecordingStore, RecordingStoreConfig};
+use dimos_memory_recorder::{Codec, StreamConfig};
 
-use crate::cdr::Encoded;
-use crate::db::Db;
 use crate::msg::{Msg, Rows};
 
 /// messages, whatever their size
 const QUEUE_DEPTH: usize = 1024;
 /// bytes waiting in the queue: past this new messages are dropped (and counted), so memory stays flat
 const QUEUE_BYTES: u64 = 64 * 1024 * 1024;
-/// a chunk is closed at least this often: what a hard kill can lose
+/// a batch goes to the store at least this often: what a hard kill can lose from a .db
 const FLUSH_EVERY: Duration = Duration::from_secs(1);
-const CHUNK_SIZE: u64 = 4 * 1024 * 1024;
-pub const PROFILE: &str = "ros2";
-pub const LIBRARY: &str = concat!("dim-go2-dash ", env!("CARGO_PKG_VERSION"));
 
 pub const TOPICS: &[&str] = &[
     "/color_image",
@@ -42,7 +39,7 @@ pub const TOPICS: &[&str] = &[
     "/tf",
     "/imu",
     "/battery",
-    "/joint_states",
+    "/joint_state",
     "/joystick",
     "/cmd_vel",
     "/robot_action",
@@ -107,73 +104,14 @@ pub fn jpeg_quality(image_format: &str) -> Option<u8> {
     }
 }
 
-enum Payload {
-    Cdr(Encoded),
-    /// .db rows, and the robot pose they carry (odom's)
-    Dimos(Rows, Option<[f64; 7]>),
-}
-
-impl Payload {
-    fn len(&self) -> u64 {
-        match self {
-            Payload::Cdr(encoded) => encoded.data.len() as u64,
-            Payload::Dimos(rows, _) => rows.rows.iter().map(|(_, data)| data.len() as u64).sum(),
-        }
-    }
-}
-
 struct Sample {
     topic: &'static str,
-    payload: Payload,
+    rows: Rows,
     log_time: u64,
 }
 
-enum Sink {
-    Mcap { writer: Writer<BufWriter<File>>, channels: HashMap<&'static str, (u16, u32)>, channel_metadata: ChannelMetadata },
-    Db(Db),
-}
-
-impl Sink {
-    /// Writes a sample; returns the bytes it took in the file.
-    fn write(&mut self, sample: Sample) -> Result<u64, String> {
-        match (self, sample.payload) {
-            (Sink::Mcap { writer, channels, channel_metadata }, Payload::Cdr(encoded)) => {
-                let slot = match channels.get_mut(sample.topic) {
-                    Some(slot) => slot,
-                    None => {
-                        let schema =
-                            writer.add_schema(encoded.schema_name, "ros2msg", encoded.schema_text.as_bytes()).map_err(|e| e.to_string())?;
-                        let id = writer.add_channel(schema, sample.topic, "cdr", &channel_metadata(sample.topic)).map_err(|e| e.to_string())?;
-                        channels.entry(sample.topic).or_insert((id, 0))
-                    }
-                };
-                slot.1 = slot.1.wrapping_add(1);
-                let header =
-                    mcap::records::MessageHeader { channel_id: slot.0, sequence: slot.1, log_time: sample.log_time, publish_time: sample.log_time };
-                writer.write_to_known_channel(&header, &encoded.data).map_err(|e| e.to_string())?;
-                Ok(encoded.data.len() as u64)
-            }
-            (Sink::Db(db), Payload::Dimos(rows, pose)) => {
-                db.write(sample.topic.trim_start_matches('/'), &rows, pose, sample.log_time as f64 / 1e9)
-            }
-            _ => Err("a message encoded for the other format".into()),
-        }
-    }
-
-    /// Closes a chunk / commits: what a hard kill can no longer lose.
-    fn flush(&mut self) -> Result<(), String> {
-        match self {
-            Sink::Mcap { writer, .. } => writer.flush().map_err(|e| e.to_string()),
-            Sink::Db(db) => db.commit(),
-        }
-    }
-
-    fn finish(self) -> Result<(), String> {
-        match self {
-            Sink::Mcap { mut writer, .. } => writer.finish().map(|_| ()).map_err(|e| e.to_string()),
-            Sink::Db(db) => db.finish(),
-        }
-    }
+fn rows_len(rows: &Rows) -> u64 {
+    rows.iter().map(|(_, data)| data.len() as u64).sum()
 }
 
 #[derive(Default)]
@@ -189,7 +127,6 @@ pub struct Counters {
 
 pub struct Recorder {
     options: Mutex<RecordOptions>,
-    db: bool,
     last_sample: Mutex<HashMap<&'static str, u64>>,
     pub path: PathBuf,
     pub started_ms: u64,
@@ -203,8 +140,8 @@ pub struct Recorder {
 pub type ChannelMetadata = fn(&str) -> BTreeMap<String, String>;
 
 impl Recorder {
-    /// Creates the file and its writer thread. `metadata` becomes an mcap Metadata record named "dimos.recording", or a
-    /// .db's `metadata` stream: one JSON row, with each topic's channel metadata under "streams".
+    /// Creates the file and its writer thread. `metadata` becomes the `metadata` stream's one JSON row, with each topic's
+    /// channel metadata (what it is, the Joy layout) under "streams".
     pub fn start(path: &Path, metadata: BTreeMap<String, String>, channel_metadata: ChannelMetadata) -> Result<Recorder, String> {
         Self::start_with_options(path, metadata, channel_metadata, RecordOptions::default())
     }
@@ -219,36 +156,52 @@ impl Recorder {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
         }
+        let compress = settings.compression != "none";
+        let names: Vec<&str> = TOPICS.iter().map(|t| t.trim_start_matches('/')).chain(["metadata"]).collect();
+        let streams: HashMap<String, Arc<StreamConfig>> = names
+            .iter()
+            .map(|name| {
+                let (payload_type, codec) = crate::msg::stream_type(name, settings.image_format == "raw", compress).unwrap();
+                let config = StreamConfig {
+                    port: name.to_string(),
+                    name: name.to_string(),
+                    payload_type: payload_type.into(),
+                    codec: serde_json::from_value(serde_json::json!(codec)).unwrap(),
+                    timestamp_field: None,
+                    json_schema: None,
+                };
+                (name.to_string(), Arc::new(config))
+            })
+            .collect();
+        let configs: Vec<StreamConfig> = names.iter().map(|name| (*streams[*name]).clone()).collect();
+        let path_text = path.to_string_lossy().into_owned();
         let db = settings.format == "db";
-        let sink = if db {
-            let mut db = Db::create(path)?;
-            let mut info = serde_json::to_value(&metadata).unwrap();
-            info["streams"] = TOPICS.iter().map(|t| (t.trim_start_matches('/').to_string(), serde_json::json!(channel_metadata(t)))).collect();
-            db.write("metadata", &Msg::Text(info.to_string()).dimos(false), None, now_ns() as f64 / 1e9)?;
-            db.commit()?;
-            Sink::Db(db)
+        let file = path.to_path_buf();
+        let store_config = if db {
+            // dimos' SqliteStore finds a stream by its `_streams` row, which the recorder's store leaves to its caller
+            crate::db::register(path, &configs)?;
+            RecordingStoreConfig::Sqlite { path: path_text }
         } else {
-            let file = File::create(path).map_err(|e| format!("could not create {}: {e}", path.display()))?;
-            let mut writer = options()
-                .compression(if settings.compression == "none" { None } else { Some(mcap::Compression::Zstd) })
-                .create(BufWriter::new(file))
-                .map_err(|e| e.to_string())?;
-            writer.write_metadata(&mcap::records::Metadata { name: "dimos.recording".into(), metadata }).map_err(|e| e.to_string())?;
-            writer.flush().map_err(|e| e.to_string())?;
-            Sink::Mcap { writer, channels: HashMap::new(), channel_metadata }
+            RecordingStoreConfig::Mcap { path: path_text }
         };
+        let mut sink = store::open(&store_config, &configs, 1).map_err(|e| format!("could not create {}: {e:#}", path.display()))?;
+        let mut info = serde_json::to_value(&metadata).unwrap();
+        info["streams"] = TOPICS.iter().map(|t| (t.trim_start_matches('/').to_string(), serde_json::json!(channel_metadata(t)))).collect();
+        let now = now_ns() as f64 / 1e9;
+        let row = Msg::Text(info.to_string()).rows().remove(0).1;
+        let observation = Observation { stream: streams["metadata"].clone(), source_ts: now, reception_ts: now, data: row };
+        sink.write_batch(&[observation]).map_err(|e| format!("{e:#}"))?;
         let (sender, receiver) = sync_channel(QUEUE_DEPTH);
         let counters = Arc::new(Counters::default());
         let worker = {
             let counters = counters.clone();
             std::thread::Builder::new()
                 .name("recording-writer".into())
-                .spawn(move || drain(sink, receiver, counters))
+                .spawn(move || drain(sink, streams, receiver, counters, db.then_some(file)))
                 .map_err(|e| e.to_string())?
         };
         Ok(Recorder {
             options: Mutex::new(settings),
-            db,
             last_sample: Mutex::new(HashMap::new()),
             path: path.to_path_buf(),
             started_ms: crate::app::now_ms(),
@@ -259,7 +212,7 @@ impl Recorder {
         })
     }
 
-    /// Queues a message, encoded for the file's format; never blocks.
+    /// Queues a message as its LCM rows; never blocks.
     pub fn write(&self, topic: &'static str, msg: Msg) {
         let now = now_ns();
         let settings = self.options.lock().unwrap();
@@ -280,23 +233,17 @@ impl Recorder {
             self.counters.skipped.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let compress = settings.compression != "none";
         drop(settings);
         let Some(sender) = self.sender.lock().unwrap().clone() else { return };
-        let payload = if self.db {
-            let pose = msg.robot_pose();
-            Payload::Dimos(msg.dimos(compress), pose)
-        } else {
-            Payload::Cdr(msg.cdr())
-        };
-        let size = payload.len();
+        let rows = msg.rows();
+        let size = rows_len(&rows);
         if self.counters.queued_bytes.load(Ordering::Relaxed) + size > QUEUE_BYTES {
             self.counters.dropped.fetch_add(1, Ordering::Relaxed);
             return;
         }
         let log_time = now_ns();
         self.counters.queued_bytes.fetch_add(size, Ordering::Relaxed);
-        let sample = Sample { topic, payload, log_time };
+        let sample = Sample { topic, rows, log_time };
         if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) = sender.try_send(sample) {
             self.counters.queued_bytes.fetch_sub(size, Ordering::Relaxed);
             self.counters.dropped.fetch_add(1, Ordering::Relaxed);
@@ -350,11 +297,15 @@ impl Drop for Recorder {
     }
 }
 
-fn options() -> WriteOptions {
-    WriteOptions::new().compression(Some(mcap::Compression::Zstd)).chunk_size(Some(CHUNK_SIZE)).profile(PROFILE).library(LIBRARY)
-}
-
-fn drain(mut sink: Sink, receiver: Receiver<Sample>, counters: Arc<Counters>) -> Result<(), String> {
+/// Hands the store a batch at least once a second, each row LZ4-framed if its stream's codec says so, then finishes it.
+fn drain(
+    mut sink: Box<dyn RecordingStore>,
+    streams: HashMap<String, Arc<StreamConfig>>,
+    receiver: Receiver<Sample>,
+    counters: Arc<Counters>,
+    db: Option<PathBuf>,
+) -> Result<(), String> {
+    let mut batch = Vec::new();
     let mut last_flush = Instant::now();
     loop {
         let sample = match receiver.recv_timeout(FLUSH_EVERY) {
@@ -363,20 +314,41 @@ fn drain(mut sink: Sink, receiver: Receiver<Sample>, counters: Arc<Counters>) ->
             Err(RecvTimeoutError::Disconnected) => break,
         };
         if let Some(sample) = sample {
-            counters.queued_bytes.fetch_sub(sample.payload.len(), Ordering::Relaxed);
-            let topic = sample.topic;
-            let size = sink.write(sample)?;
+            counters.queued_bytes.fetch_sub(rows_len(&sample.rows), Ordering::Relaxed);
+            let Some(stream) = streams.get(sample.topic.trim_start_matches('/')) else {
+                counters.dropped.fetch_add(1, Ordering::Relaxed);
+                continue;
+            };
+            let reception_ts = sample.log_time as f64 / 1e9;
+            let mut size = 0;
+            for (stamp_ns, data) in sample.rows {
+                let data = if stream.codec == Codec::Lz4Lcm { lz4_frame(&data)? } else { data };
+                size += data.len() as u64;
+                let source_ts = stamp_ns.map_or(reception_ts, |ns| ns as f64 / 1e9);
+                batch.push(Observation { stream: stream.clone(), source_ts, reception_ts, data });
+            }
             counters.messages.fetch_add(1, Ordering::Relaxed);
             counters.bytes.fetch_add(size, Ordering::Relaxed);
-            *counters.per_topic.lock().unwrap().entry(topic).or_default() += 1;
-            *counters.per_topic_bytes.lock().unwrap().entry(topic).or_default() += size;
+            *counters.per_topic.lock().unwrap().entry(sample.topic).or_default() += 1;
+            *counters.per_topic_bytes.lock().unwrap().entry(sample.topic).or_default() += size;
         }
         if last_flush.elapsed() >= FLUSH_EVERY {
-            sink.flush()?;
+            sink.write_batch(&batch).map_err(|e| format!("{e:#}"))?;
+            batch.clear();
             last_flush = Instant::now();
         }
     }
-    sink.finish()
+    sink.write_batch(&batch).map_err(|e| format!("{e:#}"))?;
+    sink.finish().map_err(|e| format!("{e:#}"))?;
+    drop(sink);
+    // out of WAL mode: one self-contained .db
+    db.map_or(Ok(()), |path| crate::db::recover(&path).map(|_| ()))
+}
+
+fn lz4_frame(data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut encoder = lz4_flex::frame::FrameEncoder::new(Vec::new());
+    std::io::Write::write_all(&mut encoder, data).map_err(|e| e.to_string())?;
+    encoder.finish().map_err(|e| e.to_string())
 }
 
 pub fn now_ns() -> u64 {
@@ -415,7 +387,20 @@ pub fn recover(path: &Path) -> Result<u64, String> {
     let map = unsafe { memmap2::Mmap::map(&file) }.map_err(|e| e.to_string())?;
     let temp = path.with_extension("mcap.recovering");
     let out = File::create(&temp).map_err(|e| e.to_string())?;
-    let mut writer = options().create(BufWriter::new(out)).map_err(|e| e.to_string())?;
+    // the file's own profile and library (a dimos-layout mcap, or an older app's ros2 one)
+    let (profile, library) = match mcap::read::LinearReader::new_with_options(&map, mcap::read::Options::IgnoreEndMagic.into())
+        .map_err(|e| e.to_string())?
+        .next()
+    {
+        Some(Ok(mcap::records::Record::Header(header))) => (header.profile, header.library),
+        _ => (String::new(), String::new()),
+    };
+    let mut writer = mcap::WriteOptions::new()
+        .compression(Some(mcap::Compression::Zstd))
+        .profile(profile)
+        .library(library)
+        .create(BufWriter::new(out))
+        .map_err(|e| e.to_string())?;
     let mut count = 0u64;
     let mut channels: HashMap<u16, u16> = HashMap::new();
     let mut schemas: HashMap<u16, u16> = HashMap::new();
@@ -525,6 +510,7 @@ pub fn local_stamp(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::msg::Header;
 
     fn scratch(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("go2_record_test_{label}_{}", now_ns()));
@@ -545,57 +531,83 @@ mod tests {
         let dir = scratch("options");
         let path = dir.join("filtered.mcap");
         let mut settings = mcap_options();
-        settings.compression = "none".into();
         settings.topics.insert("/imu".into(), false);
         settings.rates.insert("/joystick".into(), 1.0);
         let recorder = Recorder::start_with_options(&path, BTreeMap::new(), no_metadata, settings).unwrap();
         recorder.write("/imu", Msg::Text("excluded".into()));
         for _ in 0..3 {
-            recorder.write("/joystick", Msg::Text("sample".into()));
+            recorder.write("/joystick", Msg::Joy(Header { stamp_ns: 1, frame_id: "" }, vec![0.5], vec![1]));
         }
         recorder.write("/robot_action", Msg::Text("stand".into()));
         recorder.finish().unwrap();
         let bytes = std::fs::read(path).unwrap();
         let topics: Vec<_> = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap().channel.topic.clone()).collect();
-        assert_eq!(topics.iter().filter(|t| *t == "/joystick").count(), 1);
-        assert!(!topics.iter().any(|t| t == "/imu"));
-        assert!(topics.iter().any(|t| t == "/robot_action"));
+        assert_eq!(topics.iter().filter(|t| *t == "joystick").count(), 1);
+        assert!(!topics.iter().any(|t| t == "imu"));
+        assert!(topics.iter().any(|t| t == "robot_action"));
         assert_eq!(recorder.status()["skipped"], 3);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// dimos' mcap layout: a channel per stream named like it, its codec as the encoding, no schema, `dimos.*` metadata;
+    /// log time = arrival, publish time = the header stamp (arrival when there's none), a sequence per channel.
     #[test]
-    fn writes_cdr_with_schemas_and_reads_back() {
+    fn writes_a_dimos_mcap_and_reads_it_back() {
+        use lcm_msgs::{geometry_msgs::Twist, sensor_msgs::PointCloud2};
         let dir = scratch("roundtrip");
         let path = dir.join("a.mcap");
         let recorder =
             Recorder::start_with_options(&path, BTreeMap::from([("robot".into(), "Go2".into())]), no_metadata, mcap_options()).unwrap();
-        for _ in 0..10 {
+        for _ in 0..3 {
             recorder.write("/cmd_vel", Msg::Twist([0.5, 0.0, 0.0], [0.0, 0.0, 0.1]));
         }
+        recorder.write("/lidar", Msg::Points(Header { stamp_ns: 1_700_000_000_500_000_000, frame_id: "world" }, vec![[1.0, 2.0, 3.0]; 100]));
         let status = recorder.finish().unwrap();
-        assert_eq!(status["messages"], 10);
+        assert_eq!(status["messages"], 4);
         assert!(is_finished(&path));
         let bytes = std::fs::read(&path).unwrap();
-        let messages: Vec<_> = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).collect();
-        assert_eq!(messages.len(), 10);
-        assert_eq!(messages[0].channel.message_encoding, "cdr");
-        assert_eq!(messages[0].channel.schema.as_ref().unwrap().name, "geometry_msgs/msg/Twist");
         let summary = mcap::Summary::read(&bytes).unwrap().unwrap();
-        assert_eq!(summary.stats.unwrap().message_count, 10);
+        assert_eq!(summary.stats.unwrap().message_count, 5, "and the metadata row");
+        let channels: Vec<_> = summary.channels.values().map(|c| c.topic.as_str()).collect();
+        assert!(channels.contains(&"joint_state") && channels.contains(&"metadata"), "every stream up front: {channels:?}");
+        let messages: Vec<_> = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).collect();
+        let cmd: Vec<_> = messages.iter().filter(|m| m.channel.topic == "cmd_vel").collect();
+        assert_eq!(cmd.iter().map(|m| m.sequence).collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(cmd[0].publish_time, cmd[0].log_time, "no stamp: source time is when it arrived");
+        assert_eq!(cmd[0].channel.message_encoding, "lcm");
+        assert!(cmd[0].channel.schema.is_none());
+        let metadata = &cmd[0].channel.metadata;
+        assert_eq!(metadata["dimos.payload_type"], "dimos.msgs.geometry_msgs.Twist.Twist");
+        assert_eq!((metadata["dimos.stream_name"].as_str(), metadata["dimos.port"].as_str()), ("cmd_vel", "cmd_vel"));
+        assert_eq!(metadata["dimos.observation_time"], "publish_time");
+        assert_eq!(Twist::decode(&cmd[0].data).unwrap().linear.x, 0.5);
+        let lidar = messages.iter().find(|m| m.channel.topic == "lidar").unwrap();
+        assert_eq!(lidar.channel.message_encoding, "lz4+lcm");
+        assert_eq!(lidar.publish_time, 1_700_000_000_500_000_000);
+        assert!(lidar.log_time > lidar.publish_time);
+        let mut lcm = Vec::new();
+        std::io::Read::read_to_end(&mut lz4_flex::frame::FrameDecoder::new(&lidar.data[..]), &mut lcm).unwrap();
+        assert_eq!(PointCloud2::decode(&lcm).unwrap().width, 100);
+        let row = messages.iter().find(|m| m.channel.topic == "metadata").unwrap();
+        let text = lcm_msgs::std_msgs::String::decode(&row.data).unwrap().data;
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap()["robot"], "Go2");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// An mcap a killed run left: every chunk it closed reads back, and `recover` gives it a summary and footer.
     #[test]
     fn a_killed_run_is_readable_and_recovers() {
         let dir = scratch("killed");
         let path = dir.join("b.mcap");
-        let recorder = Recorder::start_with_options(&path, BTreeMap::new(), no_metadata, mcap_options()).unwrap();
-        for _ in 0..50 {
-            recorder.write("/cmd_vel", Msg::Twist([0.1, 0.0, 0.0], [0.0; 3]));
+        let mut settings = mcap_options();
+        settings.compression = "none".into();
+        let recorder = Recorder::start_with_options(&path, BTreeMap::new(), no_metadata, settings).unwrap();
+        // ~1.2 MB of points each, past a chunk's size, so chunks close as they're written
+        let points: Vec<[f32; 3]> = (0..100_000).map(|i| [i as f32, (i * 7 % 13) as f32, 0.5]).collect();
+        for _ in 0..5 {
+            recorder.write("/lidar", Msg::Points(Header { stamp_ns: 1, frame_id: "world" }, points.clone()));
         }
-        // let the writer close a chunk (at most FLUSH_EVERY), then "kill" it: forget the recorder without finishing
-        std::thread::sleep(FLUSH_EVERY + Duration::from_millis(300));
+        std::thread::sleep(FLUSH_EVERY + Duration::from_millis(500));
         std::mem::forget(recorder);
         assert!(!is_finished(&path));
         let bytes = std::fs::read(&path).unwrap();
@@ -603,11 +615,11 @@ mod tests {
             .unwrap()
             .take_while(|m| m.is_ok())
             .count();
-        assert_eq!(read, 50, "every flushed message reads back from the unfinished file");
-        assert_eq!(recover(&path).unwrap(), 50);
+        assert!(read >= 4, "the closed chunks read back from the unfinished file: {read}");
+        assert_eq!(recover(&path).unwrap(), read as u64);
         assert!(is_finished(&path));
         let bytes = std::fs::read(&path).unwrap();
-        assert_eq!(mcap::Summary::read(&bytes).unwrap().unwrap().stats.unwrap().message_count, 50);
+        assert_eq!(mcap::Summary::read(&bytes).unwrap().unwrap().stats.unwrap().message_count, read as u64);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -623,7 +635,7 @@ mod tests {
         let dir = scratch("db");
         let path = dir.join("a.db");
         let recorder = Recorder::start(&path, BTreeMap::from([("robot_name".into(), "Astro".into())]), no_metadata).unwrap();
-        let header = |frame_id| crate::cdr::Header { stamp_ns: 1_700_000_000_500_000_000, frame_id };
+        let header = |frame_id| Header { stamp_ns: 1_700_000_000_500_000_000, frame_id };
         recorder.write("/odom", Msg::Pose(header("world"), [1.0, 2.0, 0.3], [0.0, 0.0, 0.0, 1.0]));
         let mount = crate::sensors::camera_mount().to_vec();
         recorder.write("/tf", Msg::Tf(1_700_000_000_500_000_000, mount));
@@ -639,14 +651,14 @@ mod tests {
             serde_json::from_slice(&streams.iter().find(|s| s.0 == name).unwrap().3).unwrap()
         };
         let names: Vec<_> = streams.iter().map(|s| s.0.as_str()).collect();
-        assert_eq!(names, ["cmd_vel", "color_image", "lidar", "metadata", "odom", "tf"]);
+        assert_eq!(names, ["battery", "camera_info", "cmd_vel", "color_image", "imu", "joint_state", "joystick", "lidar", "logs", "metadata", "odom", "robot_action", "tf"]);
         assert_eq!(config("color_image")["codec_id"], "jpeg");
         assert_eq!(config("lidar")["codec_id"], "lz4+lcm");
         assert_eq!(config("odom")["payload_module"], "dimos.msgs.geometry_msgs.PoseStamped.PoseStamped");
 
         let odom = db_rows(&path, "SELECT 'odom', ts, pose_x, data FROM odom JOIN odom_blob USING (id)");
         assert_eq!(odom[0].1, 1_700_000_000.5);
-        assert_eq!(odom[0].2, Some(1.0), "rows carry the robot's pose");
+        assert_eq!(odom[0].2, None, "rows carry no pose");
         assert_eq!(PoseStamped::decode(&odom[0].3).unwrap().pose.position.y, 2.0);
 
         let tf = db_rows(&path, "SELECT 'tf', ts, pose_x, data FROM tf JOIN tf_blob USING (id)");

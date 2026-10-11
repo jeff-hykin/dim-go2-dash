@@ -517,13 +517,13 @@ async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
     let mut joy = false;
     for message in mcap::MessageStream::new(&bytes).unwrap() {
         let message = message.unwrap();
-        if message.channel.topic == "/robot_action" {
-            assert_eq!(message.channel.schema.as_ref().unwrap().name, "std_msgs/msg/String");
-            let data = &message.data;
-            let payload: Value = serde_json::from_slice(&data[8..data.len() - 1]).unwrap();
+        if message.channel.topic == "robot_action" {
+            assert_eq!(message.channel.metadata["dimos.payload_type"], "dimos.msgs.std_msgs.String.String");
+            let text = lcm_msgs::std_msgs::String::decode(&message.data).unwrap().data;
+            let payload: Value = serde_json::from_str(&text).unwrap();
             actions.push(payload["name"].as_str().unwrap().to_string());
         }
-        if message.channel.topic == "/joystick" {
+        if message.channel.topic == "joystick" {
             joy = true;
         }
     }

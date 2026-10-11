@@ -15,13 +15,14 @@ A [dimOS Desktop](https://github.com/dimensionalOS/dimos-desktop) app for **Unit
 - **Record** the session in Desktop's recordings folder (`go2/<date>_<time>_<dog>_<machine id>.db`). By default a
   dimos memory store: the SQLite layout dimos' `SqliteStore` reads, dimos' LCM types per stream (`backend/src/msg.rs`
   lists them), so `SqliteStore(path=…)`, `store.replay()` and the Go2 replay connection open it. Or, picked in Record
-  options (or the `db`/`mcap` toggle bottom-left of Control), an mcap of ROS2 CDR with ros2msg schemas like
-  Controller's recorder: `/color_image` (JPEG CompressedImage), `/camera_info`, `/lidar`
-  (PointCloud2, the dog's local voxel window), `/odom` (PoseStamped), `/tf`, `/imu`, `/battery`, `/joint_states`,
-  `/joystick` (sensor_msgs/Joy: the RAW pad axes and buttons, layout in the channel metadata, never velocities),
-  `/cmd_vel` (the Twist actually sent) and `/commands`. A commit (.db) or a closed zstd chunk (mcap) every second
-  and a byte-capped queue: a killed run keeps all but its last second (and is finished on the next start), memory
-  stays flat.
+  options (or the `db`/`mcap` toggle bottom-left of Control), an mcap in dimos' layout holding the same rows (a
+  channel per stream, its codec as the message encoding, `dimos.*` channel metadata; not ROS, so Foxglove shows the
+  channels but can't decode them). Both are written by dimos' own recorder (`dimos-memory-recorder`'s stores), with
+  streams named like dimos' Go2 ones: `color_image` (JPEG), `camera_info`, `lidar` (the dog's local voxel window),
+  `odom`, `tf`, `imu`, `battery`, `joint_state`, `joystick` (the RAW pad axes and buttons, layout in the `metadata` row,
+  never velocities), `cmd_vel` (the Twist actually sent), `robot_action`, `logs` and `metadata`. A batch every second
+  and a byte-capped queue: a killed run keeps all but its last second (.db) or its open chunk (mcap), and is finished
+  on the next start; memory stays flat.
 - **Go2 hotspot (AP mode)**: Scan also lists Wi-Fi hotspots named like a Go2's (`GO2-…`, `Go2_…`, `Unitree…`);
   "Connect via hotspot" asks first, switches this computer's Wi-Fi to it (NetworkManager on Linux / SteamOS,
   `networksetup` on macOS, where the hotspot's name is typed since macOS hides Wi-Fi names from apps), drives the dog
@@ -77,6 +78,6 @@ Licensed under Apache-2.0.
 
 Recording starts automatically after a dog connects and ends on disconnect. Auto-upload is enabled by default;
 it can be disabled in recording options or the recordings list. The red Record button has an options menu for
-folder, stream selection, per-stream max rates, camera JPEG/raw encoding, chunk compression, and session logs.
-Action presses are ROS2 `std_msgs/msg/String` JSON messages on `/robot_action`; raw controller input is
-`sensor_msgs/msg/Joy` on `/joystick`, and sent velocities remain on `/cmd_vel`. Hold LT or RB to walk fast.
+folder, stream selection, per-stream max rates, camera JPEG/raw encoding, LZ4 compression, and session logs.
+Action presses are JSON `String` rows on `robot_action`; raw controller input is `Joy` on `joystick`, and sent velocities
+remain on `cmd_vel`. Hold LT or RB to walk fast.

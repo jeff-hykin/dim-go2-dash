@@ -14,8 +14,7 @@ use webrtc::media::io::sample_builder::SampleBuilder;
 use webrtc::rtp::codecs::h264::H264Packet;
 use webrtc::rtp::packet::Packet;
 
-use crate::cdr::{CameraInfo, Header};
-use crate::msg::Msg;
+use crate::msg::{CameraInfo, Header, Msg};
 use crate::record::{jpeg_quality, now_ns, Recorder};
 
 const QUEUE: usize = 2048;
@@ -287,11 +286,11 @@ mod tests {
         recorder.finish().unwrap();
         let bytes = std::fs::read(&path).unwrap();
         let images: Vec<_> =
-            mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").collect();
+            mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "color_image").collect();
         assert!(images.len() >= 10, "{} frames", images.len());
-        assert_eq!(images[0].channel.schema.as_ref().unwrap().name, "sensor_msgs/msg/CompressedImage");
-        // the JPEG starts after header + "jpeg" string + length: find its SOI marker
-        assert!(images[0].data.windows(3).any(|w| w == [0xFF, 0xD8, 0xFF]));
+        assert_eq!(images[0].channel.message_encoding, "jpeg");
+        let image = lcm_msgs::sensor_msgs::Image::decode(&images[0].data).unwrap();
+        assert_eq!((image.encoding.as_str(), &image.data[..3]), ("jpeg", &[0xFF, 0xD8, 0xFF][..]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -374,18 +373,11 @@ mod tests {
         recorder.finish().unwrap();
         let bytes = std::fs::read(&path).unwrap();
         let images: Vec<_> =
-            mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "/color_image").collect();
+            mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "color_image").collect();
         // all 60 but the one or two the decoder still holds for reordering when the stream ends
         assert!(images.len() >= 57, "{} of 60 frames recorded", images.len());
-        // header stamps (after the CDR encapsulation): the capture times, 1/30 s apart, not when decoding finished
-        let stamps: Vec<i64> = images
-            .iter()
-            .map(|m| {
-                let sec = i32::from_le_bytes(m.data[4..8].try_into().unwrap()) as i64;
-                let nsec = u32::from_le_bytes(m.data[8..12].try_into().unwrap()) as i64;
-                sec * 1_000_000_000 + nsec
-            })
-            .collect();
+        // source times: the capture times, 1/30 s apart, not when decoding finished
+        let stamps: Vec<i64> = images.iter().map(|m| m.publish_time as i64).collect();
         for pair in stamps.windows(2) {
             let gap_ms = (pair[1] - pair[0]) as f64 / 1e6;
             // the camera's clock spaces them exactly; the first few may sit later until the quickest arrival is seen

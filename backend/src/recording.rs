@@ -1,10 +1,11 @@
-// The Record button: a dimos memory store (.db, the default) or an mcap of the drive session's WebRTC traffic (record.rs
-// writes it), in Desktop's recordings folder under `go2/`, named `<local date>_<time>_<dog name>_<machine id>.db`. What
-// goes in (the mcap's topics; a .db's streams drop the slash, msg.rs has their dimos types):
-//   /color_image /camera_info  the camera (camera.rs)        /lidar /odom /tf /imu /battery /joint_states  (sensors.rs)
-//   /joystick  sensor_msgs/Joy: the gamepad's RAW axes and buttons (never velocities; layout in the channel metadata)
-//   /cmd_vel   geometry_msgs/Twist: the velocity actually sent to the dog (m/s, rad/s)
-//   /robot_action  std_msgs/String: each sport command sent (stand, sit, …) as JSON
+// The Record button: a dimos memory store (.db, the default) or a dimos-layout mcap of the drive session's WebRTC traffic
+// (record.rs writes it), in Desktop's recordings folder under `go2/`, named `<local date>_<time>_<dog name>_<machine
+// id>.db`. What goes in (topics; the file's streams drop the slash and are named like dimos' Go2 ones, msg.rs has their
+// dimos types):
+//   /color_image /camera_info  the camera (camera.rs)        /lidar /odom /tf /imu /battery /joint_state  (sensors.rs)
+//   /joystick      Joy: the gamepad's RAW axes and buttons (never velocities; layout in the metadata row's "streams")
+//   /cmd_vel       Twist: the velocity actually sent to the dog (m/s, rad/s)
+//   /robot_action  String: each sport command sent (stand, sit, …) as JSON
 // A recording lives as long as the drive session: disconnecting ends it (and the file is finished).
 
 use std::collections::BTreeMap;
@@ -18,8 +19,7 @@ use serde_json::{json, Value};
 use crate::api::HttpError;
 use crate::app::{now_ms, App};
 use crate::camera::{CameraTap, MockCamera};
-use crate::cdr::Header;
-use crate::msg::Msg;
+use crate::msg::{Header, Msg};
 use crate::record::{now_ns, Recorder};
 use crate::robot_rtc::DataMessage;
 

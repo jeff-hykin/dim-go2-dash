@@ -2,7 +2,7 @@
 name = "go2_dash"
 version = "0.5.5"
 edition = "2021"
-rust-version = "1.86"
+rust-version = "1.89"
 description = "dim-go2-dash backend: Go2 discovery, Wi-Fi provisioning and live control, every action an HTTP endpoint"
 
 [[bin]]
@@ -30,14 +30,17 @@ socket2 = { version = "0.5", features = ["all"] }
 if-addrs = "0.13"
 regex = "1"
 libc = "0.2"
-# recordings: chunked, zstd-compressed mcap (ROS2 CDR messages, like Controller's recorder)
+# recordings: dimos' own recorder stores (a memory .db, or an mcap in the dimos layout) of dimos' LCM types
+dimos-memory-recorder = { git = "https://github.com/dimensionalOS/dimos.git", rev = "1e7b4918bc626de4fa6592fb023d4b3aee932754" }
+# recovering a killed run's mcap
 mcap = { version = "0.25.0", default-features = false, features = ["zstd"] }
-# recordings as a dimos memory store (.db, the default): SQLite holding dimos' LCM messages (dimos-lcm's generated Rust types)
-rusqlite = { version = "0.37", features = ["bundled"] }
-lcm-msgs = { git = "https://github.com/dimensionalOS/dimos-lcm.git", rev = "4a48f2df20d8632d84705bb44fd5f3ecd2fbf2c4" }
+# a .db's stream registry and recovery; bundled SQLite, also for the recorder's (same version, so one libsqlite3-sys)
+rusqlite = { version = "0.40", features = ["bundled"] }
+# the recorder's branch, so both use one lcm-msgs
+lcm-msgs = { git = "https://github.com/dimensionalOS/dimos-lcm.git", branch = "rust-codegen" }
 memmap2 = "0.9"
 # the lidar's voxel map arrives LZ4-compressed
-lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode", "std", "frame"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["safe-decode", "std", "frame"] }
 # the camera arrives as H.264: decoded and stored as JPEG CompressedImage
 openh264 = { version = "=0.9.3", features = ["source"] }
 jpeg-encoder = "0.6"

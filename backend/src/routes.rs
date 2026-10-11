@@ -401,7 +401,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/drive/joy",
-            "For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as sensor_msgs/Joy on /joystick while recording. Drives nothing",
+            "For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as a dimos Joy on the joystick stream while recording. Drives nothing",
             Some(json!({
                 "axes": { "type": "array", "required": true, "description": "raw axes, -1..1" },
                 "buttons": { "type": "array", "required": true, "description": "buttons, 0 or 1" },
@@ -431,7 +431,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/record/start",
-            "Record the drive session to a dimos memory store (.db, the default) or an mcap (Record options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (/joystick), the velocity sent (/cmd_vel) and commands. Needs a drive session; ends with it",
+            "Record the drive session to a dimos memory store (.db, the default) or a dimos-layout mcap (Record options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (joystick), the velocity sent (cmd_vel) and commands. Needs a drive session; ends with it",
             None,
             handler(|app, _| async move { app.record_start().await }),
         ),

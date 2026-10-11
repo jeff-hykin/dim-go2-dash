@@ -1,15 +1,14 @@
 // The Go2's data-channel topics → recorded messages, named like dimos' go2 streams (`dimos --record run unitree-go2`):
-//   rt/utlidar/voxel_map_compressed → /lidar        sensor_msgs/PointCloud2 (frame world; the robot's local voxel window)
+//   rt/utlidar/voxel_map_compressed → /lidar         sensor_msgs/PointCloud2 (frame world; the robot's local voxel window)
 //   rt/utlidar/robot_pose           → /odom          geometry_msgs/PoseStamped (frame world)  + /tf world→base_link
 //   rt/lf/sportmodestate            → /imu           sensor_msgs/Imu (base_link: quaternion, gyroscope, accelerometer)
 //   rt/lf/lowstate                  → /battery       sensor_msgs/BatteryState (≤ 1 Hz, like Stash's cockpit branch)
-//                                     /joint_states  sensor_msgs/JointState (the 12 leg joints' positions)
+//                                     /joint_state   sensor_msgs/JointState (the 12 leg joints' positions)
 // Times: the header stamp is when the message arrived (dimos does the same: the robot's clock isn't this computer's).
 
 use serde_json::Value;
 
-use crate::cdr::{self, Header, Transform};
-use crate::msg::Msg;
+use crate::msg::{Battery, Header, Msg, Transform};
 
 pub const LIDAR: &str = "rt/utlidar/voxel_map_compressed";
 pub const POSE: &str = "rt/utlidar/robot_pose";
@@ -142,14 +141,14 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
             if let Some(motors) = data["motor_state"].as_array().filter(|m| m.len() >= 12) {
                 let positions: Vec<f64> = motors[..12].iter().map(|m| f(&m["q"])).collect();
                 out.push(Out {
-                    topic: "/joint_states",
+                    topic: "/joint_state",
                     msg: Msg::Joints(Header { stamp_ns: now_ns, frame_id: "base_link" }, &JOINTS, positions),
                 });
             }
             let bms = &data["bms_state"];
             if battery_due && bms.is_object() {
                 let temperatures: Vec<f32> = bms["bq_ntc"].as_array().map(|t| t.iter().map(|v| f(v) as f32).collect()).unwrap_or_default();
-                let battery = cdr::Battery {
+                let battery = Battery {
                     voltage: f(&data["power_v"]) as f32,
                     current: (f(&bms["current"]) / 1000.0) as f32,
                     temperature: temperatures.first().copied().unwrap_or(f32::NAN),
@@ -208,7 +207,7 @@ mod tests {
         let low = json!({ "data": { "motor_state": (0..20).map(|i| json!({ "q": i as f64 })).collect::<Vec<_>>(),
             "bms_state": { "soc": 55, "current": -2481, "bq_ntc": [30, 29] }, "power_v": 28.3 } });
         let topics = |due| convert(LOWSTATE, &low, None, 1, due).iter().map(|o| o.topic).collect::<Vec<_>>();
-        assert_eq!(topics(true), ["/joint_states", "/battery"]);
-        assert_eq!(topics(false), ["/joint_states"]);
+        assert_eq!(topics(true), ["/joint_state", "/battery"]);
+        assert_eq!(topics(false), ["/joint_state"]);
     }
 }
