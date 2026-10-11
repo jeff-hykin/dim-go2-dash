@@ -135,18 +135,18 @@ export function atRest(
         Math.hypot(read.rx, read.ry) <= deadZone && !read.lt && !read.rt
 }
 
-/** 3 decimals; not-a-number (a missing axis) as 0 */
-const round3 = (value: number) => Number.isFinite(value) ? Math.round(value * 1000) / 1000 : 0
+/** 4 decimals; not-a-number (a missing axis) as 0 */
+const round4 = (value: number) => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : 0
 
 /**
- * The Joy sample for the recording: the raw axes (3 decimals) and buttons (0/1), as the Gamepad API reports them, and
+ * The Joy sample for the recording: the raw axes (4 decimals) and buttons (0/1), as the Gamepad API reports them, and
  * after the axes the two triggers' analog travel (0 released .. 1 fully pressed, LT then RT: standard-mapping buttons 6
  * and 7), since a Joy button is only an integer.
  */
 export function joySample(pad: PadLike): { axes: number[]; buttons: number[] } {
-    const trigger = (index: number) => round3(pad.buttons[index]?.value ?? 0)
+    const trigger = (index: number) => round4(pad.buttons[index]?.value ?? 0)
     return {
-        axes: [...pad.axes.map(round3), trigger(BUTTON.lt), trigger(BUTTON.rt)],
+        axes: [...pad.axes.map(round4), trigger(BUTTON.lt), trigger(BUTTON.rt)],
         buttons: pad.buttons.map((b) => (b.pressed ? 1 : 0)),
     }
 }

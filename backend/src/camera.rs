@@ -44,8 +44,8 @@ struct CaptureClock {
     waiting: BinaryHeap<Reverse<i64>>,
     last_rtp: Option<u32>,
     unwrapped: i64,
-    /// wall clock ns minus RTP time in ns, the smallest seen: the packet that arrived with the least delay
-    offset_ns: Option<i64>,
+    /// the camera's RTP clock on this computer's clock
+    clock: crate::clock::RobotClock,
 }
 
 impl CaptureClock {
@@ -66,8 +66,7 @@ impl CaptureClock {
     /// A frame went into the decoder: its RTP timestamp and when its first packet arrived.
     fn submitted(&mut self, rtp: u32, arrived_ns: u64) {
         let ticks = self.unwrap(rtp);
-        let offset = arrived_ns as i64 - ticks * 1_000_000 / 9 / 10;
-        self.offset_ns = Some(self.offset_ns.map_or(offset, |o| o.min(offset)));
+        self.clock.observe(ticks * 1_000_000 / 9 / 10, arrived_ns);
         self.waiting.push(Reverse(ticks));
         // a frame the decoder never hands out mustn't shift every later frame's time
         while self.waiting.len() > 16 {
@@ -78,7 +77,7 @@ impl CaptureClock {
     /// The capture time (wall clock ns) of the frame the decoder just handed out.
     fn decoded(&mut self) -> Option<u64> {
         let Reverse(ticks) = self.waiting.pop()?;
-        Some((ticks * 1_000_000 / 9 / 10 + self.offset_ns?).max(0) as u64)
+        self.clock.local(ticks * 1_000_000 / 9 / 10)
     }
 }
 

@@ -252,9 +252,8 @@ function pageHasFocus(): boolean {
     }
 }
 
-const PAD_POLL_MS = 30
-/** Joy samples go to the recording when they change, at most this often (Stash's cockpit: 15 Hz) */
-const JOY_MIN_MS = 66
+/** the pad is read at 60 Hz; a Joy sample goes to the recording on every change */
+const PAD_POLL_MS = 16
 const ZERO_AXES: Axes = { forward: 0, strafe: 0, turn: 0 }
 
 /** The gamepad (gamepad.ts has the rules): polled while one is connected; zeroed on blur, a hidden page, disconnect. */
@@ -279,7 +278,6 @@ function useGamepad(handlers: {
         }, setStatus)
         const pads = () => [...navigator.getGamepads()] as (PadLike | null)[]
         let lastJoy = ""
-        let lastJoyAt = 0
         const poll = () => {
             const now = performance.now()
             if (document.hidden || !pageHasFocus()) {
@@ -287,15 +285,14 @@ function useGamepad(handlers: {
             } else {
                 driver.poll(pads(), now)
             }
-            // the raw pad for the recording (never velocities): on change, ≤ 15 Hz;
+            // the raw pad for the recording (never velocities): on every change;
             const pad = activePad(pads())
             // sent whether or not a recording runs (it may be started from elsewhere); the backend keeps them only while one does
-            if (pad && now - lastJoyAt >= JOY_MIN_MS) {
+            if (pad) {
                 const sample = joySample(pad)
                 const key = JSON.stringify(sample)
                 if (key !== lastJoy) {
                     lastJoy = key
-                    lastJoyAt = now
                     call("POST", "api/drive/joy", sample).catch(() => {})
                 }
             }

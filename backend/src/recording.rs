@@ -28,7 +28,8 @@ pub const FOLDER: &str = "go2";
 
 /// The gamepad layout a /joystick message follows (the W3C "standard" mapping, as the Gamepad API reports it: the
 /// Steam Deck under Steam, Xbox and PlayStation pads). The same layout Stash's gamepad cockpit records.
-pub const JOY_AXES: &str = "0 left stick X (right +), 1 left stick Y (down +), 2 right stick X (right +), 3 right stick Y (down +)";
+pub const JOY_AXES: &str = "0 left stick X (right +), 1 left stick Y (down +), 2 right stick X (right +), 3 right stick Y (down +), \
+4 LT travel (0 released .. 1 full), 5 RT travel (0 .. 1)";
 pub const JOY_BUTTONS: &str = "0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT, 8 Back/View, 9 Start/Menu, 10 left stick press, \
 11 right stick press, 12 d-pad up, 13 d-pad down, 14 d-pad left, 15 d-pad right, 16 Home/Steam";
 
@@ -37,7 +38,7 @@ pub fn channel_metadata(topic: &str) -> BTreeMap<String, String> {
     match topic {
         "/joystick" => {
             m.insert("description".into(), "raw gamepad input from the Gamepad API: axes -1..1, buttons 0/1 (not velocities)".into());
-            m.insert("mapping".into(), "standard (w3.org/TR/gamepad), rounded to 3 decimals, no dead zone".into());
+            m.insert("mapping".into(), "standard (w3.org/TR/gamepad), rounded to 4 decimals, no dead zone; a sample on every change, the pad read at 60 Hz".into());
             m.insert("axes".into(), JOY_AXES.into());
             m.insert("buttons".into(), JOY_BUTTONS.into());
         }
@@ -65,13 +66,17 @@ pub struct Active {
     last_battery_ns: AtomicU64,
     camera_drops: AtomicU64,
     ended: AtomicBool,
+    /// each robot topic's clock on this computer's (its messages carry the robot's own time)
+    clocks: Mutex<std::collections::HashMap<String, crate::clock::RobotClock>>,
 }
 
 impl Active {
     pub fn on_data(&self, message: &DataMessage) {
         let now = now_ns();
         let due = now.saturating_sub(self.last_battery_ns.load(Ordering::Relaxed)) >= crate::sensors::BATTERY_EVERY_NS;
-        let out = crate::sensors::convert(&message.topic, &message.json, message.binary.as_deref(), now, due);
+        let robot_ns = crate::sensors::robot_time_ns(&message.topic, &message.json);
+        let stamp = self.clocks.lock().unwrap().entry(message.topic.clone()).or_default().place(robot_ns, now);
+        let out = crate::sensors::convert(&message.topic, &message.json, message.binary.as_deref(), stamp, due);
         for item in out {
             if item.topic == "/battery" {
                 self.last_battery_ns.store(now, Ordering::Relaxed);
@@ -186,6 +191,7 @@ impl App {
             last_battery_ns: AtomicU64::new(0),
             camera_drops: AtomicU64::new(0),
             ended: AtomicBool::new(false),
+            clocks: Default::default(),
         });
         self.index_update(&file, |entry| {
             entry["robot"] = json!(drive.name);

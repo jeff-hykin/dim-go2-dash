@@ -4,7 +4,8 @@
 //   rt/lf/sportmodestate            → /imu           sensor_msgs/Imu (base_link: quaternion, gyroscope, accelerometer)
 //   rt/lf/lowstate                  → /battery       sensor_msgs/BatteryState (≤ 1 Hz, like Stash's cockpit branch)
 //                                     /joint_state   sensor_msgs/JointState (the 12 leg joints' positions)
-// Times: the header stamp is when the message arrived (dimos does the same: the robot's clock isn't this computer's).
+// Times: the robot's own time for the message (robot_time_ns) placed on this computer's clock (clock::RobotClock); the
+// arrival time when the message carries none or it doesn't advance.
 
 use serde_json::Value;
 
@@ -96,6 +97,22 @@ pub fn camera_mount() -> [Transform<'static>; 2] {
 /// What a lowstate is worth recording at most this often (the battery changes slowly)
 pub const BATTERY_EVERY_NS: u64 = 1_000_000_000;
 
+/// The robot's own time for a data-channel message, ns on its clock: lidar's `stamp` (seconds), robot_pose's header
+/// stamp, sportmodestate's `stamp`, lowstate's `tick` (ms since boot). None when it has none.
+pub fn robot_time_ns(topic: &str, json: &Value) -> Option<i64> {
+    let data = &json["data"];
+    let sec_nanosec = |stamp: &Value| Some(stamp["sec"].as_i64()? * 1_000_000_000 + stamp["nanosec"].as_i64().unwrap_or(0));
+    let ns = match topic {
+        // whole seconds and the fraction apart: seconds × 1e9 as one f64 loses ~100 ns at today's epoch
+        LIDAR => data["stamp"].as_f64().map(|s| s.trunc() as i64 * 1_000_000_000 + (s.fract() * 1e9).round() as i64),
+        POSE => sec_nanosec(&data["header"]["stamp"]),
+        SPORT_STATE => sec_nanosec(&data["stamp"]),
+        LOWSTATE => data["tick"].as_i64().map(|ms| ms * 1_000_000),
+        _ => None,
+    }?;
+    (ns > 0).then_some(ns)
+}
+
 /// Converts one data-channel message. `battery_due` says whether a battery message may go out now (≤ 1 Hz).
 pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, battery_due: bool) -> Vec<Out> {
     let data = &json["data"];
@@ -184,6 +201,21 @@ pub fn lidar_message(voxels: &[u8], origin: [f64; 3]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_topic_gives_the_robot_time_it_carries() {
+        let lidar = serde_json::json!({ "data": { "stamp": 1746565669.25 } });
+        assert_eq!(robot_time_ns(LIDAR, &lidar), Some(1_746_565_669_250_000_000));
+        let pose = serde_json::json!({ "data": { "header": { "stamp": { "sec": 1746565669, "nanosec": 448350564 } } } });
+        assert_eq!(robot_time_ns(POSE, &pose), Some(1_746_565_669_448_350_564));
+        let sport = serde_json::json!({ "data": { "stamp": { "sec": 12, "nanosec": 5 } } });
+        assert_eq!(robot_time_ns(SPORT_STATE, &sport), Some(12_000_000_005));
+        let low = serde_json::json!({ "data": { "tick": 1234 } });
+        assert_eq!(robot_time_ns(LOWSTATE, &low), Some(1_234_000_000));
+        // none, or a zero stamp: the arrival time is used
+        assert_eq!(robot_time_ns(LOWSTATE, &serde_json::json!({ "data": {} })), None);
+        assert_eq!(robot_time_ns(LIDAR, &serde_json::json!({ "data": { "stamp": 0.0 } })), None);
+    }
     use serde_json::json;
 
     #[test]

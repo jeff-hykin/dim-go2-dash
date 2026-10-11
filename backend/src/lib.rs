@@ -6,6 +6,7 @@ pub mod app;
 pub mod arp;
 pub mod ble;
 pub mod camera;
+pub mod clock;
 pub mod db;
 mod cloud;
 pub mod discovery;
