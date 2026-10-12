@@ -347,6 +347,19 @@ provides:
                   type: boolean
           path: api/drive/light
         - description: >-
+              Turn the dog's own obstacle avoidance on or off (its obstacles_avoid api, SwitchSet); without `on` it
+              toggles. The drive state's `obstacleAvoidance` says which it is (the dog is asked on connect; null until it
+              answers)
+          method: POST
+          params:
+              dryRun:
+                  description: "true: check everything and say what would be sent, without touching the robot"
+                  type: boolean
+              "on":
+                  description: true = on, false = off; leave out to toggle
+                  type: boolean
+          path: api/drive/obstacle_avoidance
+        - description: >-
               For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as
               a dimos Joy on the joystick stream while recording. Drives nothing
           method: POST

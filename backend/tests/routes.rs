@@ -578,6 +578,30 @@ async fn record_options_are_validated_and_live_filters_are_saved() {
 }
 
 #[tokio::test]
+async fn obstacle_avoidance_toggles_and_shows_in_the_drive_state() {
+    let t = setup();
+    t.app.update_settings(Some(false));
+    assert_eq!(t.status("POST", "api/drive/obstacle_avoidance", None).await, 409, "needs a drive session");
+    t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.31", "dryRun": true }))).await;
+    assert_eq!(t.ok("GET", "api/drive", None).await["obstacleAvoidance"], true, "the mock dog has it on");
+    let off = t.ok("POST", "api/drive/obstacle_avoidance", None).await;
+    assert_eq!(off["obstacleAvoidance"], false, "toggles");
+    assert_eq!(off["sends"][0], json!({ "obstaclesAvoid": "SwitchSet", "apiId": 1001, "parameter": { "enable": false } }));
+    assert_eq!(t.ok("GET", "api/drive", None).await["obstacleAvoidance"], false);
+    assert_eq!(t.ok("POST", "api/drive/obstacle_avoidance", Some(json!({ "on": true }))).await["obstacleAvoidance"], true);
+    t.ok("POST", "api/drive/disconnect", None).await;
+}
+
+#[test]
+fn the_dogs_obstacle_avoidance_answer() {
+    let answer = |api_id: u32, data: &str| json!({ "type": "res", "data": { "header": { "identity": { "id": 1, "api_id": api_id } }, "data": data } });
+    assert_eq!(go2_dash::drive::obstacles_avoid_answer(&answer(1002, r#"{"enable":true}"#)), Some(true));
+    assert_eq!(go2_dash::drive::obstacles_avoid_answer(&answer(1002, r#"{"enable":false}"#)), Some(false));
+    assert_eq!(go2_dash::drive::obstacles_avoid_answer(&answer(1001, r#"{"enable":true}"#)), None, "a SwitchSet's reply says nothing");
+    assert_eq!(go2_dash::drive::obstacles_avoid_answer(&answer(1002, "")), None);
+}
+
+#[tokio::test]
 async fn the_head_light_toggles_and_shows_in_the_drive_state() {
     let t = setup();
     t.app.update_settings(Some(false));

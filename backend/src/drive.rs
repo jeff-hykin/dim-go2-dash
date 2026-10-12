@@ -46,6 +46,16 @@ pub enum Action {
     Sport { api_id: u32, sport_name: &'static str, rests: bool },
 }
 
+/// The dog's answer to SwitchGet: {"data": {"header": {"identity": {"api_id": 1002}}, "data": "{\"enable\":true}"}}.
+pub fn obstacles_avoid_answer(json: &Value) -> Option<bool> {
+    let data = &json["data"];
+    if data["header"]["identity"]["api_id"] != crate::robot_rtc::OBSTACLES_AVOID_SWITCH_GET {
+        return None;
+    }
+    let answer: Value = serde_json::from_str(data["data"].as_str()?).ok()?;
+    answer["enable"].as_bool()
+}
+
 pub struct Command {
     pub name: &'static str,
     pub label: &'static str,
@@ -140,6 +150,8 @@ struct DriveState {
     light: bool,
     /// the battery's charge (%), from the robot's lowstate (subscribed for the whole session)
     battery: Option<u8>,
+    /// the dog's obstacle avoidance, as it last said (asked on connect) or as last set from here; None until known
+    obstacle_avoidance: Option<bool>,
 }
 
 pub struct Drive {
@@ -182,6 +194,7 @@ impl Drive {
             "lastCommand": state.last_command,
             "light": state.light,
             "battery": state.battery,
+            "obstacleAvoidance": state.obstacle_avoidance,
             "startedAt": self.started_at,
         })
     }
@@ -203,6 +216,13 @@ impl Drive {
         let soc = soc.clamp(0.0, 100.0).round() as u8;
         if self.state.lock().unwrap().battery != Some(soc) {
             self.set(|s| s.battery = Some(soc));
+        }
+    }
+
+    fn on_obstacles_avoid(&self, json: &Value) {
+        if let Some(on) = obstacles_avoid_answer(json) {
+            crate::dlog!("obstacle avoidance: the dog says {}", if on { "on" } else { "off" });
+            self.set(|s| s.obstacle_avoidance = Some(on));
         }
     }
 
@@ -267,6 +287,7 @@ impl Drive {
                 light: false,
                 // the mock robot's (recording.rs mocks the same 80%)
                 battery: dry.then_some(80),
+                obstacle_avoidance: dry.then_some(true),
             }),
             conn: tokio::sync::Mutex::new(None),
             video: Mutex::new(dry.then(crate::video::placeholder_track)),
@@ -350,6 +371,9 @@ impl Drive {
                             if message.topic == crate::sensors::LOWSTATE {
                                 drive.on_lowstate(&message.json);
                             }
+                            if message.topic == crate::robot_rtc::OBSTACLES_AVOID_RESPONSE {
+                                drive.on_obstacles_avoid(&message.json);
+                            }
                             if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
                                 active.on_data(&message);
                             }
@@ -361,6 +385,7 @@ impl Drive {
                         self.remember_key(&conn);
                         // the battery for the top bar, recording or not (read-only, about 1 Hz worth showing)
                         conn.subscribe(crate::sensors::LOWSTATE).await;
+                        conn.ask_obstacle_avoidance().await;
                         if self.is_closed() {
                             conn.close().await;
                             return Err("the session was closed".into());
@@ -679,6 +704,32 @@ impl Drive {
             self.conn().await?.set_brightness(level).await;
         }
         Ok(json!({ "dryRun": self.dry, "sent": !self.dry, "light": on, "sends": sends }))
+    }
+
+    /// The dog's obstacle avoidance on or off; `on` None toggles it (from unknown: on).
+    pub async fn obstacle_avoidance(&self, on: Option<bool>, dry_run: bool) -> Result<Value, HttpError> {
+        self.ready()?;
+        let on = on.unwrap_or(!self.state.lock().unwrap().obstacle_avoidance.unwrap_or(false));
+        let sends = vec![json!({ "obstaclesAvoid": "SwitchSet", "apiId": crate::robot_rtc::OBSTACLES_AVOID_SWITCH_SET, "parameter": { "enable": on } })];
+        if dry_run && !self.dry {
+            return Ok(json!({ "dryRun": true, "sent": false, "obstacleAvoidance": on, "sends": sends }));
+        }
+        let label = if on { "Obstacle avoidance on" } else { "Obstacle avoidance off" };
+        let record = json!({ "name": "obstacle_avoidance", "label": label, "at": now_ms(), "sent": !self.dry, "dryRun": self.dry });
+        self.set(|s| {
+            s.obstacle_avoidance = Some(on);
+            s.last_command = Some(record.clone());
+        });
+        if let Some(app) = self.app.upgrade() {
+            app.publish(json!({ "type": "command", "command": record }));
+            if let Some(active) = app.recording() {
+                active.command(&json!({ "name": "obstacle_avoidance", "sends": sends, "sent": !self.dry, "dryRun": self.dry }));
+            }
+        }
+        if !self.dry {
+            self.conn().await?.set_obstacle_avoidance(on).await;
+        }
+        Ok(json!({ "dryRun": self.dry, "sent": !self.dry, "obstacleAvoidance": on, "sends": sends }))
     }
 
     /// While recording: the sensor topics (sensors.rs), traffic saving off (else the robot holds the lidar back), and a

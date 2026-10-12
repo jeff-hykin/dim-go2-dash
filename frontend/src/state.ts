@@ -83,6 +83,8 @@ export type Drive =
         lastCommand: CommandRecord | null
         /** the head light, as last set from this app */
         light?: boolean
+        /** the dog's obstacle avoidance: as it said (asked on connect) or as last set from here; null until known */
+        obstacleAvoidance?: boolean | null
         /** the battery's charge (%), null until the robot reports it */
         battery?: number | null
         startedAt: number

@@ -400,6 +400,26 @@ pub fn routes() -> Vec<Route> {
         ),
         route(
             "POST",
+            "api/drive/obstacle_avoidance",
+            "Turn the dog's own obstacle avoidance on or off (its obstacles_avoid api, SwitchSet); without `on` it toggles. The drive state's `obstacleAvoidance` says which it is (the dog is asked on connect; null until it answers)",
+            Some(json!({
+                "on": { "type": "boolean", "description": "true = on, false = off; leave out to toggle" },
+                "dryRun": { "type": "boolean", "description": DRY_RUN },
+            })),
+            handler(|app, args| async move {
+                let dry_run = flag(&args, "dryRun")?;
+                let on = match args.get("on") {
+                    None | Some(Value::Null) => None,
+                    Some(_) => Some(flag(&args, "on")?),
+                };
+                match app.drive.lock().await.clone() {
+                    Some(drive) => drive.obstacle_avoidance(on, dry_run).await,
+                    None => Err(HttpError::conflict("no robot connected — POST api/drive/connect first")),
+                }
+            }),
+        ),
+        route(
+            "POST",
             "api/drive/joy",
             "For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded as a dimos Joy on the joystick stream while recording. Drives nothing",
             Some(json!({

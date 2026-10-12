@@ -719,6 +719,26 @@ export function Control(props: {
                             <Icon name="sun" size={13} />
                             {drive.light ? "Light on" : "Light off"}
                         </button>
+                        <button
+                            type="button"
+                            className={`act light-btn dim-btn sm${drive.obstacleAvoidance ? " on" : ""}`}
+                            aria-pressed={!!drive.obstacleAvoidance}
+                            title={drive.obstacleAvoidance == null
+                                ? "The dog hasn't said whether its obstacle avoidance is on: click to turn it on"
+                                : `The dog's obstacle avoidance is ${
+                                    drive.obstacleAvoidance ? "on" : "off"
+                                }: click to turn it ${drive.obstacleAvoidance ? "off" : "on"}`}
+                            onClick={() =>
+                                call("POST", "api/drive/obstacle_avoidance", { on: !drive.obstacleAvoidance }).catch((
+                                    e,
+                                ) => onToast(e.message))}
+                        >
+                            {drive.obstacleAvoidance == null
+                                ? "Avoidance ?"
+                                : drive.obstacleAvoidance
+                                ? "Avoidance on"
+                                : "Avoidance off"}
+                        </button>
                     </div>
                 </div>
                 {/* on a touchscreen the on-screen arrows are easy to hit by accident: hidden until asked for */}

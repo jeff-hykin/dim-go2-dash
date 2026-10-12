@@ -43,6 +43,11 @@ const SPORT_TOPIC: &str = "rt/api/sport/request";
 const MOTION_SWITCHER_TOPIC: &str = "rt/api/motion_switcher/request";
 /// the head light and speaker (VUI); api 1005 SetBrightness {"brightness": 0..10}, like dimos' set_light
 const VUI_TOPIC: &str = "rt/api/vui/request";
+/// the dog's own obstacle avoidance (unitree_sdk2's ObstaclesAvoidClient): SwitchSet {"enable"} and SwitchGet
+const OBSTACLES_AVOID_TOPIC: &str = "rt/api/obstacles_avoid/request";
+pub const OBSTACLES_AVOID_RESPONSE: &str = "rt/api/obstacles_avoid/response";
+pub const OBSTACLES_AVOID_SWITCH_SET: u32 = 1001;
+pub const OBSTACLES_AVOID_SWITCH_GET: u32 = 1002;
 pub const VUI_SET_BRIGHTNESS: u32 = 1005;
 /// data2=2 firmware wraps con_notify in AES-128-GCM under this fixed key; data2=3 (≥ 1.1.15) uses a per-device key.
 const LEGACY_GCM_KEY: [u8; 16] = [232, 86, 130, 189, 22, 84, 155, 0, 142, 4, 166, 104, 43, 179, 235, 227];
@@ -343,7 +348,7 @@ impl RobotConn {
                             *last_key.lock().unwrap() = data.clone();
                             send(&channel, "validation", "", Some(json!(validation_reply(&data)))).await;
                         }
-                    } else if kind == "msg" {
+                    } else if kind == "msg" || (kind == "res" && message["topic"] == OBSTACLES_AVOID_RESPONSE) {
                         let topic = message["topic"].as_str().unwrap_or("").to_string();
                         on_event(ConnEvent::Data(DataMessage { topic, json: message, binary: None }));
                     } else if kind == "err" && message["info"] == "Validation Needed." {
@@ -480,6 +485,16 @@ impl RobotConn {
     /// The head light's brightness, 0 (off) to 10.
     pub async fn set_brightness(&self, level: u8) {
         self.request(VUI_TOPIC, VUI_SET_BRIGHTNESS, Some(json!({ "brightness": level.min(10) }))).await;
+    }
+
+    /// The dog's obstacle avoidance on or off.
+    pub async fn set_obstacle_avoidance(&self, on: bool) {
+        self.request(OBSTACLES_AVOID_TOPIC, OBSTACLES_AVOID_SWITCH_SET, Some(json!({ "enable": on }))).await;
+    }
+
+    /// Asks whether obstacle avoidance is on; the answer arrives as an OBSTACLES_AVOID_RESPONSE Data event.
+    pub async fn ask_obstacle_avoidance(&self) {
+        self.request(OBSTACLES_AVOID_TOPIC, OBSTACLES_AVOID_SWITCH_GET, None).await;
     }
 
     pub async fn set_motion_mode(&self, name: &str) {
