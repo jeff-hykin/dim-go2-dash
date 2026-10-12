@@ -115,7 +115,7 @@ pub trait Switcher: Send + Sync {
     async fn on_hotspot(&self) -> bool;
     /// leave the hotspot without knowing the network before it (joined outside this app): the OS picks its usual one
     async fn leave(&self) -> Result<(), String>;
-    /// a hotspot joined outside this app (SteamOS's Wi-Fi menu): never let it join on its own at boot
+    /// a hotspot joined outside this app (SteamOS's Wi-Fi menu): rejoin on its own only below every other network
     async fn adopted(&self, _ssid: &str) {}
 }
 
@@ -170,7 +170,9 @@ impl Switcher for Nmcli {
                         "ssid",
                         ssid,
                         "connection.autoconnect",
-                        "no",
+                        "yes",
+                        "connection.autoconnect-priority",
+                        DOG_PRIORITY,
                         "wifi-sec.key-mgmt",
                         "wpa-psk",
                         "wifi-sec.psk",
@@ -180,13 +182,12 @@ impl Switcher for Nmcli {
                 .await?;
             } else {
                 run("nmcli", &["connection", "modify", "id", &profile, "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]).await?;
+                lowest_priority(&profile).await;
             }
             run("nmcli", &["connection", "up", "id", &profile]).await.map(|_| ())
         } else {
             run("nmcli", &["dev", "wifi", "connect", ssid]).await?;
-            // that saves a profile that joins on its own: a dog's hotspot (no internet) must never win at boot over the
-            // real Wi-Fi (Steam then hangs at "Logging In...")
-            let _ = run("nmcli", &["connection", "modify", "id", ssid, "connection.autoconnect", "no"]).await;
+            lowest_priority(ssid).await;
             Ok(())
         }
     }
@@ -206,9 +207,18 @@ impl Switcher for Nmcli {
     }
     async fn adopted(&self, _ssid: &str) {
         if let Some(name) = nmcli_active_wifi().await {
-            let _ = run("nmcli", &["connection", "modify", "id", &name, "connection.autoconnect", "no"]).await;
+            lowest_priority(&name).await;
         }
     }
+}
+
+/// a dog's hotspot profile's autoconnect priority: below every ordinary network (0), so it rejoins on its own only
+/// where no known Wi-Fi is in range (a dog's hotspot has no internet: winning at boot hangs Steam at "Logging In...")
+const DOG_PRIORITY: &str = "-10";
+
+async fn lowest_priority(profile: &str) {
+    let _ = run("nmcli", &["connection", "modify", "id", profile, "connection.autoconnect", "yes", "connection.autoconnect-priority", DOG_PRIORITY])
+        .await;
 }
 
 /// the active Wi-Fi connection's profile name (SteamOS names it by the SSID, this app "dimOS Go2 <ssid>")
