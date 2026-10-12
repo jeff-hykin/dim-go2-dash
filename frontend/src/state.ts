@@ -12,7 +12,8 @@ export type Robot = {
     serial: string | null
     bleId: string | null
     ip: string | null
-    ipSource: "scan" | "remembered" | null
+    /** hotspot: this computer is on the dog's own hotspot, where it answers at 192.168.12.1 */
+    ipSource: "scan" | "remembered" | "hotspot" | null
     /** its Wi-Fi MAC */
     lanMac: string | null
     /** its Bluetooth MAC (Linux only: macOS hides it) */

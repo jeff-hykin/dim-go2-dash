@@ -50,6 +50,8 @@ async fn main() {
         let app = app.clone();
         move || app.recover_recordings()
     });
+    // a dog's hotspot joined outside this app (or before a restart): drive it
+    app.watch_hotspot();
     // CPU and Wi-Fi every few seconds in the log, to piece a lost connection back together
     go2_dash::health::spawn(app.clone());
     // uploads still open from the last run: follow them again

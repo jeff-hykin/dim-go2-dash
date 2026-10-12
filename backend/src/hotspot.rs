@@ -24,6 +24,10 @@ pub const DEFAULT_PASSWORD: &str = "12345678";
 pub const PASSWORDS_FILE: &str = "go2_dash_hotspots.json";
 /// how long to wait for the new link (an address on the hotspot, the dog's port answering)
 const LINK_TIMEOUT: Duration = Duration::from_secs(30);
+/// how often to check whether this computer joined or left a dog's hotspot on its own
+const ADOPT_EVERY: Duration = Duration::from_secs(2);
+/// checks off the hotspot before it counts as left
+const ADOPT_GONE_AFTER: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Network {
@@ -109,6 +113,10 @@ pub trait Switcher: Send + Sync {
     async fn rejoin(&self, ssid: &str) -> Result<(), String>;
     /// whether this computer has an address on the dog's hotspot (192.168.12.x)
     async fn on_hotspot(&self) -> bool;
+    /// leave the hotspot without knowing the network before it (joined outside this app): the OS picks its usual one
+    async fn leave(&self) -> Result<(), String>;
+    /// a hotspot joined outside this app (SteamOS's Wi-Fi menu): never let it join on its own at boot
+    async fn adopted(&self, _ssid: &str) {}
 }
 
 async fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
@@ -191,6 +199,22 @@ impl Switcher for Nmcli {
     async fn on_hotspot(&self) -> bool {
         has_hotspot_address()
     }
+    async fn leave(&self) -> Result<(), String> {
+        // deactivated by the user, NetworkManager won't pick it again by itself; it rejoins the usual network
+        let name = nmcli_active_wifi().await.ok_or("not on a Wi-Fi network")?;
+        run("nmcli", &["connection", "down", "id", &name]).await.map(|_| ())
+    }
+    async fn adopted(&self, _ssid: &str) {
+        if let Some(name) = nmcli_active_wifi().await {
+            let _ = run("nmcli", &["connection", "modify", "id", &name, "connection.autoconnect", "no"]).await;
+        }
+    }
+}
+
+/// the active Wi-Fi connection's profile name (SteamOS names it by the SSID, this app "dimOS Go2 <ssid>")
+async fn nmcli_active_wifi() -> Option<String> {
+    let text = run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show", "--active"]).await.ok()?;
+    text.lines().find_map(|l| l.strip_suffix(":802-11-wireless")).map(|n| n.replace("\\:", ":"))
 }
 
 pub struct MacOs;
@@ -229,6 +253,12 @@ impl Switcher for MacOs {
     }
     async fn on_hotspot(&self) -> bool {
         has_hotspot_address()
+    }
+    async fn leave(&self) -> Result<(), String> {
+        // Wi-Fi off and on: macOS rejoins its preferred network
+        let device = mac_wifi_device().await;
+        run("networksetup", &["-setairportpower", &device, "off"]).await?;
+        run("networksetup", &["-setairportpower", &device, "on"]).await.map(|_| ())
     }
 }
 
@@ -332,6 +362,14 @@ impl Switcher for MockSwitcher {
     }
     async fn on_hotspot(&self) -> bool {
         self.current.lock().unwrap().as_deref().is_some_and(looks_like_go2)
+    }
+    async fn leave(&self) -> Result<(), String> {
+        self.log.lock().unwrap().push("leave".into());
+        *self.current.lock().unwrap() = Some("Office Wi-Fi".into());
+        Ok(())
+    }
+    async fn adopted(&self, ssid: &str) {
+        self.log.lock().unwrap().push(format!("adopted {ssid}"));
     }
 }
 
@@ -475,20 +513,70 @@ impl App {
         Ok(json!({ "hotspot": self.hotspot_state(), "drive": drive }))
     }
 
+    /// A dog's hotspot joined some other way (SteamOS's Wi-Fi menu, or before this app restarted): take it as linked
+    /// and drive the dog at 192.168.12.1, as Connect via hotspot does. Leaving it some other way ends the link.
+    pub fn watch_hotspot(self: &Arc<Self>) {
+        let app = self.clone();
+        tokio::spawn(async move {
+            let mut away = 0;
+            loop {
+                app.adopt_hotspot(&mut away).await;
+                tokio::time::sleep(ADOPT_EVERY).await;
+            }
+        });
+    }
+
+    async fn adopt_hotspot(self: &Arc<Self>, away: &mut u32) {
+        let status = self.hotspot.lock().unwrap().status;
+        let on = self.wifi.on_hotspot().await;
+        match status {
+            "" | "idle" if on => {
+                let ssid = self.wifi.current().await;
+                crate::dlog!("hotspot: on {ssid:?}, joined outside this app: driving {AP_IP}");
+                if let Some(ssid) = &ssid {
+                    self.wifi.adopted(ssid).await;
+                }
+                self.set_hotspot(|l| *l = Link { status: "linked", ssid: ssid.clone(), previous: None, error: None });
+                self.publish_robots();
+                if self.drive.lock().await.is_none() {
+                    let robot = ssid.as_deref().and_then(|s| self.robot_for_hotspot(s));
+                    let name = ssid.as_deref().and_then(dog_name_from_ssid).or(ssid).unwrap_or_else(|| "Go2 hotspot".into());
+                    if let Err(err) = crate::drive::Drive::open(self, robot, AP_IP.into(), name, None, false).await {
+                        crate::dlog!("hotspot: driving {AP_IP} failed: {}", err.message);
+                    }
+                }
+            }
+            // off the hotspot a few checks in a row (not one blip): left it some other way
+            "linked" if !on => {
+                *away += 1;
+                if *away >= ADOPT_GONE_AFTER {
+                    *away = 0;
+                    crate::dlog!("hotspot: left outside this app");
+                    if self.drive.lock().await.as_ref().is_some_and(|d| d.ip == AP_IP) {
+                        crate::drive::close(self).await;
+                    }
+                    self.set_hotspot(|l| *l = Link::default());
+                    self.publish_robots();
+                }
+            }
+            _ => *away = 0,
+        }
+    }
+
     /// Back to the network this computer was on (closing the drive session first).
     pub async fn hotspot_restore(self: &Arc<Self>) -> Result<Value, HttpError> {
         let previous = self.hotspot.lock().unwrap().previous.clone();
         if self.drive.lock().await.as_ref().is_some_and(|d| d.ip == AP_IP) {
             crate::drive::close(self).await;
         }
-        let Some(previous) = previous else {
-            self.set_hotspot(|l| *l = Link::default());
-            return Err(HttpError::conflict(
-                "this computer didn't say which Wi-Fi it was on (macOS hides it): pick your network in the Wi-Fi menu",
-            ));
-        };
         self.set_hotspot(|l| l.status = "restoring");
-        match self.wifi.rejoin(&previous).await {
+        // joined outside this app (or before a restart): no network to go back to, so just leave
+        let back = match &previous {
+            Some(previous) => self.wifi.rejoin(previous).await,
+            None => self.wifi.leave().await,
+        };
+        let previous = previous.unwrap_or_else(|| "the usual Wi-Fi".into());
+        match back {
             Ok(()) => {
                 self.set_hotspot(|l| *l = Link::default());
                 Ok(json!({ "rejoined": previous, "hotspot": self.hotspot_state() }))
@@ -562,6 +650,35 @@ mod tests {
         assert_eq!(back["rejoined"], "Office Wi-Fi");
         assert_eq!(app.hotspot_state()["status"], "idle");
         assert!(app.drive.lock().await.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn adopts_a_hotspot_joined_elsewhere() {
+        let dir = std::env::temp_dir().join(format!("go2_hotspot_adopt_{}", crate::app::now_ms()));
+        let app = App::new(dir.clone(), true);
+        // joined through the OS's Wi-Fi menu, not this app
+        app.wifi.join("Go2_60968_83d1a1fa", Some(DEFAULT_PASSWORD)).await.unwrap();
+        let mut away = 0;
+        app.adopt_hotspot(&mut away).await;
+        assert_eq!(app.hotspot_state()["status"], "linked");
+        assert_eq!(app.hotspot_state()["previous"], Value::Null);
+        let drive = app.drive.lock().await.clone().expect("a drive session");
+        assert_eq!((drive.ip.as_str(), drive.name.as_str()), (AP_IP, "Go2_60968"));
+        // left through the OS: one blip isn't leaving, a few checks are
+        app.wifi.rejoin("Office Wi-Fi").await.unwrap();
+        app.adopt_hotspot(&mut away).await;
+        assert_eq!(app.hotspot_state()["status"], "linked");
+        app.adopt_hotspot(&mut away).await;
+        app.adopt_hotspot(&mut away).await;
+        assert_eq!(app.hotspot_state()["status"], "idle");
+        assert!(app.drive.lock().await.is_none());
+        // back on it, then Leave with no network to go back to: leaves, and the OS picks its usual one
+        app.wifi.join("Go2_60968_83d1a1fa", Some(DEFAULT_PASSWORD)).await.unwrap();
+        app.adopt_hotspot(&mut away).await;
+        let back = app.hotspot_restore().await.unwrap();
+        assert_eq!(back["hotspot"]["status"], "idle");
+        assert_eq!(app.wifi.current().await.as_deref(), Some("Office Wi-Fi"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

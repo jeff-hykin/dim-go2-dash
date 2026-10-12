@@ -137,6 +137,12 @@ pub fn migrate_legacy(from: &std::path::Path, to: &std::path::Path) -> usize {
     SAVED_FILES.iter().filter(|file| std::fs::copy(from.join(file), to.join(file)).is_ok()).count()
 }
 
+/// a hotspot's SSID is its dog's Bluetooth name, maybe with a suffix (the page's robotForHotspot, Hotspot.tsx)
+fn hotspot_matches(raw: &Value, ssid: &str) -> bool {
+    let ssid = ssid.to_lowercase();
+    raw["name"].as_str().map(str::to_lowercase).is_some_and(|ble| !ble.is_empty() && (ssid == ble || ssid.starts_with(&format!("{ble}_"))))
+}
+
 pub fn valid_ipv4(text: &str) -> bool {
     text.parse::<std::net::Ipv4Addr>().is_ok()
 }
@@ -229,7 +235,7 @@ impl App {
         let _ = self.events.send(event.to_string());
     }
 
-    fn publish_robots(&self) {
+    pub(crate) fn publish_robots(&self) {
         let robots = self.robots();
         self.publish(json!({ "type": "robots", "robots": robots }));
     }
@@ -257,10 +263,12 @@ impl App {
 
     // ── robots ──
 
-    fn robot_view(state: &State, key: &str, raw: &Value) -> Value {
+    /// `hotspot`: the dog hotspot this computer is on; its dog answers at 192.168.12.1, whatever its LAN IP was
+    fn robot_view(state: &State, key: &str, raw: &Value, hotspot: Option<&str>) -> Value {
+        let on_hotspot = hotspot.is_some_and(|ssid| hotspot_matches(raw, ssid));
         let scanned_ip = raw["ip"].as_str().filter(|ip| !ip.is_empty());
         let remembered = state.ips.get(key).map(String::as_str);
-        let ip = scanned_ip.or(remembered);
+        let ip = if on_hotspot { Some(crate::hotspot::AP_IP) } else { scanned_ip.or(remembered) };
         let custom = state.names.get(key).cloned();
         let serial = raw["serial"].as_str();
         let ble_id = raw["ble_mac"].as_str();
@@ -279,7 +287,7 @@ impl App {
             "serial": serial,
             "bleId": ble_id,
             "ip": ip,
-            "ipSource": if scanned_ip.is_some() { json!("scan") } else if remembered.is_some() { json!("remembered") } else { Value::Null },
+            "ipSource": if on_hotspot { json!("hotspot") } else if scanned_ip.is_some() { json!("scan") } else if remembered.is_some() { json!("remembered") } else { Value::Null },
             "lanMac": raw["lan_mac"],
             "bleMac": raw["ble_hw_mac"],
             "matched": raw["matched"].as_str().unwrap_or(if arp_only { "oui" } else if scanned_ip.is_some() { "lan" } else { "ble" }),
@@ -291,22 +299,35 @@ impl App {
 
     /// The scanned robots, with the user's names, remembered IPs and AES-key status folded in.
     pub fn robots(&self) -> Vec<Value> {
+        let hotspot = self.linked_hotspot();
         let state = self.state.lock().unwrap();
         state
             .devices
             .iter()
             // an ARP-only "possible Go2" at a known dog's remembered IP is that dog
             .filter(|(key, raw)| !(raw["arp_only"] == true && state.ips.iter().any(|(other, ip)| other != *key && ip == *key)))
-            .map(|(key, raw)| Self::robot_view(&state, key, raw))
+            .map(|(key, raw)| Self::robot_view(&state, key, raw, hotspot.as_deref()))
             .collect()
     }
 
     pub fn robot(&self, key: &str) -> Result<Value, HttpError> {
+        let hotspot = self.linked_hotspot();
         let state = self.state.lock().unwrap();
         let raw = state.devices.get(key).ok_or_else(|| {
             HttpError::not_found(format!("no robot {key} — scan first (POST api/scan), then use a key from GET api/robots"))
         })?;
-        Ok(Self::robot_view(&state, key, raw))
+        Ok(Self::robot_view(&state, key, raw, hotspot.as_deref()))
+    }
+
+    fn linked_hotspot(&self) -> Option<String> {
+        let link = self.hotspot.lock().unwrap();
+        link.ssid.clone().filter(|_| link.status == "linked")
+    }
+
+    /// the scanned dog whose Bluetooth name the hotspot's SSID carries (Go2_60968 → Go2_60968_83d1a1fa)
+    pub(crate) fn robot_for_hotspot(&self, ssid: &str) -> Option<String> {
+        let state = self.state.lock().unwrap();
+        state.devices.iter().find(|(_, raw)| hotspot_matches(raw, ssid)).map(|(key, _)| key.clone())
     }
 
     pub fn rename(&self, key: &str, name: &str) -> Result<Value, HttpError> {

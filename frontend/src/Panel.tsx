@@ -464,7 +464,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                 </div>
                 <div className="acts">
                     <UseIp robot={robot} using={using} />
-                    {hotspot && !robot.ip && (hotspotLinked ? <span className="dim-badge ok">connected</span> : (
+                    {hotspot && (!robot.ip || stale) && (hotspotLinked ? <span className="dim-badge ok">connected</span> : (
                         <button
                             type="button"
                             className="dim-btn sm"
@@ -504,7 +504,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                     <DetailRow label="Bluetooth name" value={robot.bleName} />
                     <DetailRow label="Serial" value={robot.serial} />
                     <DetailRow label="Bluetooth ID" value={robot.bleId} />
-                    {robot.ipSource === "scan"
+                    {robot.ipSource === "scan" || robot.ipSource === "hotspot"
                         ? <DetailRow label="IP address" value={robot.ip} />
                         : (
                             <div className="d-row">
