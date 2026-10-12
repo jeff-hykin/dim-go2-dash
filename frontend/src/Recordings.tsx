@@ -313,7 +313,7 @@ export function Recordings(
     const [account, setAccount] = useState<Account | null>(null)
     const [loggingIn, setLoggingIn] = useState(false)
     const loadAccount = useCallback((fresh = false) => {
-        call<Account>("GET", `api/cloud${fresh ? "?fresh=true" : ""}`).then(
+        call<Account>("GET", fresh ? "api/cloud?fresh=true" : "api/cloud").then(
             setAccount,
             (e) => setAccount({ loggedIn: false, email: null, available: true, error: e.message }),
         )
