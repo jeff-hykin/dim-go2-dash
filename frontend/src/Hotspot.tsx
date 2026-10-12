@@ -139,11 +139,9 @@ export function DriveAskDialog({ ssid, onClose }: { ssid: string | null; onClose
     }
     return (
         <div className="rec-layer" onClick={busy ? undefined : onClose}>
-            <div className="hs-dialog dim-panel" role="dialog" aria-label="Drive the robot?" onClick={(e) => e.stopPropagation()}>
-                <div className="hs-title">Drive the robot?</div>
-                <p>
-                    This computer is on {ssid ? <b>{ssid}</b> : "a Go2's hotspot"}. Connecting stands the dog up.
-                </p>
+            <div className="hs-dialog dim-panel" role="dialog" aria-label="Drive the robot" onClick={(e) => e.stopPropagation()}>
+                <div className="hs-title">Drive the robot{ssid ? ` (${ssid})` : ""}</div>
+                <p>This will make the robot stand.</p>
                 <ErrorNotice message={error} />
                 <div className="hs-actions">
                     <button type="button" className="dim-btn" disabled={busy} onClick={onClose}>Not now</button>
