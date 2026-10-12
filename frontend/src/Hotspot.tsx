@@ -126,6 +126,36 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
     )
 }
 
+/** On a dog's hotspot joined outside this app: driving stands the dog up, so ask first. */
+export function DriveAskDialog({ ssid, onClose }: { ssid: string | null; onClose: () => void }) {
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const drive = () => {
+        setBusy(true)
+        setError(null)
+        call("POST", "api/drive/connect", { ip: "192.168.12.1" }).then(onClose, (e) => setError(e.message)).finally(() =>
+            setBusy(false)
+        )
+    }
+    return (
+        <div className="rec-layer" onClick={busy ? undefined : onClose}>
+            <div className="hs-dialog dim-panel" role="dialog" aria-label="Drive the robot?" onClick={(e) => e.stopPropagation()}>
+                <div className="hs-title">Drive the robot?</div>
+                <p>
+                    This computer is on {ssid ? <b>{ssid}</b> : "a Go2's hotspot"}. Connecting stands the dog up.
+                </p>
+                <ErrorNotice message={error} />
+                <div className="hs-actions">
+                    <button type="button" className="dim-btn" disabled={busy} onClick={onClose}>Not now</button>
+                    <button type="button" className="dim-btn primary" disabled={busy} onClick={drive} autoFocus>
+                        {busy ? "Connecting…" : "Drive"}
+                    </button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 /** The Go2 hotspot cards not shown on a known dog's card (and, where Wi-Fi names can't be listed, a field for one). */
 export function Hotspots({ scan, state, robots, onScan, onAsk }: {
     scan: HotspotScan | null

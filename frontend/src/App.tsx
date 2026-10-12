@@ -10,6 +10,7 @@ import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
 import {
     ConnectDialog,
+    DriveAskDialog,
     type HotspotAsk,
     HotspotBanner,
     Hotspots,
@@ -45,6 +46,8 @@ export function App() {
     const [recordingsOpen, setRecordingsOpen] = useState(false)
     const [hotspotScan, setHotspotScan] = useState<HotspotScan | null>(null)
     const [hotspotAsk, setHotspotAsk] = useState<HotspotAsk | null>(null)
+    // the adopted hotspot whose "Drive the robot?" was answered: asked once per joining
+    const [driveAsked, setDriveAsked] = useState<string | null>(null)
     const hotspotScanning = useRef(false)
     const scanHotspots = () => {
         if (hotspotScanning.current) {
@@ -102,6 +105,12 @@ export function App() {
         const timer = setInterval(tick, 30_000)
         return () => clearInterval(timer)
     }, [])
+    // off the hotspot: joining one again asks again
+    useEffect(() => {
+        if (state?.hotspot.status !== "linked") {
+            setDriveAsked(null)
+        }
+    }, [state?.hotspot.status])
     // the panel slides away while driving or being guided, and comes back after
     useEffect(() => setSlid(driving || guiding), [driving, guiding])
     useEffect(() => {
@@ -558,6 +567,13 @@ export function App() {
                             robots={robots}
                             onScan={scanHotspots}
                             onAsk={setHotspotAsk}
+                        />
+                    )}
+                    {state?.hotspot.status === "linked" && state.hotspot.adopted && !driving &&
+                        driveAsked !== (state.hotspot.ssid ?? "") && (
+                        <DriveAskDialog
+                            ssid={state.hotspot.ssid}
+                            onClose={() => setDriveAsked(state.hotspot.ssid ?? "")}
                         />
                     )}
                     {state && hotspotAsk && (

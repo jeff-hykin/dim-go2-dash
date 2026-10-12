@@ -195,6 +195,8 @@ export type HotspotState = {
     status: "idle" | "joining" | "linked" | "restoring" | "error"
     ssid: string | null
     previous: string | null
+    /** joined outside this app (SteamOS's Wi-Fi menu, or before a restart): ask whether to drive */
+    adopted: boolean
     error: string | null
     ip: string
     platform: string

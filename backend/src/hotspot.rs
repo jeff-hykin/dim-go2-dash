@@ -391,12 +391,14 @@ pub struct Link {
     pub ssid: Option<String>,
     pub previous: Option<String>,
     pub error: Option<String>,
+    /// joined outside this app (SteamOS's Wi-Fi menu, or before a restart): the page asks whether to drive
+    pub adopted: bool,
 }
 
 impl Link {
     pub fn json(&self) -> Value {
         json!({ "status": if self.status.is_empty() { "idle" } else { self.status }, "ssid": self.ssid,
-            "previous": self.previous, "error": self.error, "ip": AP_IP })
+            "previous": self.previous, "error": self.error, "adopted": self.adopted, "ip": AP_IP })
     }
 }
 
@@ -469,7 +471,7 @@ impl App {
         let already_joined = previous.as_deref() == Some(ssid);
         let leaving = self.hotspot.lock().unwrap().previous.clone().or_else(|| previous.clone().filter(|p| p != ssid));
         self.set_hotspot(|l| {
-            *l = Link { status: "joining", ssid: Some(ssid.into()), previous: leaving.clone(), error: None };
+            *l = Link { status: "joining", ssid: Some(ssid.into()), previous: leaving.clone(), error: None, adopted: false };
         });
         if let Err(err) = if already_joined { Ok(()) } else { self.wifi.join(ssid, password.as_deref()).await } {
             let needs = err.to_lowercase().contains("secret") || err.to_lowercase().contains("password");
@@ -514,7 +516,7 @@ impl App {
     }
 
     /// A dog's hotspot joined some other way (SteamOS's Wi-Fi menu, or before this app restarted): take it as linked
-    /// and drive the dog at 192.168.12.1, as Connect via hotspot does. Leaving it some other way ends the link.
+    /// (the dog's card drives 192.168.12.1; the page asks whether to). Leaving it some other way ends the link.
     pub fn watch_hotspot(self: &Arc<Self>) {
         let app = self.clone();
         tokio::spawn(async move {
@@ -532,19 +534,12 @@ impl App {
         match status {
             "" | "idle" if on => {
                 let ssid = self.wifi.current().await;
-                crate::dlog!("hotspot: on {ssid:?}, joined outside this app: driving {AP_IP}");
+                crate::dlog!("hotspot: on {ssid:?}, joined outside this app");
                 if let Some(ssid) = &ssid {
                     self.wifi.adopted(ssid).await;
                 }
-                self.set_hotspot(|l| *l = Link { status: "linked", ssid: ssid.clone(), previous: None, error: None });
+                self.set_hotspot(|l| *l = Link { status: "linked", ssid, previous: None, error: None, adopted: true });
                 self.publish_robots();
-                if self.drive.lock().await.is_none() {
-                    let robot = ssid.as_deref().and_then(|s| self.robot_for_hotspot(s));
-                    let name = ssid.as_deref().and_then(dog_name_from_ssid).or(ssid).unwrap_or_else(|| "Go2 hotspot".into());
-                    if let Err(err) = crate::drive::Drive::open(self, robot, AP_IP.into(), name, None, false).await {
-                        crate::dlog!("hotspot: driving {AP_IP} failed: {}", err.message);
-                    }
-                }
             }
             // off the hotspot a few checks in a row (not one blip): left it some other way
             "linked" if !on => {
@@ -663,8 +658,9 @@ mod tests {
         app.adopt_hotspot(&mut away).await;
         assert_eq!(app.hotspot_state()["status"], "linked");
         assert_eq!(app.hotspot_state()["previous"], Value::Null);
-        let drive = app.drive.lock().await.clone().expect("a drive session");
-        assert_eq!((drive.ip.as_str(), drive.name.as_str()), (AP_IP, "Go2_60968"));
+        assert_eq!(app.hotspot_state()["adopted"], true);
+        // the page asks before driving (the dog stands up on connect)
+        assert!(app.drive.lock().await.is_none());
         // left through the OS: one blip isn't leaving, a few checks are
         app.wifi.rejoin("Office Wi-Fi").await.unwrap();
         app.adopt_hotspot(&mut away).await;

@@ -324,12 +324,6 @@ impl App {
         link.ssid.clone().filter(|_| link.status == "linked")
     }
 
-    /// the scanned dog whose Bluetooth name the hotspot's SSID carries (Go2_60968 → Go2_60968_83d1a1fa)
-    pub(crate) fn robot_for_hotspot(&self, ssid: &str) -> Option<String> {
-        let state = self.state.lock().unwrap();
-        state.devices.iter().find(|(_, raw)| hotspot_matches(raw, ssid)).map(|(key, _)| key.clone())
-    }
-
     pub fn rename(&self, key: &str, name: &str) -> Result<Value, HttpError> {
         self.robot(key)?;
         let names = {
