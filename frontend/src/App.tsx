@@ -594,6 +594,7 @@ export function App() {
 
             {drive.active && state && (
                 <Control
+                    host={state.host}
                     drive={drive}
                     commands={state.commands}
                     keyboardActive={slid}

@@ -2156,3 +2156,67 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: #fde047;
     border-color: color-mix(in srgb, #fde047 60%, transparent);
 }
+
+/* ── battery pane: the dog's and this computer's, top right under the top bar ── */
+.batt-pane {
+    position: absolute;
+    right: 8px;
+    top: 56px;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 210px;
+    padding: 8px 10px;
+    font-size: 12px;
+    pointer-events: none;
+}
+.batt-pane.danger {
+    border-color: var(--danger-line, var(--danger));
+}
+.bt-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 8px;
+    align-items: baseline;
+}
+.bt-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bt-pct {
+    font-size: 13px;
+}
+.bt-bar {
+    grid-column: 1 / -1;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(128, 128, 128, 0.25);
+    overflow: hidden;
+}
+.bt-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--ok);
+    transition: width 0.6s ease;
+}
+.bt-fill.warn {
+    background: var(--warn);
+}
+.bt-fill.danger {
+    background: var(--danger);
+}
+.bt-fill.unknown {
+    background: transparent;
+}
+.bt-detail {
+    grid-column: 1 / -1;
+    opacity: 0.7;
+    font-size: 11px;
+}
+.bt-low {
+    color: var(--danger);
+    font-weight: 600;
+}
