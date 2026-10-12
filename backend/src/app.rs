@@ -640,7 +640,9 @@ impl App {
 
     pub fn network_basic(&self) -> Value {
         let state = self.state.lock().unwrap();
-        json!({ "ssid": if state.host_ssid.is_empty() { Value::Null } else { json!(state.host_ssid) }, "ssidStatus": state.host_ssid_status, "mock": self.mock })
+        // this computer's battery (health.rs); mock: a deck at 73%, charging, whatever this machine has
+        let battery = if self.mock { json!({ "percent": 73, "state": "charging" }) } else { crate::health::battery() };
+        json!({ "ssid": if state.host_ssid.is_empty() { Value::Null } else { json!(state.host_ssid) }, "ssidStatus": state.host_ssid_status, "mock": self.mock, "battery": battery })
     }
 
     /// SSID plus whether LAN discovery's multicast probe can leave on the Wi-Fi interface (a VPN can hijack it).

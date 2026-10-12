@@ -4,7 +4,7 @@ import { ErrorNotice, reportError } from "./errors.tsx"
 // toggles it). All state is the backend's (state.ts); every button is an endpoint call.
 import { useCallback, useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
-import { Control } from "./Control.tsx"
+import { Control, DeckBattery } from "./Control.tsx"
 import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
 import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
@@ -444,6 +444,7 @@ export function App() {
                     <span className="t dim-label">Robots</span>
                     {state?.network.mock && <span className="dim-badge warn">Mock</span>}
                     <span className="spacer" />
+                    <DeckBattery battery={state?.network.battery} />
                     <button
                         type="button"
                         className="icon-btn dim-btn ghost icon"
@@ -612,6 +613,7 @@ export function App() {
                     record={state.record}
                     settings={state.settings}
                     topSlot={<HotspotBanner state={state.hotspot} inline />}
+                    deckBattery={state.network.battery}
                 />
             )}
             {/* driving: it sits in the top bar instead (Control's topSlot) */}

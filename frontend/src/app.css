@@ -2078,6 +2078,11 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: var(--warn);
     font-weight: 600;
 }
+/* this computer's battery (Control's top bar, the Robots panel's head) */
+.deck-batt {
+    white-space: nowrap;
+    font-size: 11px;
+}
 /* in the top bar (driving), the hotspot's way back is part of the row, not floating over it */
 .hs-banner.inline {
     position: static;

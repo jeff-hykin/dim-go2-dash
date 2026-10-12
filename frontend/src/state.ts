@@ -98,7 +98,15 @@ export type Account = {
 
 export type Command = { name: string; label: string; description: string }
 
-export type Network = { ssid: string | null; ssidStatus: "ok" | "redacted" | "unknown"; mock: boolean }
+/** this computer's battery (the deck's, not the dog's), sampled every 20 s; null without one */
+export type HostBattery = { percent: number; state: "charging" | "discharging" | "full" | "idle" | "unknown" }
+
+export type Network = {
+    ssid: string | null
+    ssidStatus: "ok" | "redacted" | "unknown"
+    mock: boolean
+    battery?: HostBattery | null
+}
 
 export type SetupStep = "welcome" | "find" | "wifi" | "address" | "launch" | "done"
 

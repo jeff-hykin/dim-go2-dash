@@ -17,7 +17,7 @@ import {
 import { RecordOptions } from "./RecordOptions.tsx"
 import { Icon } from "./icons.tsx"
 import { store, stored } from "./util.ts"
-import type { Command, Drive, RecordState, Settings } from "./state.ts"
+import type { Command, Drive, HostBattery, RecordState, Settings } from "./state.ts"
 
 type Active = Extract<Drive, { active: true }>
 
@@ -397,6 +397,8 @@ export function Control(props: {
     onToast: (text: string) => void
     /** shown in the top bar after the robot's name (the hotspot's way back) */
     topSlot?: React.ReactNode
+    /** this computer's battery, shown beside the dog's */
+    deckBattery?: HostBattery | null
 }) {
     const { drive, commands, record, settings, keyboardActive, flash, onFlash, onToast } = props
     const video = useRef<HTMLVideoElement>(null)
@@ -600,13 +602,14 @@ export function Control(props: {
                             <span className="ctl-ip dim-mono">
                                 {drive.ip}
                                 {drive.battery != null && (
-                                    <span className={`ctl-batt${drive.battery <= 20 ? " low" : ""}`} title="battery">
+                                    <span className={`ctl-batt${drive.battery <= 20 ? " low" : ""}`} title="the dog's battery">
                                         {" · "}
                                         {drive.battery}%
                                     </span>
                                 )}
                             </span>
                         </div>
+                        <DeckBattery battery={props.deckBattery} />
                         {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
                         {drive.status !== "ready" && (
                             <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
@@ -755,6 +758,23 @@ function FormatToggle({ settings, onToast }: { settings: Settings; onToast: (tex
         >
             {format}
         </button>
+    )
+}
+
+/** This computer's battery as a small "Deck 73% ⚡" pill, so it isn't mistaken for the dog's; nothing without one. */
+export function DeckBattery({ battery }: { battery?: HostBattery | null }) {
+    if (!battery) {
+        return null
+    }
+    const charging = battery.state === "charging"
+    const low = battery.state === "discharging" && battery.percent <= 20
+    return (
+        <span
+            className={`deck-batt dim-badge${low ? " warn" : ""}`}
+            title={`This computer's battery (not the dog's): ${battery.percent}%, ${battery.state}`}
+        >
+            Deck {battery.percent}%{charging && " ⚡"}
+        </span>
     )
 }
 

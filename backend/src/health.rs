@@ -5,6 +5,8 @@
 // {"type":"health"} message on /logs). When something looks wrong (see `conditions`) the samples since the last dump go
 // into the recording as {"type":"health_dump","reason",…,"samples":[…]} and into the log as "health detail:" lines.
 // Linux reads /proc and `iw`/`ip`; macOS asks `sysctl`, `ps`, `ipconfig` and `route`.
+// Every BATTERY_EVERY samples it also reads this computer's battery (the deck's, not the dog's), which rides along in
+// api/state's `network` and is re-published there when it changes.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +26,7 @@ const SILENT_MS: u64 = 1500;
 const CRAZY_SPEED: f64 = 4.0; // m/s; a Go2 tops out near 3.7
 const CRAZY_YAW: f64 = 6.0; // rad/s
 const CPU_PEGGED: f64 = 95.0;
+const BATTERY_EVERY: u64 = 40; // samples: every 20 s
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
@@ -76,6 +79,70 @@ pub fn robot_motion(data: &Value) {
 }
 
 // ── the computer ──
+
+/// This computer's battery: {"percent", "state": charging|discharging|full|idle|unknown}, null without one (a desktop)
+static BATTERY: Mutex<Value> = Mutex::new(Value::Null);
+
+pub fn battery() -> Value {
+    BATTERY.lock().unwrap().clone()
+}
+
+/// sysfs's (or pmset's) charge state, as one of BATTERY's
+fn battery_state(status: &str) -> &'static str {
+    match status.trim().to_lowercase().as_str() {
+        "charging" | "finishing charge" => "charging",
+        "discharging" => "discharging",
+        "full" | "charged" => "full",
+        "not charging" | "ac attached" => "idle",
+        _ => "unknown",
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+/// a /sys/class/power_supply/<x>/ battery's `capacity` and `status`
+fn parse_sysfs_battery(capacity: &str, status: &str) -> Value {
+    match capacity.trim().parse::<u8>() {
+        Ok(percent) => json!({ "percent": percent.min(100), "state": battery_state(status) }),
+        Err(_) => Value::Null,
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+/// `pmset -g batt`: " -InternalBattery-0 (id=…)\t73%; charging; 1:02 remaining present: true"
+fn parse_pmset(text: &str) -> Value {
+    let Some(line) = text.lines().find(|l| l.contains("InternalBattery")) else { return Value::Null };
+    let mut fields = line.split('\t').nth(1).unwrap_or("").split(';');
+    match fields.next().and_then(|p| p.trim().trim_end_matches('%').parse::<u8>().ok()) {
+        Some(percent) => json!({ "percent": percent.min(100), "state": battery_state(fields.next().unwrap_or("")) }),
+        None => Value::Null,
+    }
+}
+
+async fn read_battery() -> Value {
+    #[cfg(target_os = "linux")]
+    {
+        // the first system battery; a gamepad's or a mouse's says scope "Device"
+        let read = |path: std::path::PathBuf| std::fs::read_to_string(path).unwrap_or_default();
+        let mut supplies: Vec<_> = std::fs::read_dir("/sys/class/power_supply")
+            .map(|dir| dir.filter_map(|e| e.ok()).map(|e| e.path()).collect())
+            .unwrap_or_default();
+        supplies.sort();
+        supplies
+            .iter()
+            .filter(|p| read(p.join("type")).trim() == "Battery" && read(p.join("scope")).trim() != "Device")
+            .map(|p| parse_sysfs_battery(&read(p.join("capacity")), &read(p.join("status"))))
+            .find(|b| !b.is_null())
+            .unwrap_or(Value::Null)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        parse_pmset(&run("pmset", &["-g", "batt"]).await)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        Value::Null
+    }
+}
 
 async fn run(cmd: &str, args: &[&str]) -> String {
     match tokio::process::Command::new(cmd).args(args).output().await {
@@ -299,6 +366,15 @@ pub fn spawn(app: Arc<App>) {
             sampler.count += 1;
             let t = now_ms();
             sample["t"] = json!(t);
+            if sampler.count % BATTERY_EVERY == 1 {
+                let battery = read_battery().await;
+                let changed = *BATTERY.lock().unwrap() != battery;
+                if changed {
+                    *BATTERY.lock().unwrap() = battery;
+                    app.publish(json!({ "type": "network", "network": app.network_basic() }));
+                }
+            }
+            sample["battery"] = battery();
             let drive = app.drive.lock().await.clone();
             if let Some(drive) = drive.filter(|d| !d.dry) {
                 let last_rx = LAST_RX_MS.load(Ordering::Relaxed);
@@ -393,6 +469,22 @@ mod tests {
         assert_eq!(parse_iw_link("Not connected.")["connected"], false);
         let table = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\nwlan0\t00000000\t010CA8C0\t0003\t0\t0\t20000\t00000000\nwlan0\t000CA8C0\t00000000\t0001\t0\t0\t600\t00FFFFFF";
         assert_eq!(default_routes(table), "wlan0 via 192.168.12.1 metric 20000");
+    }
+
+    #[test]
+    fn reads_sysfs_and_pmset_batteries() {
+        assert_eq!(parse_sysfs_battery("73\n", "Charging\n"), json!({ "percent": 73, "state": "charging" }));
+        assert_eq!(parse_sysfs_battery("41", "Discharging"), json!({ "percent": 41, "state": "discharging" }));
+        assert_eq!(parse_sysfs_battery("100", "Full")["state"], "full");
+        assert_eq!(parse_sysfs_battery("80", "Not charging")["state"], "idle");
+        assert_eq!(parse_sysfs_battery("", "Unknown"), Value::Null);
+        let pmset = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=7733347)\t58%; discharging; 3:12 remaining present: true\n";
+        assert_eq!(parse_pmset(pmset), json!({ "percent": 58, "state": "discharging" }));
+        let ac = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=7733347)\t100%; charged; 0:00 remaining present: true";
+        assert_eq!(parse_pmset(ac)["state"], "full");
+        let attached = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t80%; AC attached; not charging present: true";
+        assert_eq!(parse_pmset(attached), json!({ "percent": 80, "state": "idle" }));
+        assert_eq!(parse_pmset("Now drawing from 'AC Power'\n"), Value::Null);
     }
 
     #[test]
