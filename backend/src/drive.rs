@@ -140,6 +140,24 @@ struct DriveState {
     light: bool,
     /// the battery's charge (%), from the robot's lowstate (subscribed for the whole session)
     battery: Option<u8>,
+    /// `{voltage, current, temperature}` from the same lowstate: pack volts, amps (negative = draining), the warmest cell °C
+    power: Option<Value>,
+    /// when `power` was last published (ms): the lowstate comes at hundreds of Hz, the pane needs it twice a second
+    power_at: u64,
+}
+
+/// A lowstate's battery: its charge (%) and `{voltage, current, temperature}`. None: no battery in it.
+pub fn battery_from_lowstate(json: &Value) -> Option<(u8, Value)> {
+    let data = &json["data"];
+    let bms = &data["bms_state"];
+    let soc = bms["soc"].as_f64()?.clamp(0.0, 100.0).round() as u8;
+    let tenth = |v: f64| (v * 10.0).round() / 10.0;
+    let power = json!({
+        "voltage": data["power_v"].as_f64().map(tenth),
+        "current": bms["current"].as_f64().map(|ma| tenth(ma / 1000.0)),
+        "temperature": bms["bq_ntc"].as_array().and_then(|t| t.iter().filter_map(Value::as_f64).reduce(f64::max)),
+    });
+    Some((soc, power))
 }
 
 pub struct Drive {
@@ -182,6 +200,7 @@ impl Drive {
             "lastCommand": state.last_command,
             "light": state.light,
             "battery": state.battery,
+            "power": state.power,
             "startedAt": self.started_at,
         })
     }
@@ -197,12 +216,20 @@ impl Drive {
         self.publish();
     }
 
-    /// A lowstate message: its battery charge, published when it changes.
+    /// A lowstate message: its battery, published when the charge changes and at most twice a second otherwise.
     fn on_lowstate(&self, json: &Value) {
-        let Some(soc) = json["data"]["bms_state"]["soc"].as_f64() else { return };
-        let soc = soc.clamp(0.0, 100.0).round() as u8;
-        if self.state.lock().unwrap().battery != Some(soc) {
-            self.set(|s| s.battery = Some(soc));
+        let Some((soc, power)) = battery_from_lowstate(json) else { return };
+        let now = now_ms();
+        let due = {
+            let state = self.state.lock().unwrap();
+            state.battery != Some(soc) || now.saturating_sub(state.power_at) >= 500
+        };
+        if due {
+            self.set(|s| {
+                s.battery = Some(soc);
+                s.power = Some(power);
+                s.power_at = now;
+            });
         }
     }
 
@@ -267,6 +294,8 @@ impl Drive {
                 light: false,
                 // the mock robot's (recording.rs mocks the same 80%)
                 battery: dry.then_some(80),
+                power: dry.then(|| json!({ "voltage": 28.4, "current": -1.2, "temperature": 31.0 })),
+                power_at: 0,
             }),
             conn: tokio::sync::Mutex::new(None),
             video: Mutex::new(dry.then(crate::video::placeholder_track)),
@@ -777,4 +806,23 @@ pub async fn close(app: &Arc<App>) -> Option<Value> {
     drive.shutdown().await;
     app.publish(json!({ "type": "drive", "drive": no_session() }));
     Some(last)
+}
+
+#[cfg(test)]
+mod battery_tests {
+    use super::*;
+
+    #[test]
+    fn a_lowstate_gives_charge_and_power() {
+        // the shape rt/lf/lowstate has on a Go2: soc in %, current in mA (negative while draining), one NTC per cell
+        let lowstate = json!({ "type": "msg", "topic": "rt/lf/lowstate", "data": {
+            "power_v": 28.37, "bms_state": { "soc": 61.4, "current": -1234.0, "bq_ntc": [29.0, 31.0, 30.0] } } });
+        let (soc, power) = battery_from_lowstate(&lowstate).unwrap();
+        assert_eq!(soc, 61);
+        assert_eq!(power, json!({ "voltage": 28.4, "current": -1.2, "temperature": 31.0 }));
+        // fields a lowstate may lack stay null; no bms at all is no battery
+        let bare = json!({ "data": { "bms_state": { "soc": 100 } } });
+        assert_eq!(battery_from_lowstate(&bare).unwrap().1, json!({ "voltage": null, "current": null, "temperature": null }));
+        assert!(battery_from_lowstate(&json!({ "data": {} })).is_none());
+    }
 }

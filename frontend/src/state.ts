@@ -84,8 +84,14 @@ export type Drive =
         light?: boolean
         /** the battery's charge (%), null until the robot reports it */
         battery?: number | null
+        /** pack volts, amps (negative = draining) and the warmest cell °C, from the same lowstate */
+        power?: { voltage: number | null; current: number | null; temperature: number | null } | null
         startedAt: number
     }
+
+/** this computer's battery (api/state `host.battery`): the deck or laptop driving the dog; null on a desktop */
+export type HostBattery = { percent: number; status: "charging" | "discharging" | "full" | "not-charging" | "unknown"; plugged: boolean; watts: number | null }
+export type HostState = { name: string | null; battery: HostBattery | null }
 
 export type Account = {
     email: string
@@ -204,6 +210,7 @@ export type HotspotState = {
 }
 
 export type State = {
+    host: HostState
     robots: Robot[]
     scan: Scan
     wifi: Wifi

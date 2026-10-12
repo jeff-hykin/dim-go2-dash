@@ -17,7 +17,8 @@ import {
 import { RecordOptions } from "./RecordOptions.tsx"
 import { Icon } from "./icons.tsx"
 import { store, stored } from "./util.ts"
-import type { Command, Drive, RecordState, Settings } from "./state.ts"
+import { BatteryPane } from "./Battery.tsx"
+import type { Command, Drive, HostState, RecordState, Settings } from "./state.ts"
 
 type Active = Extract<Drive, { active: true }>
 
@@ -397,6 +398,8 @@ export function Control(props: {
     onToast: (text: string) => void
     /** shown in the top bar after the robot's name (the hotspot's way back) */
     topSlot?: React.ReactNode
+    /** this computer's name and battery, for the battery pane */
+    host: HostState
 }) {
     const { drive, commands, record, settings, keyboardActive, flash, onFlash, onToast } = props
     const video = useRef<HTMLVideoElement>(null)
@@ -632,6 +635,7 @@ export function Control(props: {
                     </div>
                 </div>
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
+                <BatteryPane drive={drive} host={props.host} />
                 {settings && <FormatToggle settings={settings} onToast={onToast} />}
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}

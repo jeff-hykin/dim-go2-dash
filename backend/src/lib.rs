@@ -4,6 +4,7 @@
 pub mod api;
 pub mod app;
 pub mod arp;
+pub mod battery;
 pub mod ble;
 pub mod camera;
 pub mod clock;
