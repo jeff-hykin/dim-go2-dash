@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./errors.tsx"
+import { notify } from "./dim-app/source/notify.js"
 // The live-control stage: the robot's camera, its commands, and the d-pad / keyboard driver. Every press is an
 // endpoint call (api/drive/*); the mode, status and last command shown come back from the backend, so a command the
 // agent sends flashes here too.
@@ -401,6 +402,23 @@ export function Control(props: {
     deckBattery?: HostBattery | null
 }) {
     const { drive, commands, record, settings, keyboardActive, flash, onFlash, onToast } = props
+    // the lidar watch (backend recording.rs): a silence past 20 s is a badge here and one Desktop notification
+    const lidarSilent = record.active ? record.lidarSilentS ?? null : null
+    const lidarWarned = useRef(false)
+    useEffect(() => {
+        if (lidarSilent != null && !lidarWarned.current) {
+            lidarWarned.current = true
+            notify({
+                title: `Lidar not recording (${drive.name})`,
+                body:
+                    `No point clouds for ${lidarSilent} s while the dog is standing. Power-cycle the dog; if it keeps happening, its lidar may be failing.`,
+                kind: "warn",
+                app: "dim-go2-dash",
+            }).catch(() => {})
+        } else if (lidarSilent == null) {
+            lidarWarned.current = false
+        }
+    }, [lidarSilent != null])
     const video = useRef<HTMLVideoElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
     const [showControls, setShowControls] = useState<boolean>(() => stored(SHOW_CONTROLS_KEY, false))
@@ -612,6 +630,14 @@ export function Control(props: {
                             </span>
                         )}
                         {drive.dryRun && <span className="dim-badge warn">Dry run</span>}
+                        {lidarSilent != null && (
+                            <span
+                                className="dim-badge danger"
+                                title="No lidar point clouds are reaching the recording while the dog stands connected. Power-cycle the dog; if it keeps happening on this dog, its lidar may be failing."
+                            >
+                                Lidar not recording · {lidarSilent} s
+                            </span>
+                        )}
                         <PadChip pad={pad} linked={ready} />
                     </div>
                     <div className="ctl-top-center">{props.topSlot}</div>

@@ -408,6 +408,17 @@ pub fn spawn(app: Arc<App>) {
             }
             active = now_wrong;
 
+            // the lidar watch: a recording standing dog that's sent no point clouds for LIDAR_SILENT_MS
+            if let Some(active) = app.recording() {
+                let standing = match app.drive.lock().await.as_ref().map(|d| d.snapshot()) {
+                    Some(d) => d["status"] == "ready" && d["mode"] != "resting",
+                    None => false,
+                };
+                if let Some(started) = active.lidar_watch(standing, t) {
+                    crate::dlog!("lidar watch: {}", if started { "no point clouds for 20 s" } else { "point clouds resumed" });
+                    app.publish_record();
+                }
+            }
             if sampler.count % 2 == 0 {
                 let now_rx = crate::rx::totals();
                 if let Some(active) = app.recording() {

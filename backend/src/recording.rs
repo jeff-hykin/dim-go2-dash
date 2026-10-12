@@ -79,6 +79,19 @@ pub struct Active {
     ended: AtomicBool,
     /// each robot topic's clock on this computer's (its messages carry the robot's own time)
     clocks: Mutex<std::collections::HashMap<String, crate::clock::RobotClock>>,
+    opened_ms: u64,
+    /// the lidar watch (lidar_watch): how long no point clouds have come, once that's past LIDAR_SILENT_MS
+    lidar_silent_ms: AtomicU64,
+}
+
+/// No point clouds this long, while the dog stands connected: the lidar isn't recording (a healthy one drops out for
+/// at most ~10 s; Go2_49006/49089 went silent for good, 2026-10-11)
+pub const LIDAR_SILENT_MS: u64 = 20_000;
+
+/// How long the lidar has been silent, once that counts (0 otherwise): `last` is the later of the last point cloud and
+/// the recording's start; a dog lying down (or not connected) is never silent.
+pub fn lidar_silence(standing: bool, now: u64, last: u64) -> u64 {
+    if standing && now.saturating_sub(last) >= LIDAR_SILENT_MS { now - last } else { 0 }
 }
 
 impl Active {
@@ -104,6 +117,25 @@ impl Active {
         }
     }
 
+    /// Whether the lidar has gone quiet: `standing` (connected, not lying down; a resting Go2 stops its lidar). Returns
+    /// Some(started) when a silence begins (true) or ends (false), for the page and the file.
+    pub fn lidar_watch(&self, standing: bool, now: u64) -> Option<bool> {
+        let last = crate::sensors::LAST_POINTS_MS.load(Ordering::Relaxed).max(self.opened_ms);
+        let silent = lidar_silence(standing, now, last);
+        let was = self.lidar_silent_ms.swap(silent, Ordering::Relaxed);
+        match (was > 0, silent > 0) {
+            (false, true) => {
+                self.recorder.write("/logs", Msg::Text(json!({ "type": "lidar_silent", "since_ms": last, "silent_s": silent / 1000 }).to_string()));
+                Some(true)
+            }
+            (true, false) => {
+                self.recorder.write("/logs", Msg::Text(json!({ "type": "lidar_resumed", "silent_s": was / 1000 }).to_string()));
+                Some(false)
+            }
+            _ => None,
+        }
+    }
+
     pub fn cmd_vel(&self, x: f64, y: f64, yaw: f64) {
         self.recorder.write("/cmd_vel", Msg::Twist([x, y, 0.0], [0.0, 0.0, yaw]));
     }
@@ -121,6 +153,8 @@ impl Active {
         status["robot"] = json!(self.robot);
         status["dryRun"] = json!(self.dry);
         status["cameraDrops"] = json!(self.camera_drops.load(Ordering::Relaxed));
+        let silent = self.lidar_silent_ms.load(Ordering::Relaxed);
+        status["lidarSilentS"] = if silent > 0 { json!(silent / 1000) } else { Value::Null };
         status
     }
 }
@@ -152,7 +186,7 @@ impl App {
         }
     }
 
-    fn publish_record(&self) {
+    pub(crate) fn publish_record(&self) {
         self.publish(json!({ "type": "record", "record": self.record_state() }));
     }
 
@@ -203,6 +237,8 @@ impl App {
             camera_drops: AtomicU64::new(0),
             ended: AtomicBool::new(false),
             clocks: Default::default(),
+            opened_ms: now_ms(),
+            lidar_silent_ms: AtomicU64::new(0),
         });
         self.index_update(&file, |entry| {
             entry["robot"] = json!(drive.name);
@@ -340,4 +376,17 @@ fn spawn_mock_robot(app: Arc<App>, active: Arc<Active>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lidar_silence_counts_only_a_standing_dog_past_20_s() {
+        assert_eq!(lidar_silence(true, 30_000, 15_000), 0, "15 s: a normal dropout");
+        assert_eq!(lidar_silence(true, 40_000, 15_000), 25_000);
+        assert_eq!(lidar_silence(false, 40_000, 15_000), 0, "lying down: the Go2 stops its lidar");
+        assert_eq!(lidar_silence(true, 10_000, 15_000), 0, "a point cloud after `now` is no silence");
+    }
 }

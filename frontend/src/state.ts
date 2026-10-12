@@ -149,6 +149,8 @@ export type RecordState =
         messages: number
         bytes: number
         skipped?: number
+        /** seconds without a point cloud while the dog stands connected, once past 20 s (the lidar isn't recording) */
+        lidarSilentS?: number | null
         streams?: { topic: string; bytesPerSecond: number }[]
         dropped: number
         topics: Record<string, number>

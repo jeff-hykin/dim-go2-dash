@@ -12,6 +12,8 @@ use serde_json::Value;
 use crate::msg::{Battery, Header, Msg, Transform};
 
 pub const LIDAR: &str = "rt/utlidar/voxel_map_compressed";
+/// when the last point cloud was decoded (ms since the epoch): the lidar watch in health.rs
+pub static LAST_POINTS_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub const POSE: &str = "rt/utlidar/robot_pose";
 pub const LOWSTATE: &str = "rt/lf/lowstate";
 pub const SPORT_STATE: &str = "rt/lf/sportmodestate";
@@ -128,8 +130,10 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
                 return out;
             };
             match decode_voxels(data, binary) {
-                Ok(points) => out
-                    .push(Out { topic: "/lidar", msg: Msg::Points(Header { stamp_ns: now_ns, frame_id: "world" }, points) }),
+                Ok(points) => {
+                    LAST_POINTS_MS.store(crate::app::now_ms(), std::sync::atomic::Ordering::Relaxed);
+                    out.push(Out { topic: "/lidar", msg: Msg::Points(Header { stamp_ns: now_ns, frame_id: "world" }, points) })
+                }
                 Err(err) => {
                     crate::rx::count("lidar decode-error", binary.len());
                     eprintln!("lidar: {err}");
