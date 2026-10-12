@@ -464,16 +464,17 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                 </div>
                 <div className="acts">
                     <UseIp robot={robot} using={using} />
-                    {hotspot && (!robot.ip || stale) && (hotspotLinked ? <span className="dim-badge ok">connected</span> : (
-                        <button
-                            type="button"
-                            className="dim-btn sm"
-                            title={`Switch this computer's Wi-Fi to ${hotspot.ssid} (asks first) and drive it there`}
-                            onClick={onHotspot}
-                        >
-                            Connect via hotspot
-                        </button>
-                    ))}
+                    {hotspot && (!robot.ip || stale) &&
+                        (hotspotLinked ? <span className="dim-badge ok">connected</span> : (
+                            <button
+                                type="button"
+                                className="dim-btn sm"
+                                title={`Switch this computer's Wi-Fi to ${hotspot.ssid} (asks first) and drive it there`}
+                                onClick={onHotspot}
+                            >
+                                Connect via hotspot
+                            </button>
+                        ))}
                     {robot.ip && (
                         <button
                             type="button"

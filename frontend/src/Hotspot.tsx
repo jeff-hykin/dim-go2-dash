@@ -133,13 +133,18 @@ export function DriveAskDialog({ ssid, onClose }: { ssid: string | null; onClose
     const drive = () => {
         setBusy(true)
         setError(null)
-        call("POST", "api/drive/connect", { ip: "192.168.12.1" }).then(onClose, (e) => setError(e.message)).finally(() =>
-            setBusy(false)
+        call("POST", "api/drive/connect", { ip: "192.168.12.1" }).then(onClose, (e) => setError(e.message)).finally(
+            () => setBusy(false),
         )
     }
     return (
         <div className="rec-layer" onClick={busy ? undefined : onClose}>
-            <div className="hs-dialog dim-panel" role="dialog" aria-label="Drive the robot" onClick={(e) => e.stopPropagation()}>
+            <div
+                className="hs-dialog dim-panel"
+                role="dialog"
+                aria-label="Drive the robot"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <div className="hs-title">Drive the robot{ssid ? ` (${ssid})` : ""}</div>
                 <p>This will make the robot stand.</p>
                 <ErrorNotice message={error} />

@@ -761,7 +761,10 @@ export function Batteries({ dog, deck }: { dog?: number | null; deck?: HostBatte
         return null
     }
     const low = (dog != null && dog <= 20) || (deck?.state === "discharging" && deck.percent <= 20)
-    const title = [dog != null && `the dog's battery: ${dog}%`, deck && `this deck's battery: ${deck.percent}%, ${deck.state}`]
+    const title = [
+        dog != null && `the dog's battery: ${dog}%`,
+        deck && `this deck's battery: ${deck.percent}%, ${deck.state}`,
+    ]
         .filter(Boolean)
         .join("; ")
     return (
