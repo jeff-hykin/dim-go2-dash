@@ -470,7 +470,7 @@ impl App {
         if matches!(self.hotspot.lock().unwrap().status, "joining" | "restoring") {
             return Err(HttpError::conflict("already switching Wi-Fi"));
         }
-        let saved = self.hotspot_passwords();
+        let mut saved = self.hotspot_passwords();
         // typed, else saved for this hotspot, else Unitree's default (what most dogs in AP mode still use)
         let password = password.filter(|p| !p.is_empty()).or_else(|| saved.get(ssid).cloned()).or_else(|| Some(DEFAULT_PASSWORD.into()));
         let previous = self.wifi.current().await;
@@ -486,8 +486,12 @@ impl App {
         });
         if let Err(err) = if already_joined { Ok(()) } else { self.wifi.join(ssid, password.as_deref()).await } {
             let needs = err.to_lowercase().contains("secret") || err.to_lowercase().contains("password");
-            let message = if needs && password.is_none() {
-                format!("{ssid} needs its password (the one set in the Unitree app's AP mode)")
+            let message = if needs {
+                // a wrong password reads as "secrets were required": forget it so the next try asks
+                if saved.remove(ssid).is_some() {
+                    self.save_private(PASSWORDS_FILE, json!(saved));
+                }
+                format!("{ssid} turned down the password: type the one set in the Unitree app's AP mode")
             } else {
                 format!("couldn't join {ssid}: {err}")
             };
@@ -498,7 +502,6 @@ impl App {
             return Err(HttpError::new(if needs { 401 } else { 502 }, message));
         }
         if let Some(password) = &password {
-            let mut saved = saved;
             saved.insert(ssid.into(), password.clone());
             self.save_private(PASSWORDS_FILE, json!(saved));
         }
@@ -646,6 +649,7 @@ mod tests {
         // a too-short password is refused; none typed or saved means Unitree's default, which the mock dog takes
         let wrong = app.hotspot_connect("GO2-A1B2C3", Some("short".into()), None, None, false).await.unwrap_err();
         assert_eq!(wrong.status, 401, "{}", wrong.message);
+        assert!(wrong.message.contains("password"), "the page opens its password field on this: {}", wrong.message);
         let done = app.hotspot_connect("GO2-A1B2C3", None, None, None, false).await.unwrap();
         assert_eq!(done["drive"]["name"], "Go2_A1B2C3");
         assert_eq!(done["hotspot"]["status"], "linked");
@@ -656,6 +660,11 @@ mod tests {
         assert_eq!(back["rejoined"], "Office Wi-Fi");
         assert_eq!(app.hotspot_state()["status"], "idle");
         assert!(app.drive.lock().await.is_none());
+        // a saved password the dog turns down is forgotten, so the next try asks instead of repeating it
+        app.save_private(PASSWORDS_FILE, json!({ "GO2-A1B2C3": "short" }));
+        let turned_down = app.hotspot_connect("GO2-A1B2C3", None, None, None, false).await.unwrap_err();
+        assert_eq!(turned_down.status, 401, "{}", turned_down.message);
+        assert_eq!(app.hotspot_state()["saved"], json!([]));
         let _ = std::fs::remove_dir_all(dir);
     }
 
