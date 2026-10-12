@@ -1918,11 +1918,27 @@ body.science.dark .big-check input:checked + .box.box::after {
 .panel {
     width: var(--panel-w);
 }
+/* the robots panel runs the page's full height (a cramped box on the Deck), its last rows kept above Desktop's dock */
+@media (min-width: 601px) {
+    .panel {
+        top: 0;
+        left: 0;
+        bottom: 0;
+        border-top: 0;
+        border-left: 0;
+        border-bottom: 0;
+        border-radius: 0;
+        padding-bottom: var(--dim-inset-bottom);
+    }
+    .panel.slid {
+        transform: translateX(calc(-100% - 16px));
+    }
+}
 .stage {
     overflow: auto;
 }
 .stage.beside-panel {
-    left: calc(var(--panel-w) + 32px);
+    left: calc(var(--panel-w) + 16px);
     padding-left: 16px;
 }
 .stage {
