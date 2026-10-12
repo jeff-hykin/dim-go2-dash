@@ -670,6 +670,8 @@ mod tests {
         assert_eq!(app.hotspot_state()["status"], "linked");
         assert_eq!(app.hotspot_state()["previous"], Value::Null);
         assert_eq!(app.hotspot_state()["adopted"], true);
+        // the popup's Drive connects by IP only: the recording is still named after the dog, from the hotspot's name
+        assert_eq!(app.resolve_target(None, Some(AP_IP)).unwrap().2, "Go2_60968");
         // the page asks before driving (the dog stands up on connect)
         assert!(app.drive.lock().await.is_none());
         // left through the OS: one blip isn't leaving, a few checks are

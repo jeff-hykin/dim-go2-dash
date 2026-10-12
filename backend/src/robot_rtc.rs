@@ -325,16 +325,22 @@ impl RobotConn {
                     crate::health::robot_rx();
                     if !message.is_string {
                         log_once("binary", || format!("dc ← binary ({} bytes); later binary frames aren't logged", message.data.len()));
-                        if let Some(data) = parse_binary(&message.data) {
-                            on_event(ConnEvent::Data(data));
+                        match parse_binary(&message.data) {
+                            Some(data) => {
+                                crate::rx::count(&format!("bin {}", data.topic), message.data.len());
+                                on_event(ConnEvent::Data(data));
+                            }
+                            None => crate::rx::unparsed(&message.data),
                         }
                         return;
                     }
                     log_incoming(&message.data);
+                    let raw_len = message.data.len();
                     let Ok(message) = serde_json::from_slice::<Value>(&message.data) else {
                         return;
                     };
                     let kind = message["type"].as_str().unwrap_or("");
+                    crate::rx::count(&format!("{kind} {}", message["topic"].as_str().unwrap_or("")).trim().to_string(), raw_len);
                     if kind == "msg" && message["topic"] == "rt/lf/sportmodestate" {
                         crate::health::robot_motion(&message["data"]);
                     }

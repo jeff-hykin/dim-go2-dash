@@ -353,6 +353,8 @@ pub fn spawn(app: Arc<App>) {
         let mut active: BTreeMap<&'static str, String> = BTreeMap::new();
         // samples after this time haven't been dumped yet
         let mut dumped_to_ms = 0u64;
+        // rx.rs: per-second deltas into the recording, totals into the log every 10 s
+        let mut rx_last = crate::rx::totals();
         let mut top_at_ms = 0u64;
         let mut tick = tokio::time::interval(SAMPLE_EVERY);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -406,6 +408,19 @@ pub fn spawn(app: Arc<App>) {
             }
             active = now_wrong;
 
+            if sampler.count % 2 == 0 {
+                let now_rx = crate::rx::totals();
+                if let Some(active) = app.recording() {
+                    let mut stats = crate::rx::since(&rx_last, &now_rx);
+                    stats["t"] = json!(t);
+                    stats["window_s"] = json!(1.0);
+                    active.recorder.write("/rx_stats", crate::msg::Msg::Text(stats.to_string()));
+                }
+                rx_last = now_rx;
+                if sampler.count % 20 == 0 {
+                    crate::dlog!("rx totals: {}", json!(crate::rx::totals()));
+                }
+            }
             let recorder = app.recording().filter(|r| r.recorder.logs_on());
             // CPU pegged: what's eating it, when it starts and every 10 s while it lasts
             let top = if active.contains_key("cpu") && t.saturating_sub(top_at_ms) >= 10_000 {

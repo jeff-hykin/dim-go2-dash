@@ -1004,9 +1004,14 @@ impl App {
             return Err(HttpError::bad(format!("{ip} isn't an IPv4 address")));
         }
         let found = self.robots().into_iter().find(|robot| robot["ip"] == ip);
+        // on a dog's hotspot the dog is unknown to the scan, but its name is in the hotspot's (Go2_60968_83d1a1fa)
+        let hotspot_dog = (ip == crate::hotspot::AP_IP)
+            .then(|| self.linked_hotspot())
+            .flatten()
+            .and_then(|ssid| crate::hotspot::dog_name_from_ssid(&ssid));
         Ok(match found {
             Some(robot) => (robot["key"].as_str().map(str::to_string), ip.to_string(), robot["name"].as_str().unwrap_or(ip).to_string()),
-            None => (None, ip.to_string(), format!("Go2 at {ip}")),
+            None => (None, ip.to_string(), hotspot_dog.unwrap_or_else(|| format!("Go2 at {ip}"))),
         })
     }
 }

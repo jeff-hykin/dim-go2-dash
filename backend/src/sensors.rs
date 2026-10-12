@@ -15,8 +15,12 @@ pub const LIDAR: &str = "rt/utlidar/voxel_map_compressed";
 pub const POSE: &str = "rt/utlidar/robot_pose";
 pub const LOWSTATE: &str = "rt/lf/lowstate";
 pub const SPORT_STATE: &str = "rt/lf/sportmodestate";
+/// the lidar's own state (Unitree's ULIDAR_STATE), kept as text: why point clouds stop
+pub const LIDAR_STATE: &str = "rt/utlidar/lidar_state";
+/// which of the dog's services are running (Unitree's SERVICE_STATE), kept as text
+pub const SERVICE_STATE: &str = "rt/servicestate";
 /// what a recording subscribes to
-pub const TOPICS: [&str; 4] = [LIDAR, POSE, LOWSTATE, SPORT_STATE];
+pub const TOPICS: [&str; 6] = [LIDAR, POSE, LOWSTATE, SPORT_STATE, LIDAR_STATE, SERVICE_STATE];
 
 /// Go2 leg joints in motor_state order (unitree_go: FR, FL, RR, RL × hip, thigh, calf)
 pub const JOINTS: [&str; 12] = [
@@ -119,12 +123,22 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
     let mut out = Vec::new();
     match topic {
         LIDAR => {
-            let Some(binary) = binary else { return out };
+            let Some(binary) = binary else {
+                crate::rx::count("lidar no-binary", 0);
+                return out;
+            };
             match decode_voxels(data, binary) {
                 Ok(points) => out
                     .push(Out { topic: "/lidar", msg: Msg::Points(Header { stamp_ns: now_ns, frame_id: "world" }, points) }),
-                Err(err) => eprintln!("lidar: {err}"),
+                Err(err) => {
+                    crate::rx::count("lidar decode-error", binary.len());
+                    eprintln!("lidar: {err}");
+                }
             }
+        }
+        LIDAR_STATE | SERVICE_STATE => {
+            let stream = if topic == LIDAR_STATE { "/lidar_state" } else { "/service_state" };
+            out.push(Out { topic: stream, msg: Msg::Text(data.to_string()) });
         }
         POSE => {
             let pose = &data["pose"];
@@ -241,5 +255,18 @@ mod tests {
         let topics = |due| convert(LOWSTATE, &low, None, 1, due).iter().map(|o| o.topic).collect::<Vec<_>>();
         assert_eq!(topics(true), ["/joint_state", "/battery"]);
         assert_eq!(topics(false), ["/joint_state"]);
+    }
+
+    #[test]
+    fn lidar_state_is_kept_as_text_and_a_cloud_without_voxels_is_counted() {
+        let state = serde_json::json!({ "type": "msg", "topic": LIDAR_STATE, "data": { "cloud_frequency": 7.5, "error_state": 0 } });
+        let out = convert(LIDAR_STATE, &state, None, 1, false);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].topic, "/lidar_state");
+        assert!(matches!(&out[0].msg, Msg::Text(text) if text.contains("cloud_frequency")));
+        let before = crate::rx::totals().get("lidar no-binary").map(|e| e.0).unwrap_or(0);
+        let cloud = serde_json::json!({ "type": "msg", "topic": LIDAR, "data": {} });
+        assert!(convert(LIDAR, &cloud, None, 1, false).is_empty());
+        assert_eq!(crate::rx::totals()["lidar no-binary"].0, before + 1);
     }
 }
