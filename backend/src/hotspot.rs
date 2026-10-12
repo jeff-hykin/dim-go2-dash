@@ -501,7 +501,8 @@ impl App {
             });
             return Err(HttpError::new(if needs { 401 } else { 502 }, message));
         }
-        if let Some(password) = &password {
+        // only a password the join used; joined elsewhere means the dog never saw this one
+        if let Some(password) = password.as_ref().filter(|_| !already_joined) {
             saved.insert(ssid.into(), password.clone());
             self.save_private(PASSWORDS_FILE, json!(saved));
         }
@@ -656,6 +657,10 @@ mod tests {
         assert_eq!(done["hotspot"]["previous"], "Office Wi-Fi");
         assert_eq!(done["drive"]["ip"], AP_IP);
         assert_eq!(app.hotspot_state()["saved"], json!(["GO2-A1B2C3"]));
+        // already on the hotspot (joined from the system menu): the default was never tried, so it isn't saved
+        app.save_private(PASSWORDS_FILE, json!({}));
+        app.hotspot_connect("GO2-A1B2C3", None, None, None, false).await.unwrap();
+        assert_eq!(app.hotspot_state()["saved"], json!([]));
         let back = app.hotspot_restore().await.unwrap();
         assert_eq!(back["rejoined"], "Office Wi-Fi");
         assert_eq!(app.hotspot_state()["status"], "idle");
