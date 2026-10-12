@@ -77,11 +77,11 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
                 </p>
                 {needsPassword && (
                     <label className="hs-field">
-                        Hotspot password (empty: Unitree's default, 12345678; whichever works is saved on this computer)
+                        Hotspot password (empty: the fleet default, 88888888; whichever works is saved on this computer)
                         <input
                             className="dim-input"
                             type="password"
-                            placeholder="12345678"
+                            placeholder="88888888"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && go()}

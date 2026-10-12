@@ -19,8 +19,8 @@ use crate::app::App;
 
 /// where a Go2 in AP mode answers
 pub const AP_IP: &str = "192.168.12.1";
-/// a Go2 hotspot's password when none was typed or saved: Unitree's AP-mode default
-pub const DEFAULT_PASSWORD: &str = "12345678";
+/// a Go2 hotspot's password when none was typed or saved: the fleet's AP-mode password
+pub const DEFAULT_PASSWORD: &str = "88888888";
 pub const PASSWORDS_FILE: &str = "go2_dash_hotspots.json";
 /// how long to wait for the new link (an address on the hotspot, the dog's port answering)
 const LINK_TIMEOUT: Duration = Duration::from_secs(30);
@@ -471,7 +471,7 @@ impl App {
             return Err(HttpError::conflict("already switching Wi-Fi"));
         }
         let mut saved = self.hotspot_passwords();
-        // typed, else saved for this hotspot, else Unitree's default (what most dogs in AP mode still use)
+        // typed, else saved for this hotspot, else the fleet's AP password
         let password = password.filter(|p| !p.is_empty()).or_else(|| saved.get(ssid).cloned()).or_else(|| Some(DEFAULT_PASSWORD.into()));
         let previous = self.wifi.current().await;
         if dry_run {
