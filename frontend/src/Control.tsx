@@ -601,15 +601,9 @@ export function Control(props: {
                             <span className="nm">{drive.name}</span>
                             <span className="ctl-ip dim-mono">
                                 {drive.ip}
-                                {drive.battery != null && (
-                                    <span className={`ctl-batt${drive.battery <= 20 ? " low" : ""}`} title="the dog's battery">
-                                        {" · "}
-                                        {drive.battery}%
-                                    </span>
-                                )}
                             </span>
                         </div>
-                        <DeckBattery battery={props.deckBattery} />
+                        <Batteries dog={drive.battery} deck={props.deckBattery} />
                         {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
                         {drive.status !== "ready" && (
                             <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
@@ -761,19 +755,20 @@ function FormatToggle({ settings, onToast }: { settings: Settings; onToast: (tex
     )
 }
 
-/** This computer's battery as a small "Deck 73% ⚡" pill, so it isn't mistaken for the dog's; nothing without one. */
-export function DeckBattery({ battery }: { battery?: HostBattery | null }) {
-    if (!battery) {
+/** The dog's and the deck's battery in one small "Dog 80% · Deck 73% ⚡" box; each only when known. */
+export function Batteries({ dog, deck }: { dog?: number | null; deck?: HostBattery | null }) {
+    if (dog == null && !deck) {
         return null
     }
-    const charging = battery.state === "charging"
-    const low = battery.state === "discharging" && battery.percent <= 20
+    const low = (dog != null && dog <= 20) || (deck?.state === "discharging" && deck.percent <= 20)
+    const title = [dog != null && `the dog's battery: ${dog}%`, deck && `this deck's battery: ${deck.percent}%, ${deck.state}`]
+        .filter(Boolean)
+        .join("; ")
     return (
-        <span
-            className={`deck-batt dim-badge${low ? " warn" : ""}`}
-            title={`This computer's battery (not the dog's): ${battery.percent}%, ${battery.state}`}
-        >
-            Deck {battery.percent}%{charging && " ⚡"}
+        <span className={`deck-batt dim-badge${low ? " warn" : ""}`} title={title}>
+            {dog != null && `Dog ${dog}%`}
+            {dog != null && deck && " · "}
+            {deck && `Deck ${deck.percent}%${deck.state === "charging" ? " ⚡" : ""}`}
         </span>
     )
 }

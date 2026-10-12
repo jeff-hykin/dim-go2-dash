@@ -5,7 +5,7 @@
 // {"type":"health"} message on /logs). When something looks wrong (see `conditions`) the samples since the last dump go
 // into the recording as {"type":"health_dump","reason",…,"samples":[…]} and into the log as "health detail:" lines.
 // Linux reads /proc and `iw`/`ip`; macOS asks `sysctl`, `ps`, `ipconfig` and `route`.
-// Every BATTERY_EVERY samples it also reads this computer's battery (the deck's, not the dog's), which rides along in
+// Every BATTERY_EVERY samples it also reads the deck's battery (SteamOS only, not the dog's), which rides along in
 // api/state's `network` and is re-published there when it changes.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -87,13 +87,14 @@ pub fn battery() -> Value {
     BATTERY.lock().unwrap().clone()
 }
 
-/// sysfs's (or pmset's) charge state, as one of BATTERY's
+/// sysfs's charge state, as one of BATTERY's
+#[cfg(any(target_os = "linux", test))]
 fn battery_state(status: &str) -> &'static str {
     match status.trim().to_lowercase().as_str() {
-        "charging" | "finishing charge" => "charging",
+        "charging" => "charging",
         "discharging" => "discharging",
-        "full" | "charged" => "full",
-        "not charging" | "ac attached" => "idle",
+        "full" => "full",
+        "not charging" => "idle",
         _ => "unknown",
     }
 }
@@ -107,20 +108,19 @@ fn parse_sysfs_battery(capacity: &str, status: &str) -> Value {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
-/// `pmset -g batt`: " -InternalBattery-0 (id=…)\t73%; charging; 1:02 remaining present: true"
-fn parse_pmset(text: &str) -> Value {
-    let Some(line) = text.lines().find(|l| l.contains("InternalBattery")) else { return Value::Null };
-    let mut fields = line.split('\t').nth(1).unwrap_or("").split(';');
-    match fields.next().and_then(|p| p.trim().trim_end_matches('%').parse::<u8>().ok()) {
-        Some(percent) => json!({ "percent": percent.min(100), "state": battery_state(fields.next().unwrap_or("")) }),
-        None => Value::Null,
-    }
+/// SteamOS (the Deck, a Legion Go S): /etc/os-release's ID
+#[cfg(any(target_os = "linux", test))]
+fn is_steamos(os_release: &str) -> bool {
+    os_release.lines().any(|l| l.trim() == "ID=steamos" || l.trim() == "ID=\"steamos\"")
 }
 
+/// The deck's battery; null on anything that isn't a deck (a laptop's battery would be mistaken for one)
 async fn read_battery() -> Value {
     #[cfg(target_os = "linux")]
     {
+        if !is_steamos(&std::fs::read_to_string("/etc/os-release").unwrap_or_default()) {
+            return Value::Null;
+        }
         // the first system battery; a gamepad's or a mouse's says scope "Device"
         let read = |path: std::path::PathBuf| std::fs::read_to_string(path).unwrap_or_default();
         let mut supplies: Vec<_> = std::fs::read_dir("/sys/class/power_supply")
@@ -134,11 +134,7 @@ async fn read_battery() -> Value {
             .find(|b| !b.is_null())
             .unwrap_or(Value::Null)
     }
-    #[cfg(target_os = "macos")]
-    {
-        parse_pmset(&run("pmset", &["-g", "batt"]).await)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(target_os = "linux"))]
     {
         Value::Null
     }
@@ -472,19 +468,14 @@ mod tests {
     }
 
     #[test]
-    fn reads_sysfs_and_pmset_batteries() {
+    fn reads_deck_batteries() {
         assert_eq!(parse_sysfs_battery("73\n", "Charging\n"), json!({ "percent": 73, "state": "charging" }));
         assert_eq!(parse_sysfs_battery("41", "Discharging"), json!({ "percent": 41, "state": "discharging" }));
         assert_eq!(parse_sysfs_battery("100", "Full")["state"], "full");
         assert_eq!(parse_sysfs_battery("80", "Not charging")["state"], "idle");
         assert_eq!(parse_sysfs_battery("", "Unknown"), Value::Null);
-        let pmset = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=7733347)\t58%; discharging; 3:12 remaining present: true\n";
-        assert_eq!(parse_pmset(pmset), json!({ "percent": 58, "state": "discharging" }));
-        let ac = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=7733347)\t100%; charged; 0:00 remaining present: true";
-        assert_eq!(parse_pmset(ac)["state"], "full");
-        let attached = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t80%; AC attached; not charging present: true";
-        assert_eq!(parse_pmset(attached), json!({ "percent": 80, "state": "idle" }));
-        assert_eq!(parse_pmset("Now drawing from 'AC Power'\n"), Value::Null);
+        assert!(is_steamos("NAME=\"SteamOS\"\nID=steamos\nID_LIKE=arch\nVARIANT_ID=steamdeck\n"));
+        assert!(!is_steamos("NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n"));
     }
 
     #[test]

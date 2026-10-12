@@ -2074,11 +2074,7 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: var(--fg);
     opacity: 0.85;
 }
-.ctl-id .ctl-batt.low {
-    color: var(--warn);
-    font-weight: 600;
-}
-/* this computer's battery (Control's top bar, the Robots panel's head) */
+/* the dog's and the deck's battery in one box (Control's top bar, the Robots panel's head) */
 .deck-batt {
     white-space: nowrap;
     font-size: 11px;
