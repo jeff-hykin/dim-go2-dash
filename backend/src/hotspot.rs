@@ -375,7 +375,8 @@ impl Switcher for MockSwitcher {
 
 pub fn switcher(mock: bool) -> Arc<dyn Switcher> {
     if mock || std::env::var("GO2_DASH_WIFI_MOCK").is_ok_and(|v| v == "1") {
-        Arc::new(MockSwitcher::on("Office Wi-Fi"))
+        // GO2_DASH_WIFI_MOCK_SSID: start on that network (a Go2's: as if joined in the OS's Wi-Fi menu)
+        Arc::new(MockSwitcher::on(&std::env::var("GO2_DASH_WIFI_MOCK_SSID").unwrap_or_else(|_| "Office Wi-Fi".into())))
     } else if cfg!(target_os = "macos") {
         Arc::new(MacOs)
     } else {

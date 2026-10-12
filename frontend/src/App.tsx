@@ -569,13 +569,6 @@ export function App() {
                             onAsk={setHotspotAsk}
                         />
                     )}
-                    {state?.hotspot.status === "linked" && state.hotspot.adopted && !driving &&
-                        driveAsked !== (state.hotspot.ssid ?? "") && (
-                        <DriveAskDialog
-                            ssid={state.hotspot.ssid}
-                            onClose={() => setDriveAsked(state.hotspot.ssid ?? "")}
-                        />
-                    )}
                     {state && hotspotAsk && (
                         <ConnectDialog
                             ssid={hotspotAsk.ssid}
@@ -623,6 +616,13 @@ export function App() {
             )}
             {/* driving: it sits in the top bar instead (Control's topSlot) */}
             {state && !drive.active && <HotspotBanner state={state.hotspot} besidePanel={!slid} />}
+            {state?.hotspot.status === "linked" && state.hotspot.adopted && !driving &&
+                driveAsked !== (state.hotspot.ssid ?? "") && (
+                <DriveAskDialog
+                    ssid={state.hotspot.ssid}
+                    onClose={() => setDriveAsked(state.hotspot.ssid ?? "")}
+                />
+            )}
             {/* this app's recordings: one floating button, bottom right, connected or not */}
             <button
                 type="button"
