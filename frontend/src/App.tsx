@@ -7,7 +7,7 @@ import { call } from "./api.ts"
 import { Control } from "./Control.tsx"
 import { EmptyState } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
-import { Accounts, Help, ManualDrive, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
+import { Accounts, Help, ManualDrive, Reconnect, RobotCard, scanStatus, SweepStatus } from "./Panel.tsx"
 import {
     ConnectDialog,
     type HotspotAsk,
@@ -467,6 +467,7 @@ export function App() {
                         </button>
                     </div>
                 )}
+                <Reconnect last={state?.lastDrive ?? null} robots={robots} drive={drive} />
                 <div className="p-scan">
                     <button
                         type="button"

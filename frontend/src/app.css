@@ -391,6 +391,7 @@ body.science.dark .cmd-search .dim-input:focus {
     padding: 2px 5px;
 }
 
+.p-reconnect,
 .p-scan {
     display: flex;
     align-items: center;

@@ -294,11 +294,15 @@ impl Drive {
                 });
             }
             app.record_start().await?;
+            if !dry_run {
+                app.remember_drive(drive.robot.as_deref(), &drive.ip, &drive.name);
+            }
             return Ok(drive.snapshot());
         }
         match drive.clone().connect_until(Instant::now() + CONNECT_WINDOW).await {
             Ok(()) => {
                 app.record_start().await?;
+                app.remember_drive(drive.robot.as_deref(), &drive.ip, &drive.name);
                 // connected: stand up right away, ready to drive (the same Stand as the button: normal mode, StandUp,
                 // BalanceStand). In the background, so connecting answers now; not on reconnects
                 let standing = drive.clone();
