@@ -141,23 +141,27 @@ pub struct Lan {
     pub subnet: Subnet,
 }
 
-/// The default route's interface when it is a real one; with a full-tunnel VPN on the default route, the first real
-/// interface with a private address (the dog is on the Wi-Fi, not the VPN).
-pub async fn local_lan() -> Option<Lan> {
-    let default = default_iface().await;
-    let mut lans: Vec<Lan> = if_addrs::get_if_addrs()
-        .ok()?
+/// Every network this computer is on: real (non-tunnel) interfaces with an IPv4 address, the default route's first,
+/// private addresses before public. A dog can be on any of them: its hotspot beside the Ethernet that holds the default
+/// route, a second Wi-Fi; with a full-tunnel VPN on the default route, the first real one is where the dog is.
+pub fn lans_from(addrs: impl IntoIterator<Item = (String, Ipv4Addr, u8)>, default: Option<&str>) -> Vec<Lan> {
+    let mut lans: Vec<Lan> = addrs
         .into_iter()
-        .filter(|i| !is_tunnel_iface(&i.name))
-        .filter_map(|i| match i.addr {
-            if_addrs::IfAddr::V4(v4) if !v4.ip.is_loopback() && !v4.ip.is_link_local() => {
-                Some(Lan { iface: i.name, ip: v4.ip, subnet: Subnet::new(v4.ip, v4.prefixlen) })
-            }
-            _ => None,
-        })
+        .filter(|(name, ip, _)| !is_tunnel_iface(name) && !ip.is_loopback() && !ip.is_link_local())
+        .map(|(iface, ip, prefix)| Lan { iface, ip, subnet: Subnet::new(ip, prefix) })
         .collect();
-    lans.sort_by_key(|lan| (Some(&lan.iface) != default.as_ref(), !is_private(lan.ip)));
-    lans.into_iter().next()
+    lans.sort_by_key(|lan| (Some(lan.iface.as_str()) != default, !is_private(lan.ip)));
+    lans
+}
+
+/// `lans_from` on this computer's interfaces and default route; empty when nothing has an IPv4 address.
+pub async fn local_lans() -> Vec<Lan> {
+    let default = default_iface().await;
+    let addrs = if_addrs::get_if_addrs().unwrap_or_default().into_iter().filter_map(|i| match i.addr {
+        if_addrs::IfAddr::V4(v4) => Some((i.name, v4.ip, v4.prefixlen)),
+        _ => None,
+    });
+    lans_from(addrs, default.as_deref())
 }
 
 // ── the probe ──
@@ -348,6 +352,28 @@ mod tests {
 
     fn ip(text: &str) -> Ipv4Addr {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn every_real_link_is_swept_default_route_first() {
+        // a deck on Ethernet (the default route) with the dog's hotspot on its Wi-Fi: the hotspot link must be in the
+        // list, or the dog at 192.168.12.1 is never probed. Same for a dog on a second Wi-Fi in station mode.
+        let addrs = vec![
+            ("lo".to_string(), ip("127.0.0.1"), 8),
+            ("wlan0".to_string(), ip("192.168.12.50"), 24),
+            ("tailscale0".to_string(), ip("100.100.1.2"), 32),
+            ("eth0".to_string(), ip("10.77.0.2"), 24),
+            ("wlan1".to_string(), ip("10.42.0.50"), 24),
+        ];
+        let lans = lans_from(addrs, Some("eth0"));
+        let names: Vec<&str> = lans.iter().map(|l| l.iface.as_str()).collect();
+        assert_eq!(names, ["eth0", "wlan0", "wlan1"]);
+        assert!(lans.iter().any(|l| l.subnet.contains(ip("192.168.12.1"))), "the hotspot's subnet is swept");
+        assert!(lans.iter().any(|l| l.subnet.contains(ip("10.42.0.7"))), "a second LAN is swept");
+        // no default route at all (a hotspot with no internet): still every link, private first
+        let names: Vec<String> = lans_from(vec![("eth0".to_string(), ip("203.0.113.5"), 24), ("wlan0".to_string(), ip("192.168.12.50"), 24)], None)
+            .into_iter().map(|l| l.iface).collect();
+        assert_eq!(names, ["wlan0", "eth0"]);
     }
 
     #[test]

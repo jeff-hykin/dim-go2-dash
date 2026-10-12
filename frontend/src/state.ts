@@ -203,7 +203,11 @@ export type HotspotState = {
     current?: string | null
 }
 
+/** the dog of the last drive session (api/state `lastDrive`): what "Reconnect" opens after the server restarted */
+export type LastDrive = { robot: string | null; ip: string; name: string }
+
 export type State = {
+    lastDrive: LastDrive | null
     robots: Robot[]
     scan: Scan
     wifi: Wifi

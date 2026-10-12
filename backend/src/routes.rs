@@ -39,6 +39,7 @@ async fn state(app: &std::sync::Arc<crate::app::App>) -> Value {
         "recordings": app.recordings_list(),
         "settings": app.settings(),
         "hotspot": app.hotspot_state(),
+        "lastDrive": app.last_drive(),
     })
 }
 

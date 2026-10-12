@@ -6,7 +6,7 @@ import { call } from "./api.ts"
 import { runCommand } from "./dim-app/source/shell.js"
 import type { ScannedHotspot } from "./Hotspot.tsx"
 import { Icon } from "./icons.tsx"
-import type { Account, Drive, Network, Robot, Scan, Sweep, Wifi } from "./state.ts"
+import type { Account, Drive, LastDrive, Network, Robot, Scan, Sweep, Wifi } from "./state.ts"
 import { agoText, colorFor, copyText, store, stored, validIp } from "./util.ts"
 
 const WIFI_LS = "go2dash.wifi" // last Wi-Fi that worked, to prefill the next dog's form
@@ -846,6 +846,37 @@ export function Help({ route, openRequest = 0 }: { route: string; openRequest?: 
                     Then press <b>Scan</b> again.
                 </p>
             </div>
+        </div>
+    )
+}
+
+/** The dog of the last session, when the server came back without it (Desktop restarted or updated) and no card shows it. */
+export function Reconnect({ last, robots, drive }: { last: LastDrive | null; robots: Robot[]; drive: Drive }) {
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    if (!last || drive.active || robots.some((r) => r.ip === last.ip)) {
+        return null
+    }
+    const go = () => {
+        setBusy(true)
+        setError(null)
+        call("POST", "api/drive/connect", { robot: last.robot ?? undefined, ip: last.ip, name: last.name })
+            .catch((e) => setError(e.message))
+            .finally(() => setBusy(false))
+    }
+    return (
+        <div className="p-reconnect" data-testid="reconnect">
+            <button
+                type="button"
+                className="dim-btn primary sm"
+                title={`Open the drive session again at ${last.ip}`}
+                disabled={busy}
+                onClick={go}
+            >
+                {busy ? "Connecting…" : `Reconnect to ${last.name}`}
+            </button>
+            <span className="serial">{last.ip}</span>
+            <ErrorNotice message={error} />
         </div>
     )
 }

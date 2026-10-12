@@ -22,7 +22,7 @@ use tokio::time::{interval_at, Duration as TokioDuration, Instant};
 use crate::arp::{ble_to_wifi_mac, go2_alive, is_unitree_oui, read_neighbors};
 use crate::ble::{scan_ble, BleDevice, Registry};
 use crate::lan::{discover_broadcast, discover_multicast, LanDevice};
-use crate::sweep::{local_lan, sweep, sweep_order, Lan, Subnet, QUICK_MAX_HOSTS, WIDEST_PREFIX};
+use crate::sweep::{local_lans, sweep, sweep_order, Lan, Method, Subnet, QUICK_MAX_HOSTS, WIDEST_PREFIX};
 use btleplug::api::Central;
 use btleplug::platform::Adapter;
 
@@ -372,15 +372,69 @@ fn sweep_event(lan: &Lan, status: &str, phase: &str, swept: Option<Subnet>, extr
     event
 }
 
+/// What a link gets swept in `mode`, before the shortcuts (remembered IPs accounting for every dog, cancel): full, its
+/// subnet up to a /16 around this computer; quick, a small subnet whole, else the /24 around this computer; known or
+/// off, nothing beyond the remembered IPs.
+pub fn link_target(lan: &Lan, mode: SweepMode) -> Option<Subnet> {
+    match mode {
+        SweepMode::Full => Some(lan.subnet.at_most(lan.ip, WIDEST_PREFIX)),
+        SweepMode::Quick => Some(if lan.subnet.host_count() <= QUICK_MAX_HOSTS { lan.subnet } else { lan.subnet.at_most(lan.ip, 24) }),
+        SweepMode::Known | SweepMode::Off => None,
+    }
+}
+
+/// The subnets a scan sweeps: one per link this computer is on (`sweep::local_lans`), so a dog on its own hotspot
+/// beside the Ethernet that holds the default route, or on a second Wi-Fi, is found like one on the main network.
+pub fn sweep_targets(lans: &[Lan], mode: SweepMode) -> Vec<Subnet> {
+    lans.iter().filter_map(|lan| link_target(lan, mode)).collect()
+}
+
+struct LinkSwept {
+    swept: Option<Subnet>,
+    method: Option<Method>,
+    rate: usize,
+    known: usize,
+    cancelled: bool,
+    note: String,
+}
+
 /// `widen`: in quick mode, sweep the whole subnet too when a dog seen on Bluetooth is still missing from it (app.rs
 /// allows that once every few minutes, so the guide's repeated rescans don't sweep a big network back to back).
 async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen: Arc<AtomicUsize>, stop: Arc<Stop>, emit: Sink) {
-    let Some(lan) = local_lan().await else {
+    let lans = local_lans().await;
+    let Some(first) = lans.first().cloned() else {
         emit(json!({ "type": "sweep", "status": "error", "error": "no network interface with an IPv4 address" }));
         return;
     };
-    let iface = Some(lan.iface.clone());
-    let known: Vec<Ipv4Addr> = known.into_iter().filter(|ip| lan.subnet.contains(*ip) && *ip != lan.ip).collect();
+    // every link in turn, the default route's first; widening only there (the others are small or already a /24)
+    let mut done: Vec<LinkSwept> = Vec::new();
+    for (i, lan) in lans.iter().enumerate() {
+        let Some(result) = sweep_link(lan, mode, &known, widen && i == 0, &ble_seen, &stop, &emit).await else {
+            return; // the error event is out
+        };
+        let cancelled = result.cancelled;
+        done.push(result);
+        if cancelled {
+            break;
+        }
+    }
+    let cancelled = done.iter().any(|d| d.cancelled);
+    let note = if cancelled { "stopped".to_string() } else { done.iter().map(|d| d.note.as_str()).collect::<Vec<_>>().join("; ") };
+    emit(sweep_event(
+        &first,
+        if cancelled { "cancelled" } else { "done" },
+        "done",
+        done.first().and_then(|d| d.swept),
+        json!({ "method": done.iter().find_map(|d| d.method).map(|m| m.label()), "rate": done.first().map(|d| d.rate).unwrap_or(0),
+            "known": done.iter().map(|d| d.known).sum::<usize>(), "note": note, "links": lans.len() }),
+    ));
+}
+
+/// One link: its remembered IPs, then its target subnet, widened when a dog on Bluetooth is still missing. None: a probe
+/// error (the event is out).
+async fn sweep_link(lan: &Lan, mode: SweepMode, known: &[Ipv4Addr], widen: bool, ble_seen: &AtomicUsize, stop: &Stop, emit: &Sink) -> Option<LinkSwept> {
+    let iface = Some(lan.iface.as_str());
+    let known: Vec<Ipv4Addr> = known.iter().copied().filter(|ip| lan.subnet.contains(*ip) && *ip != lan.ip).collect();
 
     let progress = |phase: &'static str, swept: Option<Subnet>| {
         let emit = emit.clone();
@@ -392,31 +446,28 @@ async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen:
     let mut method = None;
     let mut rate = 0;
     if !known.is_empty() {
-        match sweep(&known, iface.as_deref(), &stop.flag, progress("known", None)).await {
+        match sweep(&known, iface, &stop.flag, progress("known", None)).await {
             Ok(swept) => {
                 method = Some(swept.method);
                 rate = swept.rate;
             }
             Err(err) => {
-                emit(sweep_event(&lan, "error", "known", None, json!({ "error": format!("can't probe: {err}") })));
-                return;
+                emit(sweep_event(lan, "error", "known", None, json!({ "error": format!("can't probe: {err}") })));
+                return None;
             }
         }
     }
     let hits = read_neighbors().await.iter().filter(|(ip, mac)| is_unitree_oui(mac) && lan.subnet.contains(*ip)).count();
     let found_all = hits > 0 && hits >= ble_seen.load(Ordering::Relaxed);
     let target = match mode {
-        SweepMode::Full => Some(lan.subnet.at_most(lan.ip, WIDEST_PREFIX)),
-        SweepMode::Quick if !found_all => {
-            Some(if lan.subnet.host_count() <= QUICK_MAX_HOSTS { lan.subnet } else { lan.subnet.at_most(lan.ip, 24) })
-        }
-        _ => None,
+        SweepMode::Quick if found_all => None,
+        _ => link_target(lan, mode),
     };
     let mut swept_subnet = None;
     let mut cancelled = stop.flag.load(Ordering::Relaxed);
     if let (Some(target), false) = (target, cancelled) {
         let order = sweep_order(target, lan.ip);
-        match sweep(&order, iface.as_deref(), &stop.flag, progress("subnet", Some(target))).await {
+        match sweep(&order, iface, &stop.flag, progress("subnet", Some(target))).await {
             Ok(swept) => {
                 method = Some(swept.method);
                 rate = swept.rate;
@@ -424,8 +475,8 @@ async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen:
                 swept_subnet = (!swept.cancelled).then_some(target);
             }
             Err(err) => {
-                emit(sweep_event(&lan, "error", "subnet", None, json!({ "error": format!("can't probe: {err}") })));
-                return;
+                emit(sweep_event(lan, "error", "subnet", None, json!({ "error": format!("can't probe: {err}") })));
+                return None;
             }
         }
     }
@@ -436,7 +487,7 @@ async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen:
         let hits = read_neighbors().await.iter().filter(|(ip, mac)| is_unitree_oui(mac) && lan.subnet.contains(*ip)).count();
         if narrow != widest && ble_seen.load(Ordering::Relaxed) > hits {
             let rest: Vec<Ipv4Addr> = sweep_order(widest, lan.ip).into_iter().filter(|ip| !narrow.contains(*ip)).collect();
-            if let Ok(swept) = sweep(&rest, iface.as_deref(), &stop.flag, progress("widen", Some(widest))).await {
+            if let Ok(swept) = sweep(&rest, iface, &stop.flag, progress("widen", Some(widest))).await {
                 cancelled = swept.cancelled;
                 swept_subnet = (!swept.cancelled).then_some(widest);
                 widened = true;
@@ -450,15 +501,9 @@ async fn run_sweep(mode: SweepMode, known: Vec<Ipv4Addr>, widen: bool, ble_seen:
             format!("the {} remembered IP{} found every dog on Bluetooth", known.len(), if known.len() == 1 { "" } else { "s" })
         }
         (_, None, false) => "remembered IPs only".to_string(),
-        (_, Some(target), _) => format!("swept {target}"),
+        (_, Some(target), _) => format!("swept {target} on {}", lan.iface),
     };
-    emit(sweep_event(
-        &lan,
-        if cancelled { "cancelled" } else { "done" },
-        "done",
-        swept_subnet,
-        json!({ "method": method.map(|m| m.label()), "rate": rate, "known": known.len(), "note": note }),
-    ));
+    Some(LinkSwept { swept: swept_subnet, method, rate, known: known.len(), cancelled, note })
 }
 
 pub struct ScanOptions {
@@ -554,4 +599,35 @@ pub async fn do_scan(adapter: Option<Adapter>, registry: Registry, options: Scan
     merger.guess_by_elimination();
 
     emit(json!({ "type": "scan_done", "count": merger.merged.len() }));
+}
+
+#[cfg(test)]
+mod sweep_target_tests {
+    use super::*;
+
+    fn lan(iface: &str, ip: &str, prefix: u8) -> Lan {
+        let ip: Ipv4Addr = ip.parse().unwrap();
+        Lan { iface: iface.into(), ip, subnet: Subnet::new(ip, prefix) }
+    }
+
+    #[test]
+    fn a_dog_on_a_second_link_is_in_the_sweep() {
+        // the deck's Ethernet holds the default route; the dog's hotspot is on its Wi-Fi (and a third link is a
+        // station-mode Wi-Fi with its own subnet). Before: only the first link was ever swept.
+        let lans = [lan("eth0", "10.77.0.2", 24), lan("wlan0", "192.168.12.50", 24), lan("wlan1", "10.42.0.50", 24)];
+        let hotspot_dog: Ipv4Addr = "192.168.12.1".parse().unwrap();
+        let wifi_dog: Ipv4Addr = "10.42.0.7".parse().unwrap();
+        for mode in [SweepMode::Quick, SweepMode::Full] {
+            let targets = sweep_targets(&lans, mode);
+            assert_eq!(targets.len(), 3, "{mode:?}");
+            assert!(targets.iter().any(|s| s.contains(hotspot_dog)), "{mode:?} sweeps the hotspot's subnet");
+            assert!(targets.iter().any(|s| s.contains(wifi_dog)), "{mode:?} sweeps the second Wi-Fi's subnet");
+        }
+        // quick keeps a big network to the /24 around us; full goes up to a /16
+        let big = [lan("eth0", "10.10.149.247", 17)];
+        assert_eq!(sweep_targets(&big, SweepMode::Quick)[0].to_string(), "10.10.149.0/24");
+        assert_eq!(sweep_targets(&big, SweepMode::Full)[0].to_string(), "10.10.128.0/17");
+        assert!(sweep_targets(&lans, SweepMode::Known).is_empty());
+        assert!(sweep_targets(&lans, SweepMode::Off).is_empty());
+    }
 }

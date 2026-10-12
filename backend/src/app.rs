@@ -141,6 +141,9 @@ pub fn valid_ipv4(text: &str) -> bool {
     text.parse::<std::net::Ipv4Addr>().is_ok()
 }
 
+/// the dog the last drive session was opened on: `{robot, ip, name}`
+pub const LAST_DRIVE_FILE: &str = "last_drive.json";
+
 fn load<T: serde::de::DeserializeOwned + Default>(dir: &std::path::Path, file: &str) -> T {
     std::fs::read_to_string(dir.join(file)).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
 }
@@ -236,6 +239,17 @@ impl App {
 
     pub(crate) fn save_private(&self, file: &str, data: Value) {
         self.save(file, data, true)
+    }
+
+    /// The dog of the last drive session (robot key, IP, name), kept across restarts: the session itself lives in this
+    /// process, so when Desktop restarts or updates the server the page can still offer "Reconnect".
+    pub fn last_drive(&self) -> Option<Value> {
+        let saved: Value = load(&self.data_dir, LAST_DRIVE_FILE);
+        saved["ip"].as_str().is_some().then_some(saved)
+    }
+
+    pub(crate) fn remember_drive(&self, robot: Option<&str>, ip: &str, name: &str) {
+        self.save_file(LAST_DRIVE_FILE, json!({ "robot": robot, "ip": ip, "name": name }));
     }
 
     pub(crate) fn save_file(&self, file: &str, data: Value) {
@@ -1149,4 +1163,37 @@ pub fn fleet_keys(text: &str) -> Vec<crate::robot_rtc::AesKey> {
             Some((format!("go2-keys {serial} {alias}").trim_end().to_string(), key.to_lowercase()))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod last_drive_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_dog_driven_last_is_still_known_after_a_restart() {
+        let dir = std::env::temp_dir().join(format!("go2-last-drive-{}", now_ms()));
+        let app = App::new(dir.clone(), true);
+        assert!(app.last_drive().is_none());
+        crate::drive::Drive::open(&app, Some("MOCK0000GO2A0001".into()), "192.0.2.10".into(), "Go2_MOCK1".into(), None, false)
+            .await
+            .unwrap();
+        drop(app);
+        // the server comes back (Desktop restarted or updated it): the session is gone with the process, the dog is not
+        let again = App::new(dir.clone(), true);
+        assert!(again.drive.lock().await.is_none());
+        assert_eq!(again.last_drive(), Some(json!({ "robot": "MOCK0000GO2A0001", "ip": "192.0.2.10", "name": "Go2_MOCK1" })));
+        // a manual IP names no robot
+        crate::drive::Drive::open(&again, None, "192.0.2.77".into(), "192.0.2.77".into(), None, false).await.unwrap();
+        assert_eq!(again.last_drive().unwrap()["robot"], Value::Null);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_dry_run_is_not_remembered() {
+        let dir = std::env::temp_dir().join(format!("go2-last-drive-dry-{}", now_ms()));
+        let app = App::new(dir.clone(), true);
+        crate::drive::Drive::open(&app, None, "192.0.2.10".into(), "Go2_MOCK1".into(), None, true).await.unwrap();
+        assert!(app.last_drive().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
