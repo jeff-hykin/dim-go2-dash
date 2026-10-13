@@ -1690,6 +1690,25 @@ body.science.dark .nav-focus {
     cursor: pointer;
     text-decoration: underline;
 }
+.rec-login {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px 12px;
+}
+.rec-login-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--muted-fg);
+    margin-bottom: 8px;
+}
+.rec-login iframe {
+    width: 100%;
+    height: 260px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
 @media (max-width: 600px) {
     /* the top bar wraps instead of pushing Disconnect off the screen */
     .ctl-top {

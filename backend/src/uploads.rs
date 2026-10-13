@@ -388,6 +388,13 @@ impl App {
         account["available"] = json!(true);
         Ok(account)
     }
+
+    pub async fn cloud_logout(&self) -> Result<Value, HttpError> {
+        let mut account = self.desktop_call(reqwest::Method::POST, "/dimos/cloud/logout", None).await?;
+        account["available"] = json!(true);
+        self.publish(json!({ "type": "cloud", "cloud": account }));
+        Ok(account)
+    }
 }
 
 /// Desktop's Upload → what the list shows: state (queued, uploading, done, failed, cancelled), progress, error, link.
