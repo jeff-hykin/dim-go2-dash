@@ -286,11 +286,12 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/drive/video_note",
-            "For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the WebSocket) for the log",
+            "For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the WebSocket): logged, published as a video_note event (zenoh topic `events`) and written to the recording's /logs",
             Some(json!({ "note": { "type": "string", "required": true, "description": "what happened" } })),
-            handler(|_app, args| async move {
+            handler(|app, args| async move {
                 let note: String = text(&args, "note").unwrap_or_default().chars().take(500).collect();
                 crate::dlog!("page video: {note}");
+                app.publish(json!({ "type": "video_note", "note": note }));
                 Ok(json!({ "ok": true }))
             }),
         ),

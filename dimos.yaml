@@ -375,7 +375,8 @@ provides:
           path: api/drive/joy
         - description: >-
               For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the
-              WebSocket) for the log
+              WebSocket): logged, published as a video_note event (zenoh topic `events`) and written to the recording's
+              /logs
           method: POST
           params:
               note:
