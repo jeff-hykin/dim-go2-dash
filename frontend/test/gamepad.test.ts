@@ -1,5 +1,17 @@
 // deno test frontend/test — the pad's safety rules (gamepad.ts), with a fake pad and target.
-import { activePad, type Axes, boostOf, GamepadDriver, joySample, type PadLike, SIT_HOLD_MS } from "../src/gamepad.ts"
+import {
+    activePad,
+    type Axes,
+    boostOf,
+    DIRECT_INDEX,
+    type DirectPad,
+    directPadLike,
+    GamepadDriver,
+    joySample,
+    type PadLike,
+    SIT_HOLD_MS,
+    withDirect,
+} from "../src/gamepad.ts"
 
 function assertEquals(actual: unknown, expected: unknown) {
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -99,7 +111,7 @@ Deno.test("Joy samples are the raw axes, then the triggers' analog travel, and 0
     press(7, true)
     ;(pad.buttons[6] as { value: number }).value = 0.4567
     const sample = joySample(pad)
-    assertEquals(sample.axes, [0.123, -1, 0, 0.5, 0.457, pad.buttons[7].value])
+    assertEquals(sample.axes, [0.1235, -1, 0, 0.5, 0.4567, pad.buttons[7].value])
     assertEquals(sample.buttons[7], 1)
     assertEquals(sample.buttons.length, 17)
 })
@@ -167,4 +179,40 @@ Deno.test("a standard-mapped pad wins over a raw one, even if the raw one moved 
     const steam = pad("Steam Virtual Gamepad", "standard", 5)
     assertEquals(activePad([raw, steam])?.id, steam.id)
     assertEquals(activePad([raw])?.id, raw.id)
+})
+
+/** what the backend sends (gamepad.rs): the left stick full up, LT half pulled, A down */
+function directSample(): DirectPad {
+    const buttons: [boolean, number][] = Array.from({ length: 17 }, () => [false, 0])
+    buttons[0] = [true, 1]
+    buttons[6] = [false, 0.5]
+    return { id: "Legion Go S Controller (direct)", axes: [0, -1, 0, 0], buttons }
+}
+
+Deno.test("the backend's pad reads like a standard-mapped Gamepad API pad", () => {
+    const pad = directPadLike(directSample(), 7)
+    assertEquals([pad.index, pad.mapping, pad.connected, pad.timestamp], [DIRECT_INDEX, "standard", true, 7])
+    assertEquals(pad.buttons[0], { pressed: true, value: 1 })
+    assertEquals(joySample(pad).axes, [0, -1, 0, 0, 0.5, 0])
+    assertEquals(joySample(pad).buttons.length, 17)
+})
+
+Deno.test("the backend's pad, when there is one, is the only one: no double input from Steam's", () => {
+    const { pad: steam } = fake()
+    steam.timestamp = 99
+    const direct = directPadLike(directSample(), 1)
+    assertEquals(activePad(withDirect(direct, [steam]))?.index, DIRECT_INDEX)
+    assertEquals(activePad(withDirect(null, [steam]))?.id, "Steam Deck")
+})
+
+Deno.test("switching to the backend's pad re-arms the rest check", () => {
+    const { pad: steam, driver, axes } = fake()
+    driver.poll([steam], 0)
+    assertEquals(driver.status.ready, true)
+    const pushed = directPadLike({ ...directSample(), buttons: directSample().buttons.map(() => [false, 0]) }, 1)
+    driver.poll(withDirect(pushed, [steam]), 30)
+    assertEquals([driver.status.ready, axes()], [false, { forward: 0, strafe: 0, turn: 0 }])
+    driver.poll(withDirect({ ...pushed, axes: [0, 0, 0, 0] }, [steam]), 60)
+    driver.poll(withDirect(pushed, [steam]), 90)
+    assertEquals(axes().forward, 1)
 })
