@@ -7,6 +7,7 @@
 // Safety: nothing drives until the sticks have been seen at rest (a pad connected with a stick off center, or
 // drifting, sends nothing); a disconnect, blur or hidden page zeroes it and asks for rest again.
 // The raw axes and buttons (never velocities) also go to the recording as sensor_msgs/Joy (Control.tsx).
+// On Linux the backend also reads the handheld's pad itself (backend gamepad.rs), so Steam needn't be signed in.
 
 export interface PadLike {
     index: number
@@ -164,6 +165,33 @@ export interface PadTarget {
 }
 
 const ZERO: Axes = { forward: 0, strafe: 0, turn: 0 }
+
+/** The handheld's own pad, read by the backend (api/drive/gamepad.ws): axes LX LY RX RY, buttons [pressed, value]. */
+export interface DirectPad {
+    id: string
+    axes: number[]
+    buttons: [boolean, number][]
+}
+
+/** past any index the Gamepad API hands out, so switching to or from it re-arms the rest check */
+export const DIRECT_INDEX = 1000
+
+export function directPadLike(pad: DirectPad, timestamp: number): PadLike {
+    return {
+        index: DIRECT_INDEX,
+        id: pad.id,
+        mapping: "standard",
+        connected: true,
+        timestamp,
+        axes: pad.axes,
+        buttons: pad.buttons.map(([pressed, value]) => ({ pressed, value })),
+    }
+}
+
+/** The backend's pad, when it has one, is the only one: Steam's virtual pad mirrors the same sticks. */
+export function withDirect(direct: PadLike | null, pads: readonly (PadLike | null)[]): readonly (PadLike | null)[] {
+    return direct ? [direct] : pads
+}
 
 /** Steam Input can expose several virtual pads: the one used most recently drives. */
 export function activePad(pads: readonly (PadLike | null)[]): PadLike | null {

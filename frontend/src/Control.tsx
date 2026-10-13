@@ -8,12 +8,15 @@ import { call } from "./api.ts"
 import {
     activePad,
     type Axes,
+    type DirectPad,
+    directPadLike,
     GAMEPAD_BINDINGS,
     GamepadDriver,
     type GamepadStatus,
     joySample,
     noPad,
     type PadLike,
+    withDirect,
 } from "./gamepad.ts"
 import { RecordOptions } from "./RecordOptions.tsx"
 import { Icon } from "./icons.tsx"
@@ -297,16 +300,17 @@ function useGamepad(handlers: {
     const latest = useRef(handlers)
     latest.current = handlers
     useEffect(() => {
-        if (typeof navigator === "undefined" || !navigator.getGamepads) {
+        if (typeof navigator === "undefined") {
             return
         }
+        const direct = directPadSocket()
         const driver = new GamepadDriver({
             setAxes,
             setBoost: (boost) => latest.current.setBoost(boost),
             stop: () => latest.current.stop(),
             sitDown: () => latest.current.sitDown(),
         }, setStatus)
-        const pads = () => [...navigator.getGamepads()] as (PadLike | null)[]
+        const pads = () => withDirect(direct.pad(), navigator.getGamepads ? [...navigator.getGamepads()] : [])
         let lastJoy = ""
         const poll = () => {
             const now = performance.now()
@@ -337,9 +341,42 @@ function useGamepad(handlers: {
             removeEventListener("blur", release)
             document.removeEventListener("visibilitychange", hidden)
             driver.release()
+            direct.close()
         }
     }, [])
     return [status, axes]
+}
+
+/** The backend's read of the handheld's pad (api/drive/gamepad.ws), reconnected while the page is open; null when none. */
+function directPadSocket(): { pad: () => PadLike | null; close: () => void } {
+    let pad: PadLike | null = null
+    let socket: WebSocket | null = null
+    let retry: ReturnType<typeof setTimeout> | undefined
+    let closed = false
+    const open = () => {
+        const url = new URL("api/drive/gamepad.ws", location.href)
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+        socket = new WebSocket(url)
+        socket.onmessage = (event) => {
+            const next = JSON.parse(event.data as string) as DirectPad | null
+            pad = next ? directPadLike(next, performance.now()) : null
+        }
+        socket.onclose = () => {
+            pad = null
+            if (!closed) {
+                retry = setTimeout(open, 2000)
+            }
+        }
+    }
+    open()
+    return {
+        pad: () => pad,
+        close: () => {
+            closed = true
+            clearTimeout(retry)
+            socket?.close()
+        },
+    }
 }
 
 function clock(seconds: number): string {
