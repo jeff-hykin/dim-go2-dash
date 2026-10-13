@@ -58,6 +58,11 @@ const MODE_LABEL: Record<string, string> = {
 /** whether the on-screen driving buttons are shown (localStorage) */
 const SHOW_CONTROLS_KEY = "go2dash.showControls"
 
+/** a line in the backend's log about the page's camera (why it fell back), so a deck's log shows it */
+function noteVideo(note: string) {
+    call("POST", "api/drive/video_note", { note }, { quiet: true }).catch(() => {})
+}
+
 /** how long the WebRTC video gets to start before the page also tries the WebSocket stream */
 const WS_FALLBACK_AFTER_MS = 4000
 
@@ -109,8 +114,9 @@ function useWsVideo(want: boolean, webrtcLive: boolean, canvas: React.RefObject<
                 // a bad frame: start again from the next keyframe
                 error: () => !stopped && newDecoder(),
             })
-            // no `description`: the chunks are Annex B
-            decoder.configure({ codec: "avc1.42e01f", optimizeForLatency: true })
+            // no `description`: the chunks are Annex B. High profile and no optimizeForLatency: the robot's stream has
+            // reordered (B) frames, which a low-latency decoder may paint in decode order
+            decoder.configure({ codec: "avc1.640028" })
         }
         const open = () => {
             newDecoder()
@@ -221,7 +227,14 @@ function useCamera(
                 }
             }
         }
-        open()
+        open().catch((e) => {
+            // e.g. no RTCPeerConnection, or an offer the browser can't make: say why in the backend's log, then retry
+            noteVideo(`WebRTC video didn't start: ${(e as Error)?.message ?? e}`)
+            if (!stopped) {
+                setStatus(`Video link: ${(e as Error)?.message ?? e} (retrying)`)
+                retry = setTimeout(() => open().catch(() => {}), 3000)
+            }
+        })
         return () => {
             stopped = true
             clearTimeout(retry)
@@ -238,6 +251,13 @@ function useCamera(
         return () => element.removeEventListener("loadeddata", onFrame)
     }, [video.current])
     const ws = useWsVideo(!!want, live && !!want, canvas)
+    const statusNow = useRef(status)
+    statusNow.current = status
+    useEffect(() => {
+        if (ws) {
+            noteVideo(`camera on the WebSocket fallback; WebRTC video was at: ${statusNow.current || "(nothing yet)"}`)
+        }
+    }, [ws])
     return { live: (live && !!want) || ws, status, ws }
 }
 

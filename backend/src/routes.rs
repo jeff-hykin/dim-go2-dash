@@ -284,6 +284,17 @@ pub fn routes() -> Vec<Route> {
             }),
         ),
         route(
+            "POST",
+            "api/drive/video_note",
+            "For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the WebSocket) for the log",
+            Some(json!({ "note": { "type": "string", "required": true, "description": "what happened" } })),
+            handler(|_app, args| async move {
+                let note: String = text(&args, "note").unwrap_or_default().chars().take(500).collect();
+                crate::dlog!("page video: {note}");
+                Ok(json!({ "ok": true }))
+            }),
+        ),
+        route(
             "GET",
             "api/accounts",
             "Saved Unitree app accounts (the AES keys come from them) and the robots bound to each",

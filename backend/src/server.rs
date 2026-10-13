@@ -37,15 +37,25 @@ async fn video_ws(State(server): State<Server>, upgrade: axum::extract::ws::WebS
         for _ in 0..3 {
             drive.keyframe().await;
         }
+        // after frames were skipped, deltas would paint onto a stale picture (old images reappearing): wait for a keyframe
+        let mut resync = false;
         loop {
             match frames.recv().await {
                 Ok(frame) => {
+                    if resync && frame.first() != Some(&1) {
+                        continue;
+                    }
+                    resync = false;
                     if socket.send(Message::Binary(frame.as_ref().clone().into())).await.is_err() {
                         break;
                     }
                 }
-                // behind: the page skips to the next keyframe; ask for one
-                Err(RecvError::Lagged(_)) => drive.keyframe().await,
+                // behind: skip to the next keyframe; ask for one
+                Err(RecvError::Lagged(skipped)) => {
+                    crate::dlog!("video.ws: {skipped} frames skipped (the page is behind); waiting for a keyframe");
+                    resync = true;
+                    drive.keyframe().await
+                }
                 Err(RecvError::Closed) => break,
             }
         }

@@ -373,6 +373,16 @@ provides:
                   required: true
                   type: array
           path: api/drive/joy
+        - description: >-
+              For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the
+              WebSocket) for the log
+          method: POST
+          params:
+              note:
+                  description: what happened
+                  required: true
+                  type: string
+          path: api/drive/video_note
         - description: "The recording in progress: file, seconds, messages, bytes, dropped, messages per topic; or {active: false}"
           method: GET
           path: api/record
