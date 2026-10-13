@@ -16,6 +16,7 @@ pub mod msg;
 #[cfg(target_os = "macos")]
 pub mod macos_wifi;
 pub mod drive;
+pub mod gamepad;
 pub mod rx;
 pub mod health;
 pub mod hotspot;

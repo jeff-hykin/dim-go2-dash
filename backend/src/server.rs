@@ -20,8 +20,32 @@ struct Server {
 pub fn router(app: Arc<App>, frontend: Option<PathBuf>) -> Router {
     Router::new()
         .route("/api/drive/video.ws", axum::routing::get(video_ws))
+        .route("/api/drive/gamepad.ws", axum::routing::get(gamepad_ws))
         .fallback(serve)
         .with_state(Server { app, frontend })
+}
+
+/// the page polls its pad at 60 Hz: no faster than that
+const GAMEPAD_EVERY: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// The handheld's own pad (gamepad.rs) as JSON on every change, `null` while there's none (always, off Linux).
+async fn gamepad_ws(upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    upgrade.on_upgrade(|mut socket| async move {
+        use axum::extract::ws::Message;
+        let mut pad = crate::gamepad::subscribe();
+        loop {
+            let text = serde_json::to_string(&*pad.borrow_and_update()).unwrap_or_else(|_| "null".into());
+            if socket.send(Message::Text(text.into())).await.is_err() {
+                break;
+            }
+            tokio::time::sleep(GAMEPAD_EVERY).await;
+            tokio::select! {
+                changed = pad.changed() => if changed.is_err() { break },
+                // the page closed it (or sent something: ignored)
+                incoming = socket.recv() => if !matches!(incoming, Some(Ok(_))) { break },
+            }
+        }
+    })
 }
 
 /// The camera as H.264 over a WebSocket (stream.rs), for pages whose WebRTC video won't connect.
