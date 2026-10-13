@@ -78,10 +78,61 @@ pub fn robot_motion(data: &Value) {
     }
 }
 
+/// the motors' temperatures from the last lowstate, and when (ms): {"<field>": [per motor]}, Null before any
+static MOTOR_TEMPS: Mutex<(Value, u64)> = Mutex::new((Value::Null, 0));
+
+/// rt/lf/lowstate's data: each motor's temperature fields (any key with "temp" in it; the firmware's names vary), first 12
+/// motors (the legs). Anything missing or odd is skipped, never a panic.
+pub fn robot_motor_temps(data: &Value) {
+    let temps = motor_temps(data);
+    if !temps.is_null() {
+        *MOTOR_TEMPS.lock().unwrap_or_else(|e| e.into_inner()) = (temps, now_ms());
+    }
+}
+
+/// The hottest motor in a lowstate: (°C, rounded; its index in sensors::JOINTS), over every temperature field; None without one
+pub fn hottest_motor(data: &Value) -> Option<(i64, usize)> {
+    let temps = motor_temps(data);
+    let mut hottest: Option<(f64, usize)> = None;
+    for column in temps.as_object()?.values().filter_map(|c| c.as_array()) {
+        for (i, celsius) in column.iter().enumerate().filter_map(|(i, c)| Some((i, c.as_f64()?))) {
+            if hottest.is_none_or(|(max, _)| celsius > max) {
+                hottest = Some((celsius, i));
+            }
+        }
+    }
+    hottest.map(|(celsius, i)| (celsius.round() as i64, i))
+}
+
+fn motor_temps(data: &Value) -> Value {
+    let Some(motors) = data["motor_state"].as_array() else { return Value::Null };
+    let motors = &motors[..motors.len().min(12)];
+    let mut fields: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for (i, motor) in motors.iter().enumerate() {
+        let Some(motor) = motor.as_object() else { continue };
+        for (key, value) in motor.iter().filter(|(k, _)| k.to_lowercase().contains("temp")) {
+            let Some(value) = value.as_f64() else { continue };
+            let column = fields.entry(key.clone()).or_insert_with(|| vec![Value::Null; motors.len()]);
+            if let Some(slot) = column.get_mut(i) {
+                *slot = json!(value);
+            }
+        }
+    }
+    if fields.is_empty() {
+        Value::Null
+    } else {
+        json!(fields)
+    }
+}
+
 // ── the computer ──
 
-/// This computer's battery: {"percent", "state": charging|discharging|full|idle|unknown}, null without one (a desktop)
+/// This computer's battery: {"percent", "state": charging|discharging|full|idle|unknown, "secondsLeft"}, null without one
+/// (a desktop); secondsLeft is null until a minute of discharging (drain.rs)
 static BATTERY: Mutex<Value> = Mutex::new(Value::Null);
+/// the deck battery's recent draw, for its secondsLeft
+#[cfg(target_os = "linux")]
+static DECK_DRAIN: Mutex<Option<crate::drain::Drain>> = Mutex::new(None);
 
 pub fn battery() -> Value {
     BATTERY.lock().unwrap().clone()
@@ -97,6 +148,19 @@ fn battery_state(status: &str) -> &'static str {
         "not charging" => "idle",
         _ => "unknown",
     }
+}
+
+#[cfg(any(target_os = "linux", test))]
+/// a sysfs battery's (what's left, draw out of it): energy_now/power_now (µWh, µW → Wh, W), else charge_now/current_now
+/// (µAh, µA → Ah, A); a draw ≤ 0 while charging. None when it reports neither.
+fn sysfs_drain(read: impl Fn(&str) -> String, status: &str) -> Option<(f64, f64)> {
+    let number = |name: &str| read(name).trim().parse::<f64>().ok().map(|v| v / 1e6);
+    let (left, draw) = match (number("energy_now"), number("power_now")) {
+        (Some(left), Some(draw)) => (left, draw),
+        _ => (number("charge_now")?, number("current_now")?),
+    };
+    // sysfs's power/current is unsigned on some batteries: its status says which way it flows
+    Some((left, if battery_state(status) == "discharging" { draw.abs() } else { -draw.abs() }))
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -130,8 +194,21 @@ async fn read_battery() -> Value {
         supplies
             .iter()
             .filter(|p| read(p.join("type")).trim() == "Battery" && read(p.join("scope")).trim() != "Device")
-            .map(|p| parse_sysfs_battery(&read(p.join("capacity")), &read(p.join("status"))))
-            .find(|b| !b.is_null())
+            .find_map(|p| {
+                let status = read(p.join("status"));
+                let mut battery = parse_sysfs_battery(&read(p.join("capacity")), &status);
+                if battery.is_null() {
+                    return None;
+                }
+                let mut drain = DECK_DRAIN.lock().unwrap();
+                let drain = drain.get_or_insert_with(Default::default);
+                let left = sysfs_drain(|name| read(p.join(name)), &status).and_then(|(left, draw)| {
+                    drain.add(std::time::Instant::now(), draw);
+                    drain.seconds_left(left)
+                });
+                battery["secondsLeft"] = json!(left);
+                Some(battery)
+            })
             .unwrap_or(Value::Null)
     }
     #[cfg(not(target_os = "linux"))]
@@ -419,6 +496,14 @@ pub fn spawn(app: Arc<App>) {
                     app.publish_record();
                 }
             }
+            // the motors' temperatures, every 5 s while recording, when the dog sent them in the last 5 s
+            if sampler.count % 10 == 0 {
+                let (temps, at) = MOTOR_TEMPS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                if let Some(active) = app.recording().filter(|_| !temps.is_null() && t.saturating_sub(at) <= 5_000) {
+                    let event = json!({ "type": "motor_temps", "t": t, "temps": temps });
+                    active.recorder.write("/logs", crate::msg::Msg::Text(event.to_string()));
+                }
+            }
             if sampler.count % 2 == 0 {
                 let now_rx = crate::rx::totals();
                 if let Some(active) = app.recording() {
@@ -501,6 +586,43 @@ mod tests {
         assert_eq!(parse_sysfs_battery("100", "Full")["state"], "full");
         assert_eq!(parse_sysfs_battery("80", "Not charging")["state"], "idle");
         assert_eq!(parse_sysfs_battery("", "Unknown"), Value::Null);
+    }
+
+    #[test]
+    fn motor_temps_skips_whatever_is_odd() {
+        let data = json!({ "motor_state": [
+            { "q": 0.1, "temperature": 41, "temperature_ntc2": 39.5 },
+            { "temperature": "hot" },
+            "not a motor",
+            { "temperature": 44 },
+        ] });
+        assert_eq!(
+            motor_temps(&data),
+            json!({ "temperature": [41.0, null, null, 44.0], "temperature_ntc2": [39.5, null, null, null] })
+        );
+        assert_eq!(hottest_motor(&data), Some((44, 3)));
+        assert_eq!(hottest_motor(&json!({ "motor_state": [{ "q": 1 }] })), None);
+        assert_eq!(motor_temps(&json!({})), Value::Null);
+        assert_eq!(motor_temps(&json!({ "motor_state": 3 })), Value::Null);
+        assert_eq!(motor_temps(&json!({ "motor_state": [{ "q": 1 }] })), Value::Null);
+    }
+
+    #[test]
+    fn sysfs_drain_prefers_energy_and_signs_by_status() {
+        let deck = |name: &str| match name {
+            "energy_now" => "27750000".to_string(),
+            "power_now" => "9250000".to_string(),
+            _ => String::new(),
+        };
+        assert_eq!(sysfs_drain(deck, "Discharging"), Some((27.75, 9.25)));
+        assert_eq!(sysfs_drain(deck, "Charging"), Some((27.75, -9.25)));
+        let by_charge = |name: &str| match name {
+            "charge_now" => "4000000".to_string(),
+            "current_now" => "-2000000".to_string(),
+            _ => String::new(),
+        };
+        assert_eq!(sysfs_drain(by_charge, "Discharging"), Some((4.0, 2.0)));
+        assert_eq!(sysfs_drain(|_: &str| String::new(), "Discharging"), None);
         assert!(is_steamos("NAME=\"SteamOS\"\nID=steamos\nID_LIKE=arch\nVARIANT_ID=steamdeck\n"));
         assert!(!is_steamos("NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n"));
     }

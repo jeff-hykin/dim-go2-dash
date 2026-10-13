@@ -2060,6 +2060,40 @@ body.science.dark .big-check input:checked + .box.box::after {
     white-space: nowrap;
     font-size: 11px;
 }
+/* dog over deck, one fixed width so the bar doesn't shift as the numbers change: label, icon, %, time left */
+.deck-batt.deck-batt.deck-batt.dim-badge {
+    display: inline-grid;
+    grid-template-columns: 30px 22px 32px 1fr;
+    column-gap: 5px;
+    row-gap: 4px;
+    align-items: center;
+    width: 172px;
+    height: auto;
+    padding: 3px 8px;
+    font: 400 10.5px/12px var(--hud);
+}
+.deck-batt .batt {
+    display: contents;
+}
+.deck-batt .pct {
+    text-align: right;
+}
+.deck-batt .left {
+    opacity: 0.75;
+}
+/* 25% or less: the icon and its number go red */
+.deck-batt .batt.low {
+    color: #ef4444;
+}
+.batt-icon .batt-fill {
+    fill: currentColor;
+}
+.batt-icon .batt-bolt {
+    fill: #facc15;
+    stroke: #000;
+    stroke-width: 0.6;
+    stroke-linejoin: round;
+}
 /* in the top bar (driving), the hotspot's way back is part of the row, not floating over it */
 .hs-banner.inline {
     position: static;

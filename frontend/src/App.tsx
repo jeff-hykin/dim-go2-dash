@@ -444,7 +444,12 @@ export function App() {
                     <span className="t dim-label">Robots</span>
                     {state?.network.mock && <span className="dim-badge warn">Mock</span>}
                     <span className="spacer" />
-                    <Batteries dog={drive.active ? drive.battery : null} deck={state?.network.battery} />
+                    <Batteries
+                        dog={drive.active ? drive.battery : null}
+                        dogLeft={drive.active ? drive.batteryLeft : null}
+                        deck={state?.network.battery}
+                        motor={drive.active ? drive.hottestMotor : null}
+                    />
                     <button
                         type="button"
                         className="icon-btn dim-btn ghost icon"

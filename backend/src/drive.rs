@@ -24,6 +24,8 @@ const SPORT_STAND_DOWN: u32 = 1005;
 const SPORT_MOVE: u32 = 1008;
 const SPORT_POSE: u32 = 1028;
 /// after StandUp, wait before BalanceStand so joystick control latches (issued mid-rise it doesn't stick)
+/// a Go2's usable charge (Ah): 0–100% took 7.0–8.0 Ah across 5 dogs' full-discharge recordings (2026-10-11/12)
+const DOG_BATTERY_AH: f64 = 7.5;
 const STAND_SETTLE: Duration = Duration::from_millis(3000);
 /// velocity envelope: a normalized -1..1 axis maps to these maxima; `boost` (0..1, the trigger's pull) scales them up
 /// to BOOST_MULT
@@ -150,6 +152,13 @@ struct DriveState {
     light: bool,
     /// the battery's charge (%), from the robot's lowstate (subscribed for the whole session)
     battery: Option<u8>,
+    /// seconds until the battery's empty at its recent draw (drain.rs); None until a minute of discharging
+    battery_left: Option<u32>,
+    /// the battery's recent draw (A), one reading a second, and when it last took one
+    drain: crate::drain::Drain,
+    drain_at: Option<Instant>,
+    /// the hottest motor: (°C, its index in sensors::JOINTS), from lowstate
+    hottest_motor: Option<(i64, usize)>,
     /// the dog's obstacle avoidance, as it last said (asked on connect) or as last set from here; None until known
     obstacle_avoidance: Option<bool>,
 }
@@ -194,6 +203,11 @@ impl Drive {
             "lastCommand": state.last_command,
             "light": state.light,
             "battery": state.battery,
+            "batteryLeft": state.battery_left,
+            "hottestMotor": state.hottest_motor.map(|(celsius, i)| json!({
+                "celsius": celsius,
+                "joint": crate::sensors::JOINTS.get(i).map(|j| j.trim_end_matches("_joint").replace('_', " ")),
+            })),
             "obstacleAvoidance": state.obstacle_avoidance,
             "startedAt": self.started_at,
         })
@@ -210,12 +224,31 @@ impl Drive {
         self.publish();
     }
 
-    /// A lowstate message: its battery charge, published when it changes.
+    /// A lowstate message: its battery charge, and (once a second) its draw for the time left; published when either changes.
     fn on_lowstate(&self, json: &Value) {
-        let Some(soc) = json["data"]["bms_state"]["soc"].as_f64() else { return };
+        crate::health::robot_motor_temps(&json["data"]);
+        let hottest = crate::health::hottest_motor(&json["data"]);
+        if hottest.is_some() && self.state.lock().unwrap().hottest_motor != hottest {
+            self.set(|s| s.hottest_motor = hottest);
+        }
+        let bms = &json["data"]["bms_state"];
+        let Some(soc) = bms["soc"].as_f64() else { return };
         let soc = soc.clamp(0.0, 100.0).round() as u8;
-        if self.state.lock().unwrap().battery != Some(soc) {
-            self.set(|s| s.battery = Some(soc));
+        let now = Instant::now();
+        let mut state = self.state.lock().unwrap();
+        let mut left = state.battery_left;
+        if let Some(milliamps) = bms["current"].as_f64().filter(|_| state.drain_at.is_none_or(|at| now - at >= Duration::from_secs(1))) {
+            state.drain_at = Some(now);
+            // the BMS's current is negative while discharging
+            state.drain.add(now, -milliamps / 1000.0);
+            // to the nearest 10 s, so it's published every few seconds rather than every reading
+            left = state.drain.seconds_left(soc as f64 / 100.0 * DOG_BATTERY_AH).map(|s| (s + 5) / 10 * 10);
+        }
+        if state.battery != Some(soc) || state.battery_left != left {
+            state.battery = Some(soc);
+            state.battery_left = left;
+            drop(state);
+            self.publish();
         }
     }
 
@@ -287,6 +320,10 @@ impl Drive {
                 light: false,
                 // the mock robot's (recording.rs mocks the same 80%)
                 battery: dry.then_some(80),
+                battery_left: None,
+                drain: Default::default(),
+                drain_at: None,
+                hottest_motor: None,
                 obstacle_avoidance: dry.then_some(true),
             }),
             conn: tokio::sync::Mutex::new(None),

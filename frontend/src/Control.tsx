@@ -650,7 +650,12 @@ export function Control(props: {
                                 {drive.ip}
                             </span>
                         </div>
-                        <Batteries dog={drive.battery} deck={props.deckBattery} />
+                        <Batteries
+                            dog={drive.battery}
+                            dogLeft={drive.batteryLeft}
+                            deck={props.deckBattery}
+                            motor={drive.hottestMotor}
+                        />
                         {/* the link's state only when it isn't simply live (connecting, reconnecting, error) */}
                         {drive.status !== "ready" && (
                             <span className={`ctl-pill dim-badge ${PILL_TONE[drive.status] ?? ""}`}>
@@ -830,23 +835,97 @@ function FormatToggle({ settings, onToast }: { settings: Settings; onToast: (tex
     )
 }
 
-/** The dog's and the deck's battery in one small "Dog 80% · Deck 73% ⚡" box; each only when known. */
-export function Batteries({ dog, deck }: { dog?: number | null; deck?: HostBattery | null }) {
+/** at or below this charge (%) a battery icon goes red */
+const BATTERY_RED_AT = 25
+
+/** A battery outline whose fill shrinks with `percent`; red at BATTERY_RED_AT% or less, a bolt while charging. */
+export function BatteryIcon({ percent, charging = false }: { percent: number; charging?: boolean }) {
+    const level = Math.max(0, Math.min(100, percent))
+    const red = level <= BATTERY_RED_AT
+    return (
+        <svg className={`batt-icon${red ? " low" : ""}`} width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
+            <rect
+                x="0.75"
+                y="0.75"
+                width="18"
+                height="10.5"
+                rx="2"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+            />
+            <rect x="19.5" y="3.75" width="2" height="4.5" rx="0.75" fill="currentColor" />
+            <rect className="batt-fill" x="2.5" y="2.5" width={(14.5 * level) / 100} height="7" rx="0.75" />
+            {charging && <path d="M10.5 1.5 L7 6.5 H9.75 L8.5 10.5 L12 5.5 H9.25 Z" className="batt-bolt" />}
+        </svg>
+    )
+}
+
+/** "2.3 hrs" / "47.5 min"; empty without an estimate */
+function leftLabel(seconds?: number | null): string {
+    if (seconds == null) {
+        return ""
+    }
+    const minutes = seconds / 60
+    return minutes >= 60 ? `${(minutes / 60).toFixed(1)} hrs` : `${minutes.toFixed(1)} min`
+}
+
+/** One "Dog [battery] 80%  2.3 hrs" row; red at BATTERY_RED_AT% or less. */
+function BatteryRow(
+    { label, percent, charging = false, left }: { label: string; percent: number; charging?: boolean; left: string },
+) {
+    return (
+        <span className={`batt${percent <= BATTERY_RED_AT ? " low" : ""}`}>
+            <span>{label}</span>
+            <BatteryIcon percent={percent} charging={charging} />
+            <span className="pct">{percent}%</span>
+            <span className="left">{charging ? "charging" : left}</span>
+        </span>
+    )
+}
+
+/** The dog's battery over the deck's in one fixed-width box, each with its time left (the backend's, from the recent draw). */
+export function Batteries({ dog, dogLeft, deck, motor }: {
+    dog?: number | null
+    dogLeft?: number | null
+    deck?: HostBattery | null
+    /** the dog's hottest motor, a row under the batteries */
+    motor?: { celsius: number; joint: string | null } | null
+}) {
     if (dog == null && !deck) {
         return null
     }
-    const low = (dog != null && dog <= 20) || (deck?.state === "discharging" && deck.percent <= 20)
+    const deckCharging = deck?.state === "charging"
     const title = [
-        dog != null && `the dog's battery: ${dog}%`,
-        deck && `this deck's battery: ${deck.percent}%, ${deck.state}`,
+        dog != null && `the dog's battery: ${dog}%${dogLeft != null ? `, ${leftLabel(dogLeft)} left` : ""}`,
+        deck &&
+        `this deck's battery: ${deck.percent}%, ${deck.state}${
+            deck.secondsLeft != null ? `, ${leftLabel(deck.secondsLeft)} left` : ""
+        }`,
+        motor && `the hottest motor: ${motor.joint ?? "?"} at ${motor.celsius}°C`,
+        "time left: at the average draw of the last 5 min, shown after a minute of it",
     ]
         .filter(Boolean)
         .join("; ")
     return (
-        <span className={`deck-batt dim-badge${low ? " warn" : ""}`} title={title}>
-            {dog != null && `Dog ${dog}%`}
-            {dog != null && deck && " · "}
-            {deck && `Deck ${deck.percent}%${deck.state === "charging" ? " ⚡" : ""}`}
+        <span className="deck-batt dim-badge" title={title}>
+            {dog != null && <BatteryRow label="Dog" percent={dog} left={leftLabel(dogLeft)} />}
+            {deck && (
+                <BatteryRow
+                    label="Deck"
+                    percent={deck.percent}
+                    charging={deckCharging}
+                    left={leftLabel(deck.secondsLeft)}
+                />
+            )}
+            {motor && (
+                <span className="batt">
+                    <span>Motor</span>
+                    <span />
+                    <span className="pct">{motor.celsius}°C</span>
+                    <span className="left">{motor.joint ?? ""}</span>
+                </span>
+            )}
         </span>
     )
 }

@@ -87,6 +87,10 @@ export type Drive =
         obstacleAvoidance?: boolean | null
         /** the battery's charge (%), null until the robot reports it */
         battery?: number | null
+        /** seconds until the battery's empty at its recent draw, null until a minute of discharging */
+        batteryLeft?: number | null
+        /** the hottest leg motor ("FR calf") and its temperature, null until the robot reports one */
+        hottestMotor?: { celsius: number; joint: string | null } | null
         startedAt: number
     }
 
@@ -101,7 +105,12 @@ export type Account = {
 export type Command = { name: string; label: string; description: string }
 
 /** this computer's battery (the deck's, not the dog's), sampled every 20 s; null without one */
-export type HostBattery = { percent: number; state: "charging" | "discharging" | "full" | "idle" | "unknown" }
+export type HostBattery = {
+    percent: number
+    state: "charging" | "discharging" | "full" | "idle" | "unknown"
+    /** seconds until it's empty at its recent draw, null until a minute of discharging */
+    secondsLeft?: number | null
+}
 
 export type Network = {
     ssid: string | null
