@@ -12,9 +12,6 @@ uses:
         - "DELETE /uploads/{id}"
         - "POST /uploads/{id}/retry"
         - GET /cloud/account
-        - POST /cloud/login
-        - GET /cloud/login/page
-        - POST /cloud/logout
     "@desktop-gateway":
         - GET /api/apps
         - PUT /api/launcher/state
@@ -438,9 +435,6 @@ provides:
               fresh:
                   type: boolean
           path: api/cloud
-        - description: 'Sign this computer out of the Dimensional cloud (Desktop''s account: every app''s uploads)'
-          method: POST
-          path: api/cloud/logout
         - description: >-
               AP mode: the hotspot link (idle, joining, linked, restoring, error), the hotspot and the network this computer
               left, saved hotspot passwords' names, whether this platform can scan Wi-Fi

@@ -255,36 +255,12 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
 type Account = { loggedIn: boolean; email: string | null; available: boolean; error?: string | null }
 type Ctx = { account: Account | null; signIn: () => void }
 
-/** Desktop's own sign-in page in a frame (GET /dimos/cloud/login/page, the same one Recordings uses): it shows a code,
- * opens the console in a new tab to approve it, and tells this page when it's done. */
-function LoginPanel({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
-    useEffect(() => {
-        const onMessage = (event: MessageEvent) => {
-            if (event.data?.type === "dimos-cloud-login" && ["approved", "loggedIn"].includes(event.data.state)) {
-                onDone()
-            }
-        }
-        addEventListener("message", onMessage)
-        return () => removeEventListener("message", onMessage)
-    }, [onDone])
-    const src = new URL("../../dimos/cloud/login/page?theme=dark", location.href).href
-    return (
-        <div className="rec-login">
-            <div className="rec-login-head">
-                Sign in to the Dimensional cloud (console.dimensional.org) to upload. Waiting uploads start by
-                themselves after.
-                <button type="button" className="dim-btn ghost sm" onClick={onClose}>Close</button>
-            </div>
-            <iframe title="Dimensional sign-in" src={src} />
-        </div>
-    )
+/** Desktop's Settings → Dimensional account, every app's one cloud login; signed in, the shell comes back here. */
+function openCloudLogin() {
+    openApp("settings", { path: "settings-cloud-account" })
 }
 
-function AccountLine({ account, onSignIn, onSignOut }: {
-    account: Account | null
-    onSignIn: () => void
-    onSignOut: () => void
-}) {
+function AccountLine({ account }: { account: Account | null }) {
     if (!account) {
         return <span className="rec-account muted">Checking the cloud account…</span>
     }
@@ -295,12 +271,12 @@ function AccountLine({ account, onSignIn, onSignOut }: {
         return (
             <span className="rec-account">
                 Signed in as <b>{account.email ?? "your account"}</b> ·{" "}
-                <button type="button" className="rec-link" onClick={onSignOut}>Sign out</button>
+                <button type="button" className="rec-link" onClick={openCloudLogin}>Account</button>
             </span>
         )
     }
     return (
-        <button type="button" className="dim-btn sm primary" onClick={onSignIn}>
+        <button type="button" className="dim-btn sm primary" onClick={openCloudLogin}>
             Sign in to upload
         </button>
     )
@@ -311,7 +287,6 @@ export function Recordings(
 ) {
     const [error, setError] = useState<string | null>(null)
     const [account, setAccount] = useState<Account | null>(null)
-    const [loggingIn, setLoggingIn] = useState(false)
     const loadAccount = useCallback((fresh = false) => {
         call<Account>("GET", fresh ? "api/cloud?fresh=true" : "api/cloud").then(
             setAccount,
@@ -319,18 +294,16 @@ export function Recordings(
         )
     }, [])
     useEffect(() => loadAccount(true), [])
-    // an upload Desktop holds for a sign-in: ask for one
-    const waiting = recordings.some((r) => r.upload?.state === "signin")
+    // signed out: signing in happens in Desktop's Settings, so look again until it has
+    const signedOut = !!account && account.available && !account.loggedIn
     useEffect(() => {
-        if (waiting && account && account.available && !account.loggedIn) {
-            setLoggingIn(true)
+        if (!signedOut) {
+            return
         }
-    }, [waiting, account?.loggedIn])
-    const onLoggedIn = useCallback(() => {
-        setLoggingIn(false)
-        loadAccount(true)
-    }, [])
-    const ctx: Ctx = { account, signIn: () => setLoggingIn(true) }
+        const timer = setInterval(() => loadAccount(true), 3000)
+        return () => clearInterval(timer)
+    }, [signedOut])
+    const ctx: Ctx = { account, signIn: openCloudLogin }
     useEffect(() => {
         const key = (e: KeyboardEvent) => e.key === "Escape" && onClose()
         addEventListener("keydown", key)
@@ -373,14 +346,8 @@ export function Recordings(
                     </button>
                 </div>
                 <div className="rec-accountbar">
-                    <AccountLine
-                        account={account}
-                        onSignIn={() => setLoggingIn(true)}
-                        onSignOut={() =>
-                            call<Account>("POST", "api/cloud/logout").then(setAccount, (e) => setError(e.message))}
-                    />
+                    <AccountLine account={account} />
                 </div>
-                {loggingIn && <LoginPanel onDone={onLoggedIn} onClose={() => setLoggingIn(false)} />}
                 <ErrorNotice message={error} />
                 <div className="rec-list">
                     {sorted.length === 0 && (

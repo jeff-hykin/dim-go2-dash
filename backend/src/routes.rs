@@ -517,13 +517,6 @@ pub fn routes() -> Vec<Route> {
             handler(|app, args| async move { app.cloud_account(flag(&args, "fresh")?).await }),
         ),
         route(
-            "POST",
-            "api/cloud/logout",
-            "Sign this computer out of the Dimensional cloud (Desktop's account: every app's uploads)",
-            None,
-            handler(|app, _| async move { app.cloud_logout().await }),
-        ),
-        route(
             "GET",
             "api/hotspot",
             "AP mode: the hotspot link (idle, joining, linked, restoring, error), the hotspot and the network this computer left, saved hotspot passwords' names, whether this platform can scan Wi-Fi",
