@@ -116,9 +116,18 @@ function useWsVideo(want: boolean, webrtcLive: boolean, canvas: React.RefObject<
             })
             // no `description`: the chunks are Annex B. High profile and no optimizeForLatency: the robot's stream has
             // reordered (B) frames, which a low-latency decoder may paint in decode order
-            decoder.configure({ codec: "avc1.640028" })
+            decoder.configure(decoderConfig)
         }
-        const open = () => {
+        // the B-frame-safe setup if this browser takes it, else the one that worked before
+        let decoderConfig: VideoDecoderConfig = { codec: "avc1.42e01f", optimizeForLatency: true }
+        const open = async () => {
+            const wanted = { codec: "avc1.640028" }
+            if ((await VideoDecoder.isConfigSupported(wanted).catch(() => null))?.supported) {
+                decoderConfig = wanted
+            }
+            if (stopped) {
+                return
+            }
             newDecoder()
             const url = new URL("api/drive/video.ws", location.href)
             url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
