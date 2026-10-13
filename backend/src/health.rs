@@ -423,9 +423,10 @@ pub fn spawn(app: Arc<App>) {
                 let now_rx = crate::rx::totals();
                 if let Some(active) = app.recording() {
                     let mut stats = crate::rx::since(&rx_last, &now_rx);
+                    stats["type"] = json!("rx_stats");
                     stats["t"] = json!(t);
                     stats["window_s"] = json!(1.0);
-                    active.recorder.write("/rx_stats", crate::msg::Msg::Text(stats.to_string()));
+                    active.recorder.write("/logs", crate::msg::Msg::Text(stats.to_string()));
                 }
                 rx_last = now_rx;
                 if sampler.count % 20 == 0 {

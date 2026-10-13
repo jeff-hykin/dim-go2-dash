@@ -44,9 +44,6 @@ pub const TOPICS: &[&str] = &[
     "/cmd_vel",
     "/robot_action",
     "/logs",
-    "/lidar_state",
-    "/service_state",
-    "/rx_stats",
 ];
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -657,11 +654,11 @@ mod tests {
         assert_eq!(
             names,
             [
-                "battery", "camera_info", "cmd_vel", "color_image", "imu", "joint_state", "joystick", "lidar", "lidar_state", "logs",
-                "metadata", "odom", "robot_action", "rx_stats", "service_state", "tf"
+                "battery", "camera_info", "cmd_vel", "color_image", "imu", "joint_state", "joystick", "lidar", "logs",
+                "metadata", "odom", "robot_action", "tf"
             ]
         );
-        assert_eq!(config("rx_stats")["payload_module"], "dimos.msgs.std_msgs.String.String");
+        assert_eq!(config("logs")["payload_module"], "dimos.msgs.std_msgs.String.String");
         assert_eq!(config("color_image")["codec_id"], "jpeg");
         assert_eq!(config("lidar")["codec_id"], "lz4+lcm");
         assert_eq!(config("odom")["payload_module"], "dimos.msgs.geometry_msgs.PoseStamped.PoseStamped");

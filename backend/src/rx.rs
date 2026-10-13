@@ -1,7 +1,7 @@
 // What the dog sent, before any parsing: messages and bytes per kind ("msg rt/lf/lowstate", "bin
 // rt/utlidar/voxel_map_compressed", "bin ?unparsed" for binary frames parse_binary can't read) and the lidar messages
 // that arrive but don't become points ("lidar no-binary", "lidar decode-error"). health.rs writes the per-second deltas
-// to a recording's /rx_stats and the totals to the log every 10 s, so a stream that stops says which side stopped it.
+// to a recording's /logs (type rx_stats) and the totals to the log every 10 s, so a stream that stops says which side stopped it.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;

@@ -141,8 +141,8 @@ pub fn convert(topic: &str, json: &Value, binary: Option<&[u8]>, now_ns: u64, ba
             }
         }
         LIDAR_STATE | SERVICE_STATE => {
-            let stream = if topic == LIDAR_STATE { "/lidar_state" } else { "/service_state" };
-            out.push(Out { topic: stream, msg: Msg::Text(data.to_string()) });
+            let kind = if topic == LIDAR_STATE { "lidar_state" } else { "service_state" };
+            out.push(Out { topic: "/logs", msg: Msg::Text(serde_json::json!({ "type": kind, "data": data }).to_string()) });
         }
         POSE => {
             let pose = &data["pose"];
@@ -262,12 +262,12 @@ mod tests {
     }
 
     #[test]
-    fn lidar_state_is_kept_as_text_and_a_cloud_without_voxels_is_counted() {
+    fn lidar_state_goes_to_logs_and_a_cloud_without_voxels_is_counted() {
         let state = serde_json::json!({ "type": "msg", "topic": LIDAR_STATE, "data": { "cloud_frequency": 7.5, "error_state": 0 } });
         let out = convert(LIDAR_STATE, &state, None, 1, false);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].topic, "/lidar_state");
-        assert!(matches!(&out[0].msg, Msg::Text(text) if text.contains("cloud_frequency")));
+        assert_eq!(out[0].topic, "/logs");
+        assert!(matches!(&out[0].msg, Msg::Text(text) if text.contains("\"type\":\"lidar_state\"") && text.contains("cloud_frequency")));
         let before = crate::rx::totals().get("lidar no-binary").map(|e| e.0).unwrap_or(0);
         let cloud = serde_json::json!({ "type": "msg", "topic": LIDAR, "data": {} });
         assert!(convert(LIDAR, &cloud, None, 1, false).is_empty());

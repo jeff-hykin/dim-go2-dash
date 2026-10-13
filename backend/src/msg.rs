@@ -79,7 +79,7 @@ pub fn stream_type(name: &str, raw_images: bool, compress: bool) -> Option<(&'st
         "joint_state" => ("dimos.msgs.sensor_msgs.JointState.JointState", "lcm"),
         "joystick" => ("dimos.msgs.sensor_msgs.Joy.Joy", "lcm"),
         "cmd_vel" => ("dimos.msgs.geometry_msgs.Twist.Twist", "lcm"),
-        "robot_action" | "logs" | "metadata" | "lidar_state" | "service_state" | "rx_stats" => ("dimos.msgs.std_msgs.String.String", "lcm"),
+        "robot_action" | "logs" | "metadata" => ("dimos.msgs.std_msgs.String.String", "lcm"),
         _ => return None,
     })
 }

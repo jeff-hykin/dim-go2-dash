@@ -6,8 +6,8 @@
 //   /joystick      Joy: the gamepad's RAW axes and buttons (never velocities; layout in the metadata row's "streams")
 //   /cmd_vel       Twist: the velocity actually sent to the dog (m/s, rad/s)
 //   /robot_action  String: each sport command sent (stand, sit, …) as JSON
-//   /lidar_state /service_state  String: the dog's own lidar and service state, as JSON text
-//   /rx_stats      String: per second, what the dog sent per topic before parsing (rx.rs)
+//   /logs          String: JSON events by "type", incl. rx_stats (per second, what the dog sent per topic before parsing,
+//                  rx.rs) and lidar_state / service_state (the dog's own reports, under "data")
 // A recording lives as long as the drive session: disconnecting ends it (and the file is finished).
 
 use std::collections::BTreeMap;
@@ -49,15 +49,6 @@ pub fn channel_metadata(topic: &str) -> BTreeMap<String, String> {
         }
         "/robot_action" => {
             m.insert("description".into(), "each sport command sent to the dog, as JSON {name, sends, sent, dryRun}".into());
-        }
-        "/lidar_state" => {
-            m.insert("description".into(), "the dog's rt/utlidar/lidar_state messages, their data as JSON text".into());
-        }
-        "/service_state" => {
-            m.insert("description".into(), "the dog's rt/servicestate messages (which of its services run), their data as JSON text".into());
-        }
-        "/rx_stats" => {
-            m.insert("description".into(), "each second: every message the dog sent, per kind (\"msg <topic>\", \"bin <topic>\", \"bin ?unparsed\") with counts and bytes, before parsing; plus lidar messages that never became points (\"lidar no-binary\", \"lidar decode-error\")".into());
         }
         "/lidar" => {
             m.insert("description".into(), "the Go2's local voxel map (rt/utlidar/voxel_map_compressed), decoded to points".into());
