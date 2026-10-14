@@ -12,7 +12,7 @@ export function logPress(id: string, label = "") {
 }
 
 function labelOf(el: HTMLElement): string {
-    const text = el.getAttribute("aria-label") || el.title || el.textContent || ""
+    const text = el.getAttribute("aria-label") || el.textContent || el.title || ""
     return text.replace(/\s+/g, " ").trim().slice(0, 80)
 }
 
