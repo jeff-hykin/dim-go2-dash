@@ -25,6 +25,8 @@ impl Drop for TempDir {
 fn setup() -> Test {
     let dir = std::env::temp_dir().join(format!("go2_dash_test_{}_{}", std::process::id(), rand_suffix()));
     std::fs::create_dir_all(&dir).unwrap();
+    // no warning sounds from the tests
+    std::env::set_var("GO2_DASH_SILENT", "1");
     Test { app: App::new(dir.clone(), true), _dir: TempDir(dir) }
 }
 
@@ -615,4 +617,29 @@ async fn the_head_light_toggles_and_shows_in_the_drive_state() {
     assert_eq!(t.ok("POST", "api/drive/light", None).await["sends"][0]["parameter"]["brightness"], 0, "toggles off");
     assert_eq!(t.ok("POST", "api/drive/light", Some(json!({ "on": true }))).await["light"], true);
     t.ok("POST", "api/drive/disconnect", None).await;
+}
+
+#[tokio::test]
+async fn overheat_warning_cuts_driving_until_acknowledged() {
+    let t = setup();
+    assert_eq!(t.status("POST", "api/drive/overheat/ack", None).await, 409); // no session
+    t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.31", "dryRun": true }))).await;
+    t.ok("POST", "api/drive/stand", None).await;
+    let warned = t.ok("POST", "api/drive/overheat/simulate", Some(json!({ "celsius": 76 }))).await;
+    assert_eq!(warned["overheat"]["celsius"], 76);
+    assert_eq!(warned["overheat"]["limit"], 75);
+    assert_eq!(t.status("POST", "api/drive/move", Some(json!({ "forward": 1 }))).await, 409);
+    assert_eq!(t.status("POST", "api/drive/stand", None).await, 409);
+    assert_eq!(t.status("POST", "api/drive/jump", None).await, 409);
+    t.ok("POST", "api/drive/stop", None).await;
+    let acked = t.ok("POST", "api/drive/overheat/ack", None).await;
+    assert_eq!(acked["acknowledged"], true);
+    assert!(t.ok("GET", "api/drive", None).await["overheat"].is_null());
+    t.ok("POST", "api/drive/stand", None).await;
+    t.ok("POST", "api/drive/move", Some(json!({ "forward": 1 }))).await;
+    // still 76: no new warning until 5 °C hotter
+    assert!(t.ok("POST", "api/drive/overheat/simulate", Some(json!({ "celsius": 76 }))).await["overheat"].is_null());
+    assert_eq!(t.ok("POST", "api/drive/overheat/simulate", Some(json!({ "celsius": 81 }))).await["overheat"]["celsius"], 81);
+    t.ok("POST", "api/drive/lie_down", None).await; // getting the dog down still works
+    assert_eq!(t.ok("POST", "api/drive/overheat/ack", None).await["acknowledged"], true);
 }

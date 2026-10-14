@@ -8,6 +8,7 @@ import { call } from "./api.ts"
 import {
     activePad,
     type Axes,
+    BUTTON,
     GAMEPAD_BINDINGS,
     GamepadDriver,
     type GamepadStatus,
@@ -480,6 +481,9 @@ export function Control(props: {
     }
 
     const press = (key: string) => {
+        if (drive.overheat) {
+            return
+        }
         if (!driveAllowed()) {
             return
         }
@@ -514,7 +518,7 @@ export function Control(props: {
         strafe: clamp((pressed.has("q") ? 1 : 0) - (pressed.has("e") ? 1 : 0) + (padMoving ? padAxes.strafe : 0)),
         turn: clamp((pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0) + (padMoving ? padAxes.turn : 0)),
     }
-    const anyAxis = !!(vector.forward || vector.strafe || vector.turn)
+    const anyAxis = !drive.overheat && !!(vector.forward || vector.strafe || vector.turn)
 
     // held keys → a steady stream of short moves; letting go → one stop
     const vectorRef = useRef(vector)
@@ -689,6 +693,7 @@ export function Control(props: {
                     </div>
                 </div>
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
+                {drive.overheat && <OverheatWarning overheat={drive.overheat} onToast={onToast} />}
                 {settings && <FormatToggle settings={settings} onToast={onToast} />}
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
@@ -817,6 +822,58 @@ export function Control(props: {
 }
 
 /** The recording format (Record options' Format) as a tiny switch over the speed readout: db / mcap. */
+/** The overheat warning: over everything until acknowledged (the button, or a fresh press of the pad's A); the deck
+ * sounds it (backend drive.rs) and refuses driving meanwhile */
+function OverheatWarning({ overheat, onToast }: { overheat: NonNullable<Active["overheat"]>; onToast: (text: string) => void }) {
+    const [sending, setSending] = useState(false)
+    const acknowledge = () => {
+        setSending(true)
+        call("POST", "api/drive/overheat/ack").catch((e) => onToast(e.message)).finally(() => setSending(false))
+    }
+    const latest = useRef(acknowledge)
+    latest.current = acknowledge
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !navigator.getGamepads) {
+            return
+        }
+        // an A already held when the warning appears doesn't count: it has to be let go first
+        let wasDown = true
+        const timer = setInterval(() => {
+            const down = [...navigator.getGamepads()].some((pad) => pad?.buttons[BUTTON.a]?.pressed)
+            if (down && !wasDown) {
+                latest.current()
+            }
+            wasDown = down
+        }, PAD_POLL_MS)
+        return () => clearInterval(timer)
+    }, [])
+    return (
+        <div className="overheat-back" role="alertdialog" aria-labelledby="overheat-title">
+            <div className="overheat dim-modal">
+                <header id="overheat-title">
+                    <Icon name="warn" size={20} />
+                    Warning: Dog Overheating
+                </header>
+                <div className="overheat-body">
+                    <p>Please have the dog lie down. It will collapse if the temperature continues to rise.</p>
+                    <p className="dim-mono overheat-temp">
+                        {overheat.joint ?? "A leg motor"} at {overheat.celsius}°C (warns at {overheat.limit}°C)
+                    </p>
+                    <p className="overheat-note">Driving is off until you acknowledge. Lie down and Sit still work.</p>
+                </div>
+                <footer>
+                    <button type="button" className="dim-btn" onClick={() => call("POST", "api/drive/lie_down").catch((e) => onToast(e.message))}>
+                        Lie down
+                    </button>
+                    <button type="button" className="dim-btn primary" autoFocus disabled={sending} onClick={acknowledge}>
+                        Acknowledge (A)
+                    </button>
+                </footer>
+            </div>
+        </div>
+    )
+}
+
 function FormatToggle({ settings, onToast }: { settings: Settings; onToast: (text: string) => void }) {
     const format = settings.recordOptions.format
     const next = format === "mcap" ? "db" : "mcap"

@@ -392,6 +392,31 @@ pub fn routes() -> Vec<Route> {
         ),
         route(
             "POST",
+            "api/drive/overheat/ack",
+            "Acknowledge the overheat warning (a leg motor at 75 °C or more): silences it and lets driving resume; it comes back 5 °C hotter, or at 75 °C after the motors cool",
+            None,
+            handler(|app, _| async move {
+                match app.drive.lock().await.clone() {
+                    Some(drive) => Ok(drive.acknowledge_overheat()),
+                    None => Err(HttpError::conflict("no robot connected — POST api/drive/connect first")),
+                }
+            }),
+        ),
+        route(
+            "POST",
+            "api/drive/overheat/simulate",
+            "Try the overheat warning in a dry-run session: raises it as if a motor read celsius (default 76)",
+            Some(json!({ "celsius": { "type": "number", "description": "the reading, default 76" } })),
+            handler(|app, args| async move {
+                let celsius = number(&args, "celsius")?.unwrap_or(76.0).round() as i64;
+                match app.drive.lock().await.clone() {
+                    Some(drive) => drive.simulate_overheat(celsius),
+                    None => Err(HttpError::conflict("no robot connected — POST api/drive/connect first")),
+                }
+            }),
+        ),
+        route(
+            "POST",
             "api/drive/light",
             "Turn the dog's head light on (brightness 10) or off (0) through its VUI api (SetBrightness); without `on` it toggles. The drive state's `light` says which it is",
             Some(json!({

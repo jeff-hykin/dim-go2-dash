@@ -2207,3 +2207,42 @@ body.science.dark .big-check input:checked + .box.box::after {
     color: #fde047;
     border-color: color-mix(in srgb, #fde047 60%, transparent);
 }
+
+/* the overheat warning: over everything (driving is off) until acknowledged */
+.overheat-back {
+    position: absolute;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(120, 0, 0, 0.45);
+}
+.overheat {
+    width: min(520px, 100%);
+    border: 2px solid #e5484d;
+}
+/* body …: outranks the dark theme's small-caps modal header */
+body .overheat-back .overheat.dim-modal > header {
+    gap: 10px;
+    justify-content: flex-start;
+    color: #e5484d;
+    font: 600 22px var(--display);
+    letter-spacing: normal;
+    text-transform: none;
+}
+.overheat-body {
+    padding: 14px 16px 4px;
+    font-size: 17px;
+    line-height: 1.45;
+}
+.overheat-body p {
+    margin: 0 0 10px;
+}
+.overheat-temp {
+    font-size: 14px;
+}
+.overheat-note {
+    font-size: 13px;
+    opacity: 0.75;
+}

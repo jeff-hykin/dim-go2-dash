@@ -33,6 +33,13 @@ const MAX_FORWARD: f64 = 1.0;
 const MAX_LATERAL: f64 = 0.6;
 const MAX_YAW: f64 = 1.5;
 const BOOST_MULT: f64 = 1.5;
+/// a leg motor this hot (°C) raises the overheat warning, and driving stops until it's acknowledged (dogs that fell
+/// mid-walk and rebooted on 2026-10-13 had motors at 77–83 °C; healthy ones peaked at 50–68 °C)
+pub const OVERHEAT_C: i64 = 75;
+/// after an acknowledgement the warning comes back this much hotter, or at OVERHEAT_C again once the motors cool this far below it
+const OVERHEAT_STEP_C: i64 = 5;
+/// what may still be sent while the warning is up: getting the dog down, which is what the warning asks for
+const OVERHEAT_ALLOWED: &[&str] = &["lie_down", "sit"];
 
 fn boost_mult(boost: f64) -> f64 {
     1.0 + (BOOST_MULT - 1.0) * boost.clamp(0.0, 1.0)
@@ -159,6 +166,10 @@ struct DriveState {
     drain_at: Option<Instant>,
     /// the hottest motor: (°C, its index in sensors::JOINTS), from lowstate
     hottest_motor: Option<(i64, usize)>,
+    /// the overheat warning, while it's up: (°C, the motor's index in sensors::JOINTS, when, ms)
+    overheat: Option<(i64, usize, u64)>,
+    /// the hottest motor's °C when the warning was last acknowledged; None once the motors have cooled
+    overheat_acked: Option<i64>,
     /// the dog's obstacle avoidance, as it last said (asked on connect) or as last set from here; None until known
     obstacle_avoidance: Option<bool>,
 }
@@ -177,7 +188,55 @@ pub struct Drive {
     /// the camera over a WebSocket (api/drive/video.ws), for pages whose WebRTC video won't connect
     pub stream: crate::stream::VideoStream,
     closed: AtomicBool,
+    /// the warning sound repeats while this is set (see overheat_sound)
+    alarm: Arc<AtomicBool>,
     app: Weak<App>,
+}
+
+/// "FR calf" for a motor's index in sensors::JOINTS
+fn joint_label(i: usize) -> Option<String> {
+    crate::sensors::JOINTS.get(i).map(|j| j.trim_end_matches("_joint").replace('_', " "))
+}
+
+/// Whether a hottest-motor reading raises the overheat warning: at OVERHEAT_C, unless it's up already or was
+/// acknowledged at a temperature this one isn't OVERHEAT_STEP_C past
+fn overheat_rises(celsius: i64, up: bool, acked: Option<i64>) -> bool {
+    !up && celsius >= OVERHEAT_C && acked.is_none_or(|a| celsius >= a + OVERHEAT_STEP_C)
+}
+
+/// The warning sound, played by the deck itself (a page can't make sound until someone taps it), every 2 s while
+/// `alarm` is set; never with GO2_DASH_SILENT (the tests)
+fn overheat_sound(alarm: Arc<AtomicBool>) {
+    if std::env::var_os("GO2_DASH_SILENT").is_some() {
+        return;
+    }
+    tokio::spawn(async move {
+        #[cfg(target_os = "macos")]
+        let players: &[(&str, &[&str])] = &[("/usr/bin/afplay", &["/System/Library/Sounds/Sosumi.aiff"])];
+        #[cfg(not(target_os = "macos"))]
+        let players: &[(&str, &[&str])] = &[
+            ("/usr/bin/pw-play", &["/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"]),
+            ("/usr/bin/paplay", &["/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"]),
+            ("/usr/bin/pw-play", &["/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"]),
+        ];
+        let mut working = None;
+        while alarm.load(Ordering::Relaxed) {
+            let tries = working.map_or(0..players.len(), |i: usize| i..i + 1);
+            for i in tries {
+                let (cmd, args) = players[i];
+                let played = tokio::time::timeout(Duration::from_secs(5), tokio::process::Command::new(cmd).args(args).status()).await;
+                if matches!(played, Ok(Ok(status)) if status.success()) {
+                    working = Some(i);
+                    break;
+                }
+            }
+            if working.is_none() {
+                crate::dlog!("overheat: no way to play the warning sound here");
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
 }
 
 pub fn no_session() -> Value {
@@ -204,10 +263,8 @@ impl Drive {
             "light": state.light,
             "battery": state.battery,
             "batteryLeft": state.battery_left,
-            "hottestMotor": state.hottest_motor.map(|(celsius, i)| json!({
-                "celsius": celsius,
-                "joint": crate::sensors::JOINTS.get(i).map(|j| j.trim_end_matches("_joint").replace('_', " ")),
-            })),
+            "hottestMotor": state.hottest_motor.map(|(celsius, i)| json!({ "celsius": celsius, "joint": joint_label(i) })),
+            "overheat": state.overheat.map(|(celsius, i, at)| json!({ "celsius": celsius, "joint": joint_label(i), "at": at, "limit": OVERHEAT_C })),
             "obstacleAvoidance": state.obstacle_avoidance,
             "startedAt": self.started_at,
         })
@@ -231,6 +288,9 @@ impl Drive {
         if hottest.is_some() && self.state.lock().unwrap().hottest_motor != hottest {
             self.set(|s| s.hottest_motor = hottest);
         }
+        if let Some((celsius, joint)) = hottest {
+            self.check_overheat(celsius, joint);
+        }
         let bms = &json["data"]["bms_state"];
         let Some(soc) = bms["soc"].as_f64() else { return };
         let soc = soc.clamp(0.0, 100.0).round() as u8;
@@ -250,6 +310,81 @@ impl Drive {
             drop(state);
             self.publish();
         }
+    }
+
+    /// Raises the overheat warning when a reading calls for it (overheat_rises)
+    fn check_overheat(&self, celsius: i64, joint: usize) {
+        let rises = {
+            let mut state = self.state.lock().unwrap();
+            if celsius < OVERHEAT_C - OVERHEAT_STEP_C {
+                state.overheat_acked = None;
+            }
+            overheat_rises(celsius, state.overheat.is_some(), state.overheat_acked)
+        };
+        if rises {
+            self.overheat(celsius, joint);
+        }
+    }
+
+    /// The overheat warning: stop walking, refuse driving until it's acknowledged, sound the alarm, and log it
+    fn overheat(&self, celsius: i64, joint: usize) {
+        let label = joint_label(joint);
+        crate::dlog!("OVERHEAT: {} at {celsius}°C (warns at {OVERHEAT_C}°C): driving stopped until acknowledged", label.as_deref().unwrap_or("?"));
+        // the ticker sends the stop on its next tick
+        self.set(|s| {
+            s.overheat = Some((celsius, joint, now_ms()));
+            s.move_until = None;
+        });
+        self.log_event(json!({ "type": "overheat", "t": now_ms(), "celsius": celsius, "joint": label, "limit": OVERHEAT_C, "robot": self.name }));
+        if !self.alarm.swap(true, Ordering::Relaxed) {
+            overheat_sound(self.alarm.clone());
+        }
+    }
+
+    /// Acknowledges the overheat warning: driving works again, and the warning comes back OVERHEAT_STEP_C hotter
+    pub fn acknowledge_overheat(&self) -> Value {
+        self.alarm.store(false, Ordering::Relaxed);
+        let mut warning = None;
+        self.set(|s| {
+            if let Some((celsius, joint, at)) = s.overheat.take() {
+                s.overheat_acked = Some(s.hottest_motor.map_or(celsius, |(now, _)| now.max(celsius)));
+                warning = Some((celsius, joint, at));
+            }
+        });
+        let Some((celsius, joint, at)) = warning else { return json!({ "acknowledged": false, "note": "no overheat warning is up" }) };
+        crate::dlog!("OVERHEAT acknowledged after {} s ({} at {celsius}°C)", now_ms().saturating_sub(at) / 1000, joint_label(joint).as_deref().unwrap_or("?"));
+        self.log_event(json!({ "type": "overheat_ack", "t": now_ms(), "celsius": celsius, "joint": joint_label(joint), "afterMs": now_ms().saturating_sub(at) }));
+        json!({ "acknowledged": true, "celsius": celsius, "joint": joint_label(joint) })
+    }
+
+    /// The overheat warning as a refusal, while it's up
+    fn overheat_refusal(&self) -> Option<HttpError> {
+        self.state.lock().unwrap().overheat.map(|(celsius, joint, _)| {
+            HttpError::conflict(format!(
+                "Dog overheating ({} at {celsius}°C): acknowledge the warning first",
+                joint_label(joint).as_deref().unwrap_or("a motor")
+            ))
+        })
+    }
+
+    /// An event on the recording's /logs, when one's running, and on the app's event stream
+    fn log_event(&self, event: Value) {
+        if let Some(app) = self.app.upgrade() {
+            if let Some(active) = app.recording() {
+                active.recorder.write("/logs", crate::msg::Msg::Text(event.to_string()));
+            }
+            app.publish(event);
+        }
+    }
+
+    /// For trying the warning out: raises it as if a motor read `celsius`; dry sessions only
+    pub fn simulate_overheat(&self, celsius: i64) -> Result<Value, HttpError> {
+        if !self.dry {
+            return Err(HttpError::conflict("only a dry-run session can simulate an overheat"));
+        }
+        self.set(|s| s.hottest_motor = Some((celsius, 1)));
+        self.check_overheat(celsius, 1);
+        Ok(self.snapshot())
     }
 
     fn on_obstacles_avoid(&self, json: &Value) {
@@ -324,6 +459,8 @@ impl Drive {
                 drain: Default::default(),
                 drain_at: None,
                 hottest_motor: None,
+                overheat: None,
+                overheat_acked: None,
                 obstacle_avoidance: dry.then_some(true),
             }),
             conn: tokio::sync::Mutex::new(None),
@@ -331,6 +468,7 @@ impl Drive {
             viewers: tokio::sync::Mutex::new(Vec::new()),
             stream: crate::stream::VideoStream::start(),
             closed: AtomicBool::new(false),
+            alarm: Arc::new(AtomicBool::new(false)),
             app: Arc::downgrade(app),
         });
         *app.drive.lock().await = Some(drive.clone());
@@ -570,6 +708,10 @@ impl Drive {
             crate::dlog!("command {} refused: {}", command.name, err.message);
             return Err(err);
         }
+        if let Some(err) = self.overheat_refusal().filter(|_| !OVERHEAT_ALLOWED.contains(&command.name)) {
+            crate::dlog!("command {} refused: {}", command.name, err.message);
+            return Err(err);
+        }
         let sends = sends_for(command);
         let dry = dry_run || self.dry;
         if dry_run && !self.dry {
@@ -636,6 +778,9 @@ impl Drive {
         crate::dlog!("move forward {forward} strafe {strafe} turn {turn} boost {boost} for {duration:?} (dry {dry_run})");
         if let Err(err) = self.ready() {
             crate::dlog!("move refused: {}", err.message);
+            return Err(err);
+        }
+        if let Some(err) = self.overheat_refusal() {
             return Err(err);
         }
         let mode = self.state.lock().unwrap().mode;
@@ -842,6 +987,7 @@ impl Drive {
 
     async fn shutdown(&self) {
         self.closed.store(true, Ordering::Relaxed);
+        self.alarm.store(false, Ordering::Relaxed);
         if let Some(conn) = self.conn.lock().await.take() {
             if self.state.lock().unwrap().moving {
                 conn.sport(SPORT_STOP_MOVE, None).await;
@@ -865,4 +1011,18 @@ pub async fn close(app: &Arc<App>) -> Option<Value> {
     drive.shutdown().await;
     app.publish(json!({ "type": "drive", "drive": no_session() }));
     Some(last)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overheat_rises_at_the_limit_then_steps_after_an_acknowledgement() {
+        assert!(!overheat_rises(74, false, None));
+        assert!(overheat_rises(75, false, None));
+        assert!(!overheat_rises(80, true, None)); // already up
+        assert!(!overheat_rises(79, false, Some(76)));
+        assert!(overheat_rises(81, false, Some(76)));
+    }
 }

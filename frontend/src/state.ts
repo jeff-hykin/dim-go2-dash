@@ -91,6 +91,8 @@ export type Drive =
         batteryLeft?: number | null
         /** the hottest leg motor ("FR calf") and its temperature, null until the robot reports one */
         hottestMotor?: { celsius: number; joint: string | null } | null
+        /** the overheat warning while it's up (a leg motor at `limit` °C or more): driving is refused until it's acknowledged */
+        overheat?: { celsius: number; joint: string | null; at: number; limit: number } | null
         startedAt: number
     }
 
