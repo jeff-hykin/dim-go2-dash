@@ -83,6 +83,7 @@ export function Setup(props: Props) {
             {step !== "welcome" && (
                 <button
                     type="button"
+                    data-ui="setup.skip"
                     className="dim-link su-skip"
                     onClick={() => go({ step: "done" })}
                 >
@@ -107,6 +108,7 @@ function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
                 <button
                     type="button"
                     className="su-choice"
+                    data-ui="setup.have_robot"
                     data-testid="setup-have-robot"
                     onClick={() => go({ step: "find", mode: "robot" })}
                 >
@@ -119,6 +121,7 @@ function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
                 <button
                     type="button"
                     className="su-choice"
+                    data-ui="setup.try_replay"
                     data-testid="setup-no-robot"
                     onClick={() => go({ step: "launch", mode: "replay" })}
                 >
@@ -132,6 +135,7 @@ function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
                     <button
                         type="button"
                         className="su-choice wide"
+                        data-ui="setup.continue_saved"
                         data-testid="setup-continue"
                         onClick={() => go({ step: "launch", mode: "robot" })}
                     >
@@ -146,11 +150,21 @@ function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
                 )}
             </div>
             <div className="dim-empty-actions">
-                <button type="button" className="dim-link" onClick={() => go({ step: "address", mode: "robot" })}>
+                <button
+                    type="button"
+                    data-ui="setup.know_ip"
+                    className="dim-link"
+                    onClick={() => go({ step: "address", mode: "robot" })}
+                >
                     I already know its IP address
                 </button>
                 <span className="spacer" />
-                <button type="button" className="dim-btn ghost sm" onClick={() => go({ step: "done" })}>
+                <button
+                    type="button"
+                    data-ui="setup.welcome_skip"
+                    className="dim-btn ghost sm"
+                    onClick={() => go({ step: "done" })}
+                >
                     Skip setup
                 </button>
             </div>
@@ -207,6 +221,7 @@ function Find(props: Props & { go: Go }) {
                         <label key={robot.key} className={`su-robot${chosen?.key === robot.key ? " on" : ""}`}>
                             <input
                                 type="radio"
+                                data-ui="setup.pick_robot"
                                 name="su-robot"
                                 checked={chosen?.key === robot.key}
                                 onChange={() =>
@@ -245,16 +260,26 @@ function Find(props: Props & { go: Go }) {
                         No Go2 found. Check that it's switched on and has finished booting (about a minute), that this
                         computer's Bluetooth is on, and that you're within a few meters. If it's already on your Wi-Fi,
                         this computer must be on the same network, and a VPN can hide it from the scan:{" "}
-                        <button type="button" className="dim-link" onClick={props.onShowHelp}>see Help</button>.
+                        <button type="button" data-ui="setup.find_help" className="dim-link" onClick={props.onShowHelp}>
+                            see Help
+                        </button>.
                     </span>
                 </div>
             )}
             <div className="dim-empty-actions">
-                <button type="button" className="dim-btn ghost sm" onClick={() => go({ step: "welcome" })}>Back</button>
+                <button
+                    type="button"
+                    data-ui="setup.find_back"
+                    className="dim-btn ghost sm"
+                    onClick={() => go({ step: "welcome" })}
+                >
+                    Back
+                </button>
                 <span className="spacer" />
                 {(none || visible.length > 0) && (
                     <button
                         type="button"
+                        data-ui="setup.find_type_ip"
                         className="dim-link"
                         onClick={() => go({ step: "address", robot: "" })}
                     >
@@ -264,6 +289,7 @@ function Find(props: Props & { go: Go }) {
                 <button
                     type="button"
                     className={`dim-btn sm${visible.length ? "" : " primary"}`}
+                    data-ui="setup.scan"
                     data-testid="setup-scan"
                     disabled={scan.scanning}
                     onClick={start}
@@ -274,6 +300,7 @@ function Find(props: Props & { go: Go }) {
                     <button
                         type="button"
                         className="dim-btn primary sm"
+                        data-ui="setup.use_robot"
                         data-testid="setup-next"
                         disabled={!chosen}
                         onClick={next}
@@ -448,21 +475,36 @@ function WifiStep(props: Props & { go: Go }) {
                         {name}{" "}
                         hasn't shown up on this network after 90 s. Check the Wi-Fi name and password (both are
                         case-sensitive) and that this computer is on “{wifi.ssid}” too; a VPN can also hide it (
-                        <button type="button" className="dim-link" onClick={props.onShowHelp}>Help</button>). The
-                        Unitree Go app or your router's device list shows its IP if you'd rather type it.
+                        <button type="button" data-ui="setup.wifi_help" className="dim-link" onClick={props.onShowHelp}>
+                            Help
+                        </button>). The Unitree Go app or your router's device list shows its IP if you'd rather type
+                        it.
                     </span>
                 </div>
             )}
             <div className="dim-empty-actions">
-                <button type="button" className="dim-btn ghost sm" onClick={() => go({ step: "find" })}>Back</button>
+                <button
+                    type="button"
+                    data-ui="setup.wifi_back"
+                    className="dim-btn ghost sm"
+                    onClick={() => go({ step: "find" })}
+                >
+                    Back
+                </button>
                 <span className="spacer" />
-                <button type="button" className="dim-link" onClick={() => go({ step: "address" })}>
+                <button
+                    type="button"
+                    data-ui="setup.wifi_type_ip"
+                    className="dim-link"
+                    onClick={() => go({ step: "address" })}
+                >
                     {accepted ? "Type its IP" : "It's already on my Wi-Fi"}
                 </button>
                 {sending
                     ? (
                         <button
                             type="button"
+                            data-ui="setup.wifi_cancel"
                             className="dim-btn sm"
                             onClick={() => call("POST", "api/wifi/cancel").catch(() => {})}
                         >
@@ -475,6 +517,7 @@ function WifiStep(props: Props & { go: Go }) {
                         <button
                             type="button"
                             className="dim-btn primary sm"
+                            data-ui="setup.send_wifi"
                             data-testid="setup-send-wifi"
                             onClick={accepted ? () => setJoinStarted(Date.now()) : send}
                         >
@@ -537,7 +580,13 @@ function Address(props: Props & { go: Go }) {
                         onKeyDown={(e) => e.key === "Enter" && ok && runCheck(ip)}
                     />
                 </div>
-                <button type="button" className="dim-btn sm" disabled={!ok || checking} onClick={() => runCheck(ip)}>
+                <button
+                    type="button"
+                    data-ui="setup.check_ip"
+                    className="dim-btn sm"
+                    disabled={!ok || checking}
+                    onClick={() => runCheck(ip)}
+                >
                     {checking ? "Checking…" : "Check"}
                 </button>
             </div>
@@ -564,7 +613,12 @@ function Address(props: Props & { go: Go }) {
                         <>
                             Firmware 1.1.15 and newer also need the robot's AES key, which only Unitree's cloud hands
                             out.{" "}
-                            <button type="button" className="dim-link" onClick={props.onOpenAccounts}>
+                            <button
+                                type="button"
+                                data-ui="setup.unitree_sign_in"
+                                className="dim-link"
+                                onClick={props.onOpenAccounts}
+                            >
                                 Sign in with your Unitree account
                             </button>{" "}
                             to fetch it, or skip this for older firmware.
@@ -575,6 +629,7 @@ function Address(props: Props & { go: Go }) {
             <div className="dim-empty-actions">
                 <button
                     type="button"
+                    data-ui="setup.address_back"
                     className="dim-btn ghost sm"
                     onClick={() => go({ step: robot?.ip || !robot ? "find" : "wifi" })}
                 >
@@ -584,6 +639,7 @@ function Address(props: Props & { go: Go }) {
                 <button
                     type="button"
                     className="dim-btn primary sm"
+                    data-ui="setup.save_ip"
                     data-testid="setup-save-ip"
                     disabled={!ok}
                     onClick={save}
@@ -676,7 +732,12 @@ function LaunchStep(props: Props & { go: Go }) {
             )}
             {!replay && !shown && (
                 <label className="dim-check su-default">
-                    <input type="checkbox" checked={asDefault} onChange={(e) => setAsDefault(e.target.checked)} />
+                    <input
+                        type="checkbox"
+                        data-ui="setup.launch_as_default"
+                        checked={asDefault}
+                        onChange={(e) => setAsDefault(e.target.checked)}
+                    />
                     <span className="box" />
                     Also use {robot?.ip ?? "this IP"} for Go2 launches from the Launcher
                 </label>
@@ -733,6 +794,7 @@ function LaunchStep(props: Props & { go: Go }) {
             <div className="dim-empty-actions">
                 <button
                     type="button"
+                    data-ui="setup.launch_back"
                     className="dim-btn ghost sm"
                     onClick={() => go(replay ? { step: "welcome", mode: "" } : { step: "address" })}
                 >
@@ -742,6 +804,7 @@ function LaunchStep(props: Props & { go: Go }) {
                 {!replay && !shown && (
                     <button
                         type="button"
+                        data-ui="setup.other_blueprint"
                         className="dim-link"
                         onClick={() => openApp("launcher", { robot: "go2" })}
                     >
@@ -749,7 +812,7 @@ function LaunchStep(props: Props & { go: Go }) {
                     </button>
                 )}
                 {shown && (shown.phase === "starting" || shown.phase === "running") && (
-                    <button type="button" className="dim-btn sm" onClick={stop}>
+                    <button type="button" data-ui="setup.launch_stop" className="dim-btn sm" onClick={stop}>
                         <Icon name="stop" size={13} />
                         Stop
                     </button>
@@ -759,6 +822,7 @@ function LaunchStep(props: Props & { go: Go }) {
                         <button
                             type="button"
                             className="dim-btn primary sm"
+                            data-ui="setup.open_controller"
                             data-testid="setup-open-controller"
                             onClick={() => {
                                 openApp(controller === false ? "appstore" : "dim-controller")
@@ -770,7 +834,7 @@ function LaunchStep(props: Props & { go: Go }) {
                     )
                     : shown?.phase === "starting"
                     ? (
-                        <button type="button" className="dim-btn primary sm" disabled>
+                        <button type="button" data-ui="setup.launch_starting" className="dim-btn primary sm" disabled>
                             Starting…
                         </button>
                     )
@@ -778,6 +842,7 @@ function LaunchStep(props: Props & { go: Go }) {
                         <button
                             type="button"
                             className="dim-btn primary sm"
+                            data-ui="setup.launch"
                             data-testid="setup-launch-go"
                             disabled={busy || launch === undefined || (!replay && !robot?.ip)}
                             onClick={() => start(!!other || !!busyElsewhere)}
@@ -796,6 +861,7 @@ function LaunchStep(props: Props & { go: Go }) {
                     Or skip dimos and{" "}
                     <button
                         type="button"
+                        data-ui="setup.drive_here"
                         className="dim-link"
                         onClick={() => {
                             // the scanned robot (for its saved AES key), else just its IP

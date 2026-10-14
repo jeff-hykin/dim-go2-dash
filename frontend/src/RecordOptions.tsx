@@ -76,7 +76,9 @@ export function RecordOptions(
         >
             <div className="rec-options-head">
                 <b>Recording options</b>
-                <button type="button" className="dim-btn sm" onClick={onClose}>Close</button>
+                <button type="button" data-ui="record_options.close" className="dim-btn sm" onClick={onClose}>
+                    Close
+                </button>
             </div>
             <fieldset disabled={!loaded || busy}>
                 <label>
@@ -100,6 +102,7 @@ export function RecordOptions(
                 )}
                 <label>
                     Format<select
+                        data-ui="record_options.format"
                         className="dim-input"
                         value={options.format}
                         title={record.active ? "for the next recording (this one keeps its file)" : undefined}
@@ -110,6 +113,7 @@ export function RecordOptions(
                     </select>
                 </label>
                 <Check
+                    ui="record_options.auto_upload"
                     checked={settings.autoUpload}
                     onChange={(autoUpload) => {
                         setBusy(true)
@@ -122,18 +126,28 @@ export function RecordOptions(
                 <h3>Biggest streams</h3>
                 {top.map((stream) => (
                     <div className="rec-stream" key={stream.topic}>
-                        <Check checked={enabled(stream.topic)} onChange={(value) => toggle(stream.topic, value)}>
+                        <Check
+                            ui="record_options.top_stream"
+                            checked={enabled(stream.topic)}
+                            onChange={(value) => toggle(stream.topic, value)}
+                        >
                             {stream.topic}
                         </Check>
                         <small>{rate(stream.bytesPerSecond)} avg</small>
                     </div>
                 ))}
                 {!top.length && <p>Streams appear here as messages arrive.</p>}
-                <button type="button" className="dim-btn sm" onClick={() => openApp("dim-recordings")}>
+                <button
+                    type="button"
+                    data-ui="record_options.see_recordings"
+                    className="dim-btn sm"
+                    onClick={() => openApp("dim-recordings")}
+                >
                     See recordings
                 </button>
                 <button
                     type="button"
+                    data-ui="record_options.advanced"
                     className="dim-btn sm"
                     aria-expanded={advanced}
                     onClick={() => setAdvanced(!advanced)}
@@ -144,6 +158,7 @@ export function RecordOptions(
                     <>
                         <label>
                             Images<select
+                                data-ui="record_options.image_format"
                                 className="dim-input"
                                 value={options.imageFormat}
                                 disabled={record.active}
@@ -157,6 +172,7 @@ export function RecordOptions(
                         </label>
                         <label>
                             Compression<select
+                                data-ui="record_options.compression"
                                 className="dim-input"
                                 value={options.compression}
                                 disabled={record.active}
@@ -168,10 +184,14 @@ export function RecordOptions(
                                 <option value="none">Off</option>
                             </select>
                         </label>
-                        <Check checked={options.recordNew} onChange={(recordNew) => save({ recordNew })}>
+                        <Check
+                            ui="record_options.record_new"
+                            checked={options.recordNew}
+                            onChange={(recordNew) => save({ recordNew })}
+                        >
                             Record new streams as they appear
                         </Check>
-                        <Check checked={options.logs} onChange={(logs) => save({ logs })}>
+                        <Check ui="record_options.logs" checked={options.logs} onChange={(logs) => save({ logs })}>
                             Include Go2 session event logs
                         </Check>
                         <div className="rec-stream legend">
@@ -181,6 +201,7 @@ export function RecordOptions(
                         {TOPICS.map((topic) => (
                             <div className="rec-stream" key={topic}>
                                 <Check
+                                    ui="record_options.topic"
                                     label={`Record ${topic}`}
                                     checked={enabled(topic)}
                                     onChange={(value) => toggle(topic, value)}

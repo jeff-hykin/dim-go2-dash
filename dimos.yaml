@@ -396,6 +396,19 @@ provides:
                   required: true
                   type: string
           path: api/drive/video_note
+        - description: >-
+              For pages: a button the user pressed (its data-ui id): logged, published as a ui_press event (zenoh topic
+              `events`) and written to the recording's /logs
+          method: POST
+          params:
+              id:
+                  description: the button's id (data-ui), e.g. control.record
+                  required: true
+                  type: string
+              label:
+                  description: its visible text or title, when that says more
+                  type: string
+          path: api/ui/press
         - description: "The recording in progress: file, seconds, messages, bytes, dropped, messages per topic; or {active: false}"
           method: GET
           path: api/record

@@ -296,6 +296,22 @@ pub fn routes() -> Vec<Route> {
             }),
         ),
         route(
+            "POST",
+            "api/ui/press",
+            "For pages: a button the user pressed (its data-ui id): logged, published as a ui_press event (zenoh topic `events`) and written to the recording's /logs",
+            Some(json!({
+                "id": { "type": "string", "required": true, "description": "the button's id (data-ui), e.g. control.record" },
+                "label": { "type": "string", "description": "its visible text or title, when that says more" },
+            })),
+            handler(|app, args| async move {
+                let id: String = text(&args, "id").unwrap_or_default().chars().take(100).collect();
+                let label: String = text(&args, "label").unwrap_or_default().chars().take(100).collect();
+                crate::dlog!("ui press: {id}{}", if label.is_empty() { String::new() } else { format!(" ({label})") });
+                app.publish(json!({ "type": "ui_press", "id": id, "label": label }));
+                Ok(json!({ "ok": true }))
+            }),
+        ),
+        route(
             "GET",
             "api/accounts",
             "Saved Unitree app accounts (the AES keys come from them) and the robots bound to each",

@@ -31,6 +31,7 @@ export function ErrorNotice({ message }: { message?: string | null }) {
                 <span>{fallback}</span>
                 <button
                     type="button"
+                    data-ui="errors.dismiss"
                     className="dim-btn sm"
                     aria-label="Dismiss error"
                     onClick={() => setFallback(null)}

@@ -5,6 +5,7 @@ import { notify } from "./dim-app/source/notify.js"
 // agent sends flashes here too.
 import { useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
+import { logPress } from "./presses.ts"
 import {
     activePad,
     type Axes,
@@ -366,9 +367,15 @@ function RecordButton(
         const timer = setInterval(() => tick((n) => n + 1), 1000)
         return () => clearInterval(timer)
     }, [record.active])
+    // a session records from connect to disconnect: the button only starts one that isn't (it never stops it)
     const toggle = () => {
+        if (record.active) {
+            const text = "Recording stays on until disconnect"
+            notify({ title: text, kind: "ok", app: "dim-go2-dash" }).then((id) => id === null && onToast(text))
+            return
+        }
         setBusy(true)
-        call("POST", record.active ? "api/record/stop" : "api/record/start")
+        call("POST", "api/record/start")
             .catch((e) => onToast(e.message))
             .finally(() => setBusy(false))
     }
@@ -378,10 +385,11 @@ function RecordButton(
             <div className="rec-split">
                 <button
                     type="button"
+                    data-ui="control.record"
                     className={`rec-btn dim-btn sm${record.active ? " on" : ""}`}
                     disabled={busy}
                     title={record.active
-                        ? `Recording to ${record.file} — click to stop and save`
+                        ? `Recording to ${record.file} until disconnect`
                         : `Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to ${
                             settings?.recordOptions.format === "mcap" ? "an .mcap" : "a .db (a dimos memory store)"
                         }`}
@@ -389,13 +397,14 @@ function RecordButton(
                 >
                     <span className="rec-dot" />
                     {record.active
-                        ? `Stop · ${clock(seconds)} · ${megabytes(record.bytes)}`
+                        ? `Recording · ${clock(seconds)} · ${megabytes(record.bytes)}`
                         : busy
                         ? "Starting…"
                         : "Record"}
                 </button>
                 <button
                     type="button"
+                    data-ui="control.record_options"
                     className="rec-more-btn dim-btn sm"
                     aria-label="Recording options"
                     title="Recording options"
@@ -683,6 +692,7 @@ export function Control(props: {
                         <RecordButton record={record} settings={settings} onToast={onToast} />
                         <button
                             type="button"
+                            data-ui="control.disconnect"
                             className="ctl-close dim-btn sm"
                             title="Disconnect"
                             onClick={() => call("POST", "api/drive/disconnect").catch(() => {})}
@@ -706,6 +716,7 @@ export function Control(props: {
                             <button
                                 type="button"
                                 key={key}
+                                data-ui={`control.dpad_${cls}`}
                                 className={`dbtn dim-btn icon ${cls}${pressed.has(key) ? " held" : ""}`}
                                 title={title}
                                 onPointerDown={(e) => {
@@ -763,6 +774,7 @@ export function Control(props: {
                                     <button
                                         type="button"
                                         key={`${c.name}-${flash?.name === c.name ? flash.n : 0}`}
+                                        data-ui={`control.cmd_${c.name}`}
                                         className={`act dim-btn sm${i === 0 ? " primary" : ""}${flashing}${hidden}`}
                                         title={c.description}
                                         onClick={() => doCommand(c.name)}
@@ -775,6 +787,7 @@ export function Control(props: {
                         <button
                             type="button"
                             className={`act light-btn dim-btn sm${drive.light ? " on" : ""}`}
+                            data-ui="control.light"
                             aria-pressed={!!drive.light}
                             title={`The head light is ${drive.light ? "on" : "off"}: click to turn it ${
                                 drive.light ? "off" : "on"
@@ -788,6 +801,7 @@ export function Control(props: {
                         <button
                             type="button"
                             className={`act light-btn dim-btn sm${drive.obstacleAvoidance ? " on" : ""}`}
+                            data-ui="control.obstacle_avoidance"
                             aria-pressed={!!drive.obstacleAvoidance}
                             title={drive.obstacleAvoidance == null
                                 ? "The dog hasn't said whether its obstacle avoidance is on: click to turn it on"
@@ -810,6 +824,7 @@ export function Control(props: {
                 {/* on a touchscreen the on-screen arrows are easy to hit by accident: hidden until asked for */}
                 <button
                     type="button"
+                    data-ui="control.toggle_onscreen_controls"
                     className="controls-toggle dim-btn sm"
                     title="Show or hide the on-screen arrow and turn buttons (keyboard and gamepad work either way)"
                     onClick={() => setShowControls((shown) => !shown)}
@@ -846,6 +861,7 @@ function OverheatWarning({ onToast }: { onToast: (text: string) => void }) {
         const timer = setInterval(() => {
             const down = [...navigator.getGamepads()].some((pad) => pad?.buttons[BUTTON.a]?.pressed)
             if (down && !wasDown) {
+                logPress("overheat.lie_down", "gamepad A")
                 latest.current(true)
             }
             wasDown = down
@@ -863,11 +879,18 @@ function OverheatWarning({ onToast }: { onToast: (text: string) => void }) {
                     <p>Please have the dog lie down until it cools to 70°C.</p>
                 </div>
                 <footer>
-                    <button type="button" className="dim-btn" disabled={sending} onClick={() => acknowledge(false)}>
+                    <button
+                        type="button"
+                        data-ui="overheat.dismiss"
+                        className="dim-btn"
+                        disabled={sending}
+                        onClick={() => acknowledge(false)}
+                    >
                         Dismiss
                     </button>
                     <button
                         type="button"
+                        data-ui="overheat.lie_down"
                         className="dim-btn primary"
                         autoFocus
                         disabled={sending}
@@ -909,6 +932,7 @@ function FormatToggle({ settings, onToast }: { settings: Settings; onToast: (tex
     return (
         <button
             type="button"
+            data-ui="control.format_toggle"
             className="format-toggle dim-mono"
             title={`Recordings are saved as .${format}${what}: click for .${next} (from the next recording)`}
             onClick={() =>

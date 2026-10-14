@@ -501,6 +501,7 @@ async fn record_a_session(t: &Test, format: &str) -> String {
     t.ok("POST", "api/drive/stop", None).await;
     t.ok("POST", "api/drive/sit-down", None).await;
     t.ok("POST", "api/drive/joy", Some(json!({ "axes": [0.0, -0.5], "buttons": [1, 0] }))).await;
+    t.ok("POST", "api/ui/press", Some(json!({ "id": "panel.cmd_stand", "label": "Stand" }))).await;
     t.ok("POST", "api/drive/disconnect", None).await;
     assert_eq!(t.app.record_state()["active"], false);
     let listed = t.ok("GET", "api/recordings", None).await;
@@ -517,6 +518,7 @@ async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
     assert!(mcap::Summary::read(&bytes).unwrap().is_some(), "complete file, not a partial recording");
     let mut actions = Vec::new();
     let mut joy = false;
+    let mut presses = Vec::new();
     for message in mcap::MessageStream::new(&bytes).unwrap() {
         let message = message.unwrap();
         if message.channel.topic == "robot_action" {
@@ -528,7 +530,14 @@ async fn connect_records_actions_and_joy_then_disconnect_finalizes_mcap() {
         if message.channel.topic == "joystick" {
             joy = true;
         }
+        if message.channel.topic == "logs" {
+            let text = lcm_msgs::std_msgs::String::decode(&message.data).unwrap().data;
+            if text.contains(r#""type":"ui_press""#) {
+                presses.push(serde_json::from_str::<Value>(&text).unwrap()["id"].as_str().unwrap().to_string());
+            }
+        }
     }
+    assert_eq!(presses, ["panel.cmd_stand"], "the button press is in the recording's /logs");
     assert!(actions.contains(&"stand".to_string()));
     assert!(actions.contains(&"sit_down".to_string()));
     assert!(actions.contains(&"stop".to_string()));

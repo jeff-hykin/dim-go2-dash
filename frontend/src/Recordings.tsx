@@ -80,6 +80,7 @@ function UploadButton({ rec, onError, ctx }: { rec: Recording; onError: (text: s
             return (
                 <button
                     type="button"
+                    data-ui="recordings.upload_sign_in"
                     className="dim-btn sm"
                     title="It waits for a Dimensional cloud sign-in, then uploads by itself"
                     onClick={ctx.signIn}
@@ -91,6 +92,7 @@ function UploadButton({ rec, onError, ctx }: { rec: Recording; onError: (text: s
             return (
                 <button
                     type="button"
+                    data-ui="recordings.retry_upload"
                     className="dim-btn sm warn"
                     title={upload.error ?? "the upload failed"}
                     onClick={start}
@@ -101,7 +103,7 @@ function UploadButton({ rec, onError, ctx }: { rec: Recording; onError: (text: s
             )
         default:
             return (
-                <button type="button" className="dim-btn sm primary" onClick={start}>
+                <button type="button" data-ui="recordings.upload" className="dim-btn sm primary" onClick={start}>
                     <Icon name="upload" size={12} />
                     Upload
                 </button>
@@ -160,7 +162,13 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
             <div className="rec-acts">
                 <UploadButton rec={rec} onError={onError} ctx={ctx} />
                 <div className="rec-more">
-                    <button type="button" className="dim-btn ghost icon sm" title="More" onClick={() => setMenu(!menu)}>
+                    <button
+                        type="button"
+                        data-ui="recordings.more"
+                        className="dim-btn ghost icon sm"
+                        title="More"
+                        onClick={() => setMenu(!menu)}
+                    >
                         <Icon name="more-horizontal" size={15} />
                     </button>
                 </div>
@@ -169,6 +177,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                 <div className="rec-menu">
                     <button
                         type="button"
+                        data-ui="recordings.open_in_recordings"
                         disabled={!rec.id || rec.recording}
                         onClick={() => {
                             setMenu(false)
@@ -185,6 +194,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                     {uploading && (
                         <button
                             type="button"
+                            data-ui="recordings.cancel_upload"
                             onClick={() => {
                                 setMenu(false)
                                 call("POST", `api/recordings/${file}/upload/cancel`).catch((e) => onError(e.message))
@@ -196,6 +206,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                     )}
                     {rec.upload?.link && (
                         <a
+                            data-ui="recordings.open_uploaded"
                             href={rec.upload.link}
                             target="_blank"
                             rel="noreferrer"
@@ -207,6 +218,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                     )}
                     <button
                         type="button"
+                        data-ui="recordings.rename"
                         disabled={rec.recording || uploading}
                         onClick={() => {
                             setMenu(false)
@@ -218,6 +230,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                     </button>
                     <button
                         type="button"
+                        data-ui="recordings.delete"
                         className="danger"
                         disabled={rec.recording}
                         onClick={() => {
@@ -234,9 +247,17 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
                 <div className="rec-confirm">
                     Delete{" "}
                     {rec.name}? This can't be undone{rec.upload?.state === "done" ? " (the uploaded copy stays)" : ""}.
-                    <button type="button" className="dim-btn sm" onClick={() => setConfirmDelete(false)}>Keep</button>
                     <button
                         type="button"
+                        data-ui="recordings.delete_keep"
+                        className="dim-btn sm"
+                        onClick={() => setConfirmDelete(false)}
+                    >
+                        Keep
+                    </button>
+                    <button
+                        type="button"
+                        data-ui="recordings.delete_confirm"
                         className="dim-btn sm danger"
                         onClick={() => {
                             setConfirmDelete(false)
@@ -273,7 +294,9 @@ function LoginPanel({ onDone, onClose }: { onDone: () => void; onClose: () => vo
             <div className="rec-login-head">
                 Sign in to the Dimensional cloud (console.dimensional.org) to upload. Waiting uploads start by
                 themselves after.
-                <button type="button" className="dim-btn ghost sm" onClick={onClose}>Close</button>
+                <button type="button" data-ui="recordings.sign_in_close" className="dim-btn ghost sm" onClick={onClose}>
+                    Close
+                </button>
             </div>
             <iframe title="Dimensional sign-in" src={src} />
         </div>
@@ -295,12 +318,14 @@ function AccountLine({ account, onSignIn, onSignOut }: {
         return (
             <span className="rec-account">
                 Signed in as <b>{account.email ?? "your account"}</b> ·{" "}
-                <button type="button" className="rec-link" onClick={onSignOut}>Sign out</button>
+                <button type="button" data-ui="recordings.sign_out" className="rec-link" onClick={onSignOut}>
+                    Sign out
+                </button>
             </span>
         )
     }
     return (
-        <button type="button" className="dim-btn sm primary" onClick={onSignIn}>
+        <button type="button" data-ui="recordings.sign_in" className="dim-btn sm primary" onClick={onSignIn}>
             Sign in to upload
         </button>
     )
@@ -340,9 +365,10 @@ export function Recordings(
     const sorted = [...recordings].sort((a, b) => b.startedAt - a.startedAt)
     const pending = sorted.filter((r) => r.upload?.state === "offline").length
     return (
-        <div className="rec-layer" onClick={onClose}>
+        <div className="rec-layer" data-ui="recordings.backdrop" onClick={onClose}>
             <div
                 className="rec-dialog dim-panel"
+                data-ui-skip
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="Recordings"
@@ -356,6 +382,7 @@ export function Recordings(
                         title="Upload each recording when it ends (through Desktop's upload queue); failures are retried, and while offline it waits"
                     >
                         <Check
+                            ui="recordings.auto_upload"
                             checked={settings.autoUpload}
                             onChange={(autoUpload) =>
                                 call("PUT", "api/settings", { autoUpload }).catch((err) => setError(err.message))}
@@ -368,7 +395,13 @@ export function Recordings(
                             </span>
                         )}
                     </span>
-                    <button type="button" className="dim-btn ghost icon sm" title="Close (Esc)" onClick={onClose}>
+                    <button
+                        type="button"
+                        data-ui="recordings.close"
+                        className="dim-btn ghost icon sm"
+                        title="Close (Esc)"
+                        onClick={onClose}
+                    >
                         <Icon name="close" size={15} />
                     </button>
                 </div>

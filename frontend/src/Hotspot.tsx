@@ -62,9 +62,10 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
             .finally(() => setBusy(false))
     }
     return (
-        <div className="rec-layer" onClick={busy ? undefined : onClose}>
+        <div className="rec-layer" data-ui="hotspot.join_backdrop" onClick={busy ? undefined : onClose}>
             <div
                 className="hs-dialog dim-panel"
+                data-ui-skip
                 role="dialog"
                 aria-label="Connect via hotspot"
                 onClick={(e) => e.stopPropagation()}
@@ -111,9 +112,18 @@ export function ConnectDialog({ ssid, robot: forRobot, state, robots, onClose }:
                 )}
                 <ErrorNotice message={error} />
                 <div className="hs-actions">
-                    <button type="button" className="dim-btn" disabled={busy} onClick={onClose}>Cancel</button>
                     <button
                         type="button"
+                        data-ui="hotspot.join_cancel"
+                        className="dim-btn"
+                        disabled={busy}
+                        onClick={onClose}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        data-ui="hotspot.join"
                         className="dim-btn primary"
                         disabled={busy || (password.length > 0 && password.length < 8)}
                         onClick={go}
@@ -138,9 +148,10 @@ export function DriveAskDialog({ ssid, onClose }: { ssid: string | null; onClose
         )
     }
     return (
-        <div className="rec-layer" onClick={busy ? undefined : onClose}>
+        <div className="rec-layer" data-ui="hotspot.drive_ask_backdrop" onClick={busy ? undefined : onClose}>
             <div
                 className="hs-dialog dim-panel"
+                data-ui-skip
                 role="dialog"
                 aria-label="Drive the robot"
                 onClick={(e) => e.stopPropagation()}
@@ -149,8 +160,23 @@ export function DriveAskDialog({ ssid, onClose }: { ssid: string | null; onClose
                 <p>This will make the robot stand.</p>
                 <ErrorNotice message={error} />
                 <div className="hs-actions">
-                    <button type="button" className="dim-btn" disabled={busy} onClick={onClose}>Not now</button>
-                    <button type="button" className="dim-btn primary" disabled={busy} onClick={drive} autoFocus>
+                    <button
+                        type="button"
+                        data-ui="hotspot.drive_ask_not_now"
+                        className="dim-btn"
+                        disabled={busy}
+                        onClick={onClose}
+                    >
+                        Not now
+                    </button>
+                    <button
+                        type="button"
+                        data-ui="hotspot.drive_ask_drive"
+                        className="dim-btn primary"
+                        disabled={busy}
+                        onClick={drive}
+                        autoFocus
+                    >
                         {busy ? "Connecting…" : "Drive"}
                     </button>
                 </div>
@@ -187,13 +213,16 @@ export function Hotspots({ scan, state, robots, onScan, onAsk }: {
                             </div>
                         </div>
                         <div className="acts">
-                            {linked === h.ssid
-                                ? <span className="dim-badge ok">connected</span>
-                                : (
-                                    <button type="button" className="dim-btn sm" onClick={() => setAsking(h.ssid)}>
-                                        Connect via hotspot
-                                    </button>
-                                )}
+                            {linked === h.ssid ? <span className="dim-badge ok">connected</span> : (
+                                <button
+                                    type="button"
+                                    data-ui="hotspot.connect"
+                                    className="dim-btn sm"
+                                    onClick={() => setAsking(h.ssid)}
+                                >
+                                    Connect via hotspot
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -211,6 +240,7 @@ export function Hotspots({ scan, state, robots, onScan, onAsk }: {
                         />
                         <button
                             type="button"
+                            data-ui="hotspot.connect_typed"
                             className="dim-btn sm"
                             disabled={!typed.trim()}
                             onClick={() => setAsking(typed.trim())}
@@ -223,7 +253,9 @@ export function Hotspots({ scan, state, robots, onScan, onAsk }: {
             {scan && scan.canScan && scan.hotspots.length === 0 && (
                 <div className="hs-note">
                     {scan.note ? `Wi-Fi scan failed: ${scan.note}.` : "No Go2 hotspots nearby (AP mode)."}{" "}
-                    <button type="button" className="rec-link" onClick={onScan}>Scan Wi-Fi again</button>
+                    <button type="button" data-ui="hotspot.scan_wifi" className="rec-link" onClick={onScan}>
+                        Scan Wi-Fi again
+                    </button>
                 </div>
             )}
         </>
@@ -264,7 +296,7 @@ export function HotspotBanner(
                 </span>
             )}
             {(linked || state.status === "error") && (
-                <button type="button" className="dim-btn sm" onClick={back}>
+                <button type="button" data-ui="hotspot.switch_back" className="dim-btn sm" onClick={back}>
                     <Icon name="signal" size={12} />
                     {state.previous ? `Switch back to ${state.previous}` : "Leave the hotspot"}
                 </button>

@@ -341,6 +341,7 @@ export function App() {
                 <div className="stage-card">
                     <button
                         type="button"
+                        data-ui="app.close_card"
                         className="stage-close dim-btn ghost icon"
                         title="Close"
                         aria-label="Close"
@@ -452,6 +453,7 @@ export function App() {
                     />
                     <button
                         type="button"
+                        data-ui="app.hide_panel"
                         className="icon-btn dim-btn ghost icon"
                         title="Slide panel away (J shows and hides it)"
                         onClick={() => setSlid(true)}
@@ -474,6 +476,7 @@ export function App() {
                         <span className="spacer" />
                         <button
                             type="button"
+                            data-ui="app.disconnect"
                             className="dim-btn sm"
                             title="Close the drive session (the dog keeps its pose; recording stops)"
                             onClick={() => call("POST", "api/drive/disconnect").catch(() => {})}
@@ -486,6 +489,7 @@ export function App() {
                     <button
                         type="button"
                         ref={scanButton}
+                        data-ui="app.scan"
                         className="dim-btn primary sm"
                         disabled={!!state?.scan.scanning}
                         onClick={scan}
@@ -499,6 +503,7 @@ export function App() {
                     <span className="spacer" />
                     <button
                         type="button"
+                        data-ui="app.setup_guide"
                         className="dim-btn ghost sm guide-btn"
                         title="Walk through finding a Go2, putting it on Wi-Fi and launching dimos for it"
                         disabled={!state}
@@ -600,6 +605,7 @@ export function App() {
             <div className="edge-tabs dim-tabs vertical">
                 <button
                     type="button"
+                    data-ui="app.show_panel"
                     className={`reopen dim-tab active${slid ? " show" : ""}`}
                     onClick={() => setSlid(false)}
                 >
@@ -633,6 +639,7 @@ export function App() {
             {/* this app's recordings: one floating button, bottom right, connected or not */}
             <button
                 type="button"
+                data-ui="app.recordings"
                 className={`rec-fab dim-btn${state?.record.active ? " live" : ""}`}
                 title="This app's recordings: upload, rename, open in Recordings"
                 disabled={!state}
@@ -655,6 +662,7 @@ export function App() {
                     {toast}
                     <button
                         type="button"
+                        data-ui="app.dismiss_toast"
                         className="dim-btn sm"
                         aria-label="Dismiss error"
                         onClick={() => setToast(null)}

@@ -2,7 +2,8 @@ import type { ReactNode } from "react"
 
 /** The theme's checkbox, sized for a finger: the whole row toggles it. */
 export function Check(
-    { checked, onChange, label, children }: {
+    { ui, checked, onChange, label, children }: {
+        ui: string
         checked: boolean
         onChange: (checked: boolean) => void
         label?: string
@@ -13,6 +14,7 @@ export function Check(
         <label className="dim-check big-check">
             <input
                 type="checkbox"
+                data-ui={ui}
                 aria-label={label}
                 checked={checked}
                 onChange={(event) => onChange(event.target.checked)}

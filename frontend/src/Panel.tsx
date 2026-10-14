@@ -15,7 +15,8 @@ const LAST_IP_LS = "go2dash.lastManualIp"
 type SavedWifi = { ssid?: string; password?: string; country?: string }
 
 function Copyable(
-    { value, className, children, title }: {
+    { ui, value, className, children, title }: {
+        ui: string
         value: string
         className: string
         children?: React.ReactNode
@@ -25,6 +26,7 @@ function Copyable(
     const [copied, setCopied] = useState(false)
     return (
         <span
+            data-ui={ui}
             className={`${className}${copied ? " copied" : ""}`}
             title={title ?? "Click to copy"}
             onClick={(e) => {
@@ -52,7 +54,7 @@ function DetailRow({ label, value }: { label: string; value: string | null }) {
     return (
         <div className="d-row">
             <span className="d-k">{label}</span>
-            <Copyable className="d-v copyable" value={value} />
+            <Copyable ui="panel.copy_detail" className="d-v copyable" value={value} />
         </div>
     )
 }
@@ -132,7 +134,7 @@ function WifiForm(props: { robot: Robot; wifi: Wifi; network: Network; onClose: 
     }
     const log = mine ? wifi.log ?? [] : []
     return (
-        <div className="form" onClick={(e) => e.stopPropagation()}>
+        <div className="form" data-ui-skip onClick={(e) => e.stopPropagation()}>
             {!canConnect && (
                 <div className="log err">LAN-only sighting — no Bluetooth address to provision wifi over.</div>
             )}
@@ -179,6 +181,7 @@ function WifiForm(props: { robot: Robot; wifi: Wifi; network: Network; onClose: 
             <div className="actions">
                 <button
                     type="button"
+                    data-ui="panel.wifi_connect"
                     className="dim-btn primary sm f-go"
                     disabled={!canConnect || busy}
                     onClick={connect}
@@ -190,7 +193,9 @@ function WifiForm(props: { robot: Robot; wifi: Wifi; network: Network; onClose: 
                         </>
                     )}
                 </button>
-                <button type="button" className="dim-btn sm f-cancel" onClick={cancel}>Cancel</button>
+                <button type="button" data-ui="panel.wifi_cancel" className="dim-btn sm f-cancel" onClick={cancel}>
+                    Cancel
+                </button>
             </div>
             <div className="log f-log">
                 {log.map((line, i) => (
@@ -248,6 +253,7 @@ function UseIp({ robot, using }: { robot: Robot; using: boolean }) {
     return (
         <button
             type="button"
+            data-ui="panel.use_ip"
             className="use-ip dim-btn ghost sm"
             title={`Use ${robot.ip} as the robot IP (picks this dog; connects to nothing)`}
             onClick={(e) => {
@@ -283,6 +289,7 @@ export function SweepStatus(
                     </span>
                     <button
                         type="button"
+                        data-ui="panel.sweep_stop"
                         className="dim-btn ghost sm"
                         onClick={() => call("POST", "api/scan/stop").catch(() => {})}
                     >
@@ -306,6 +313,7 @@ export function SweepStatus(
                 {sweep.partial && !scanning && (
                     <button
                         type="button"
+                        data-ui="panel.sweep_all"
                         className="dim-btn sm"
                         title="Ping every address of this network, so a dog anywhere on it shows up (read-only)"
                         onClick={onFullSweep}
@@ -361,7 +369,9 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                             Possible Go2 <MatchBadge robot={robot} />
                         </div>
                         <div className="sub">
-                            {robot.ip && <Copyable className="ip" value={robot.ip} title="Click to copy IP" />}
+                            {robot.ip && (
+                                <Copyable ui="panel.copy_ip" className="ip" value={robot.ip} title="Click to copy IP" />
+                            )}
                             {robot.lanMac && <span className="serial">{robot.lanMac}</span>}
                         </div>
                     </div>
@@ -441,6 +451,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                     <div className="sub">
                         {robot.ip && (
                             <Copyable
+                                ui="panel.copy_ip"
                                 className={`ip${stale ? " cached" : ""}`}
                                 value={robot.ip}
                                 title={stale ? "Last known IP — waiting for fresh scan" : "Click to copy IP"}
@@ -468,6 +479,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                         (hotspotLinked ? <span className="dim-badge ok">connected</span> : (
                             <button
                                 type="button"
+                                data-ui="panel.hotspot"
                                 className="dim-btn sm"
                                 title={`Switch this computer's Wi-Fi to ${hotspot.ssid} (asks first) and drive it there`}
                                 onClick={onHotspot}
@@ -478,6 +490,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                     {robot.ip && (
                         <button
                             type="button"
+                            data-ui="panel.drive"
                             className={`drive dim-btn sm icon${driving ? " primary" : ""}`}
                             title="Drive this dog live (camera + keyboard control)"
                             onClick={toggleDrive}
@@ -492,6 +505,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                     )}
                     <button
                         type="button"
+                        data-ui="panel.robot_menu"
                         className="rowbtn kebab dim-btn ghost icon"
                         title="More"
                         onClick={() => setOpen(open.menu ? null : "menu")}
@@ -533,19 +547,29 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                             maxLength={32}
                         />
                     </div>
-                    <button type="button" className="dim-btn sm mini d-fetch" onClick={onOpenAccounts}>
+                    <button
+                        type="button"
+                        data-ui="panel.fetch_key"
+                        className="dim-btn sm mini d-fetch"
+                        onClick={onOpenAccounts}
+                    >
                         Fetch key from Unitree…
                     </button>
                 </div>
             )}
             <div className="menu">
-                <button type="button" className="mi-details" onClick={() => setOpen(open.details ? null : "details")}>
+                <button
+                    type="button"
+                    data-ui="panel.details"
+                    className="mi-details"
+                    onClick={() => setOpen(open.details ? null : "details")}
+                >
                     <span className="mi-ic">
                         <Icon name="info" size={13} />
                     </span>
                     Details
                 </button>
-                <button type="button" className="mi-rename" onClick={() => setOpen("edit")}>
+                <button type="button" data-ui="panel.rename" className="mi-rename" onClick={() => setOpen("edit")}>
                     <span className="mi-ic">
                         <Icon name="edit" size={13} />
                     </span>
@@ -553,6 +577,7 @@ export const RobotCard = forwardRef<HTMLDivElement, {
                 </button>
                 <button
                     type="button"
+                    data-ui="panel.wifi"
                     className="mi-connect"
                     disabled={!robot.canProvisionWifi}
                     style={robot.canProvisionWifi ? undefined : { opacity: 0.45, cursor: "default" }}
@@ -578,6 +603,7 @@ async function downloadAesKeys(): Promise<string | null> {
         const url = URL.createObjectURL(blob)
         const link = document.createElement("a")
         link.href = url
+        link.dataset.uiSkip = ""
         link.download = `go2-aes-keys-${new Date().toISOString().slice(0, 10)}.json`
         document.body.appendChild(link)
         link.click()
@@ -631,7 +657,12 @@ export function Accounts(
     }
     return (
         <div className={`p-accounts${open ? " open" : ""}`} ref={root}>
-            <button type="button" className="help-toggle dim-btn ghost sm" onClick={() => setOpen(!open)}>
+            <button
+                type="button"
+                data-ui="panel.accounts_toggle"
+                className="help-toggle dim-btn ghost sm"
+                onClick={() => setOpen(!open)}
+            >
                 <span className="hc">
                     <Icon name="chevron-right" size={12} />
                 </span>
@@ -677,6 +708,7 @@ export function Accounts(
                                 </div>
                                 <button
                                     type="button"
+                                    data-ui="panel.account_pull"
                                     className="dim-btn sm a-pull"
                                     disabled={a.pulling}
                                     onClick={() => call("POST", `${path}/pull`).catch(() => {})}
@@ -685,6 +717,7 @@ export function Accounts(
                                 </button>
                                 <button
                                     type="button"
+                                    data-ui="panel.account_forget"
                                     className="a-rm dim-btn ghost icon"
                                     title="Forget this account (keys already pulled stay)"
                                     onClick={() => call("DELETE", path).catch(() => {})}
@@ -721,12 +754,15 @@ export function Accounts(
                         />
                     </div>
                     <div className="actions">
-                        <button type="button" className="dim-btn primary sm" onClick={add}>Add &amp; pull</button>
+                        <button type="button" data-ui="panel.account_add" className="dim-btn primary sm" onClick={add}>
+                            Add &amp; pull
+                        </button>
                         <span className="acct-hint" style={{ margin: 0 }}>Saved on this computer only.</span>
                         <label className="dim-btn ghost sm" style={{ cursor: "pointer" }}>
                             Upload keys JSON
                             <input
                                 type="file"
+                                data-ui="panel.upload_keys"
                                 accept=".json,application/json"
                                 hidden
                                 onChange={async (event) => {
@@ -754,6 +790,7 @@ export function Accounts(
                         </label>
                         <button
                             type="button"
+                            data-ui="panel.download_keys"
                             className="dim-btn ghost sm a-download"
                             style={{ marginLeft: "auto" }}
                             title="Download the AES keys saved on this computer (name, serial, key) as a .json file"
@@ -804,7 +841,12 @@ export function Help({ route, openRequest = 0 }: { route: string; openRequest?: 
     }, [openRequest])
     return (
         <div ref={box} className={`p-help${open ? " open" : ""}`}>
-            <button type="button" className="help-toggle dim-btn ghost sm" onClick={() => setOpen(!open)}>
+            <button
+                type="button"
+                data-ui="panel.help_toggle"
+                className="help-toggle dim-btn ghost sm"
+                onClick={() => setOpen(!open)}
+            >
                 <span className="hc">
                     <Icon name="chevron-right" size={12} />
                 </span>
@@ -829,9 +871,15 @@ export function Help({ route, openRequest = 0 }: { route: string; openRequest?: 
                         (Tailscale &amp; other tun VPNs), route the Go2 discovery group out your Wi-Fi:
                     </li>
                 </ul>
-                <Copyable className="help-cmd" value={route}>{route}</Copyable>
+                <Copyable ui="panel.copy_route" className="help-cmd" value={route}>{route}</Copyable>
                 <div className="help-fix">
-                    <button type="button" className="dim-btn sm" onClick={fix} data-testid="route-fix">
+                    <button
+                        type="button"
+                        data-ui="panel.route_fix"
+                        className="dim-btn sm"
+                        onClick={fix}
+                        data-testid="route-fix"
+                    >
                         Run it for me
                     </button>
                     {fixing && <span className="help-fix-note">{fixing}</span>}
@@ -893,6 +941,7 @@ export function ManualDrive(
             />
             <button
                 type="button"
+                data-ui="panel.manual_drive"
                 className="dim-btn primary sm"
                 title="Drive this IP live"
                 disabled={!ok || busy}
