@@ -18,6 +18,9 @@ uses:
         - POST /api/desktop/shell
         - "GET /api/desktop/shell/{id}"
         - "POST /api/desktop/shell/{id}/cancel"
+        - GET /api/desktop/zenoh
+        - "GET /api/apps/{app}/icon"
+        - POST /api/notifications
     # the dim-app SDK's zenoh client (backend state, events): the zenoh bridge and how it finds it
     "@zenoh-gateway": ">=0.5 <0.6"
 caches:
