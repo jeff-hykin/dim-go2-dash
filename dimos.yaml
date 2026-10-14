@@ -12,12 +12,12 @@ uses:
         - "DELETE /uploads/{id}"
         - "POST /uploads/{id}/retry"
         - GET /cloud/account
-        - POST /cloud/login
         - GET /cloud/login/page
         - POST /cloud/logout
     "@desktop-gateway":
         - GET /api/apps
-        - PUT /api/launcher/state
+        - "GET /api/apps/{app}/icon"
+        - GET /api/desktop/zenoh
         - POST /api/notifications
         - POST /api/desktop/shell
         - "GET /api/desktop/shell/{id}"
