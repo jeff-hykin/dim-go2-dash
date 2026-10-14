@@ -205,6 +205,20 @@ impl App {
     }
 
     pub(crate) async fn desktop_call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, HttpError> {
+        let (status, data) = self.desktop_send(method.clone(), path, body.clone()).await?;
+        // a Desktop before 0.2.180 (gateway 3.0) has the gateway only at /dimos/
+        let (status, data) = match path.strip_prefix("/dimos-gateway/") {
+            Some(rest) if status == reqwest::StatusCode::NOT_FOUND => self.desktop_send(method, &format!("/dimos/{rest}"), body).await?,
+            _ => (status, data),
+        };
+        if status.is_success() {
+            return Ok(data);
+        }
+        let message = data["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("Desktop answered HTTP {status}"));
+        Err(HttpError::new(if status.as_u16() == 503 || status.is_server_error() { 502 } else { 409 }, message))
+    }
+
+    async fn desktop_send(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<(reqwest::StatusCode, Value), HttpError> {
         let url = format!("{}{path}", self.desktop()?);
         let mut request = reqwest::Client::new().request(method, &url).timeout(Duration::from_secs(20));
         if let Some(body) = body {
@@ -212,12 +226,7 @@ impl App {
         }
         let response = request.send().await.map_err(|err| HttpError::upstream(format!("Desktop didn't answer ({err})")))?;
         let status = response.status();
-        let data: Value = response.json().await.unwrap_or(Value::Null);
-        if status.is_success() {
-            return Ok(data);
-        }
-        let message = data["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("Desktop answered HTTP {status}"));
-        Err(HttpError::new(if status.as_u16() == 503 || status.is_server_error() { 502 } else { 409 }, message))
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
     /// What POST /dimos/runs gets: the blueprint, replay, and robot_ip (+ the robot's AES key) for a real robot.

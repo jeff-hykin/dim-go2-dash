@@ -443,7 +443,9 @@ provides:
                   required: true
                   type: string
           path: "api/recordings/{file}"
-        - description: Upload a recording to the Dimensional cloud through Desktop's upload queue
+        - description: >-
+              Upload a recording to the Dimensional cloud through Desktop's upload queue (retried until it's done; under 1
+              MB is skipped: the cloud refuses it)
           method: POST
           params:
               file:

@@ -172,7 +172,7 @@ export type RecordState =
 /** Desktop's upload of a recording, as this app follows it */
 export type Upload = {
     id?: string
-    state: "queued" | "uploading" | "done" | "failed" | "cancelled" | "offline" | "signin" | "waiting"
+    state: "queued" | "uploading" | "done" | "failed" | "cancelled" | "offline" | "signin" | "waiting" | "skipped"
     phase?: string | null
     bytesDone?: number | null
     bytesTotal?: number | null

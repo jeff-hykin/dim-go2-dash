@@ -1,8 +1,9 @@
 // This app's recordings list (the files in recordingsDir/go2, newest first) and their uploads. Uploads go through
 // Desktop's upload queue (the dimos gateway: POST /dimos/uploads, DELETE /dimos/uploads/{id}, …), which sends them to
 // the Dimensional cloud; this keeps, per recording, the upload id and what Desktop says about it (polled while one
-// runs). Auto-upload (Settings): each finished recording is queued; a failure is retried (with a growing wait), and
-// while this computer is offline it waits instead of failing.
+// runs). Auto-upload (Settings): each finished recording is queued (one a quit or crash ended, at the next start). Every
+// upload, auto or by hand, retries a failure (with a growing wait), and waits instead of failing while this computer is
+// offline.
 //
 // The index (go2_dash_recordings.json in the data dir) holds what a file can't: robot, start/end, upload state.
 
@@ -21,6 +22,13 @@ pub const SETTINGS_FILE: &str = "go2_dash_settings.json";
 const POLL: Duration = Duration::from_millis(1000);
 /// retry waits for a failed auto-upload: 10 s, 30 s, 1 min, 2 min, then every 5 min
 const RETRY_WAITS: [u64; 5] = [10, 30, 60, 120, 300];
+/// the cloud refuses smaller files (413 "size must be at least 1MB")
+const MIN_UPLOAD_BYTES: u64 = 1 << 20;
+
+/// A failure retrying can't fix: the cloud refused the file for its size
+fn too_small(upload: &Value) -> bool {
+    upload["error"].as_str().is_some_and(|e| e.contains("at least 1MB"))
+}
 
 /// A recording's name: its file without the .db / .mcap
 fn stem(file: &str) -> &str {
@@ -84,7 +92,7 @@ impl App {
         Ok(self.update_settings(None))
     }
 
-    fn auto_upload_on(&self) -> bool {
+    pub(crate) fn auto_upload_on(&self) -> bool {
         self.settings.lock().unwrap()["autoUpload"].as_bool().unwrap_or(true)
     }
 
@@ -210,7 +218,7 @@ impl App {
 
     // ── uploads, through Desktop ──
 
-    /// Queues a recording on Desktop's upload queue. `auto`: queued by auto-upload (it retries by itself).
+    /// Queues a recording on Desktop's upload queue (retried until it's done). `auto`: queued by auto-upload, not a person.
     pub async fn upload_recording(self: &Arc<Self>, file: &str, auto: bool) -> Result<Value, HttpError> {
         let path = self.recording_path(file)?;
         if crate::recording::is_recording(self, &path) {
@@ -221,10 +229,15 @@ impl App {
             self.set_upload(file, json!({ "state": "done", "id": "mock", "bytesDone": 1, "bytesTotal": 1, "auto": auto, "at": now_ms() }));
             return Ok(json!({ "upload": self.index()[file]["upload"] }));
         }
-        if auto && !online().await {
+        if path.metadata().map(|m| m.len()).unwrap_or(0) < MIN_UPLOAD_BYTES {
+            let error = "under 1 MB: the cloud doesn't take files that small";
+            self.set_upload(file, json!({ "state": "skipped", "error": error, "auto": auto, "at": now_ms() }));
+            return Err(HttpError::bad(error));
+        }
+        if !online().await {
             self.set_upload(
                 file,
-                json!({ "state": "offline", "error": "offline: it uploads when the network is back", "auto": true, "at": now_ms() }),
+                json!({ "state": "offline", "error": "offline: it uploads when the network is back", "auto": auto, "at": now_ms() }),
             );
             self.clone().watch_uploads();
             return Ok(json!({ "upload": self.index()[file]["upload"] }));
@@ -238,9 +251,7 @@ impl App {
             }
             Err(err) => {
                 self.set_upload(file, json!({ "state": "failed", "error": err.message, "auto": auto, "at": now_ms() }));
-                if auto {
-                    self.clone().watch_uploads();
-                }
+                self.clone().watch_uploads();
                 Err(err)
             }
         }
@@ -256,7 +267,12 @@ impl App {
     }
 
     fn set_upload(&self, file: &str, upload: Value) {
-        self.index_update(file, |entry| entry["upload"] = upload);
+        self.index_update(file, |entry| {
+            entry["upload"] = upload;
+            if let Some(entry) = entry.as_object_mut() {
+                entry.remove("toUpload");
+            }
+        });
         self.publish_recordings();
     }
 
@@ -270,8 +286,20 @@ impl App {
         });
     }
 
+    /// At start: queues the recordings auto-upload never got to (a quit, crash or power loss ended them first).
+    pub async fn upload_leftovers(self: &Arc<Self>) {
+        let leftovers: Vec<String> =
+            self.index().into_iter().filter(|(_, e)| e["toUpload"] == true && e["upload"].is_null()).map(|(file, _)| file).collect();
+        for file in leftovers {
+            if self.recording_path(&file).is_ok_and(|path| !crate::recording::is_recording(self, &path)) {
+                crate::dlog!("upload: queueing {file}, which ended before auto-upload could");
+                let _ = self.upload_recording(&file, true).await;
+            }
+        }
+    }
+
     /// Follows Desktop's queue while any upload of ours is open (one watcher at a time): progress, done, failed; retries
-    /// auto-uploads; waits while offline or signed out.
+    /// failures; waits while offline or signed out.
     pub fn watch_uploads(self: Arc<Self>) {
         if self.upload_watcher.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
@@ -285,7 +313,7 @@ impl App {
                     .filter(|(_, e)| {
                         let state = e["upload"]["state"].as_str().unwrap_or("");
                         matches!(state, "queued" | "uploading" | "waiting" | "offline" | "signin")
-                            || (state == "failed" && e["upload"]["auto"].as_bool() == Some(true) && self.auto_upload_on())
+                            || (state == "failed" && !too_small(&e["upload"]))
                     })
                     .collect();
                 if open.is_empty() {
@@ -321,7 +349,7 @@ impl App {
                         // Desktop holds it until someone signs in, then sends it by itself
                         next["state"] = json!("signin");
                     }
-                    if (next["state"] == "failed" || next["state"] == "offline") && auto && self.auto_upload_on() {
+                    if (next["state"] == "failed" || next["state"] == "offline") && !too_small(&next) {
                         next = self.retry_plan(&file, ours, next, id).await;
                     }
                     if next != *ours {
@@ -333,7 +361,7 @@ impl App {
         });
     }
 
-    /// A failed auto-upload: offline → wait for the network ("offline"), else retry after a growing wait.
+    /// A failed upload: offline → wait for the network ("offline"), else retry after a growing wait.
     async fn retry_plan(self: &Arc<Self>, file: &str, ours: &Value, mut next: Value, id: &str) -> Value {
         let attempts = ours["attempts"].as_u64().unwrap_or(0);
         next["attempts"] = json!(attempts);
@@ -423,4 +451,38 @@ async fn online() -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_recording_a_quit_ended_is_uploaded_at_the_next_start() {
+        let dir = std::env::temp_dir().join(format!("go2_dash_leftovers_{}", std::process::id()));
+        let root = dir.join("root");
+        let app = App::with_recordings(dir.clone(), true, Some(root.clone()));
+        let recordings = recordings_dir(&app);
+        std::fs::create_dir_all(&recordings).unwrap();
+        for file in ["quit.db", "uploaded.db", "never_auto.db"] {
+            std::fs::write(recordings.join(file), vec![0u8; 2 << 20]).unwrap();
+        }
+        app.index_update("quit.db", |e| e["toUpload"] = json!(true));
+        app.index_update("never_auto.db", |e| e["toUpload"] = json!(false));
+        app.index_update("uploaded.db", |e| e["toUpload"] = json!(true));
+        app.set_upload("uploaded.db", json!({ "state": "done", "id": "x" }));
+        app.upload_leftovers().await;
+        let index = app.index();
+        assert_eq!(index["quit.db"]["upload"]["state"], "done", "queued (mock: done at once)");
+        assert!(index["quit.db"].get("toUpload").is_none(), "cleared once queued");
+        assert!(index["never_auto.db"]["upload"].is_null(), "auto-upload was off when it recorded");
+        assert_eq!(index["uploaded.db"]["upload"]["id"], "x", "left alone");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn only_a_size_refusal_is_never_retried() {
+        assert!(too_small(&json!({ "state": "failed", "error": "413: size must be at least 1MB" })));
+        assert!(!too_small(&json!({ "state": "failed", "error": "part 15 failed after 3 attempts" })));
+    }
 }

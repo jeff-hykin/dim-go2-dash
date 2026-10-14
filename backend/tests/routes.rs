@@ -382,13 +382,14 @@ async fn launch_in_mock_and_dry_run() {
 }
 
 /// A stand-in for Desktop's /dimos-gateway endpoints: records what it's sent.
-async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+/// A Desktop whose dimos gateway is at `gateway` (/dimos-gateway since 0.2.180, /dimos before)
+async fn fake_desktop(busy: bool, gateway: &str) -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
     use axum::routing::{get, post};
     let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> = Default::default();
     let (s1, s2, s3) = (seen.clone(), seen.clone(), seen.clone());
     let router = axum::Router::new()
         .route(
-            "/dimos-gateway/runs",
+            &format!("{gateway}/runs"),
             post(move |body: axum::Json<Value>| {
                 let seen = s1.clone();
                 async move {
@@ -403,7 +404,7 @@ async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, 
             .get(|| async { axum::Json(json!({ "runs": [], "launch": { "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
         )
         .route(
-            "/dimos-gateway/runs/stop",
+            &format!("{gateway}/runs/stop"),
             post(move |body: String| {
                 let seen = s2.clone();
                 async move {
@@ -413,7 +414,7 @@ async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, 
             }),
         )
         .route(
-            "/dimos-gateway/global-config",
+            &format!("{gateway}/global-config"),
             get(|| async { axum::Json(json!({ "overrides": { "zenoh_mode": "peer" } })) }).put(move |body: axum::Json<Value>| {
                 let seen = s3.clone();
                 async move {
@@ -435,7 +436,7 @@ async fn launch_through_desktop() {
     let _cleanup = TempDir(dir.clone());
     // a real (not mock) app: nothing here scans or reaches a robot, it only talks to the fake Desktop
     let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused")) };
-    let (url, seen) = fake_desktop(false).await;
+    let (url, seen) = fake_desktop(false, "/dimos-gateway").await;
     t.app.desktop_url.set(url).unwrap();
     t.ok("PUT", "api/setup", Some(json!({ "ip": "10.0.0.7" }))).await;
     let launch = t.ok("POST", "api/launch", Some(json!({ "default": true }))).await;
@@ -457,12 +458,24 @@ async fn launch_through_desktop() {
     t.ok("POST", "api/launch/stop", None).await;
     assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "stop"));
     // Desktop already running something: a 409 that says so
-    let (busy_url, _) = fake_desktop(true).await;
+    let (busy_url, _) = fake_desktop(true, "/dimos-gateway").await;
     let busy = Test { app: App::new(dir.join("busy"), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused2")) };
     busy.app.desktop_url.set(busy_url).unwrap();
     let (status, body) = busy.call("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await;
     assert_eq!(status, 409);
     assert!(body["error"].as_str().unwrap().contains("stop it first"));
+}
+
+#[tokio::test]
+async fn launch_through_a_desktop_before_gateway_3() {
+    let dir = std::env::temp_dir().join(format!("go2_dash_test_old_desktop_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = TempDir(dir.clone());
+    let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused3")) };
+    let (url, seen) = fake_desktop(false, "/dimos").await;
+    t.app.desktop_url.set(url).unwrap();
+    assert_eq!(t.ok("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await["phase"], "starting", "/dimos-gateway 404s: /dimos/");
+    assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "launch"));
 }
 
 #[test]

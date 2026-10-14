@@ -76,6 +76,8 @@ function UploadButton({ rec, onError, ctx }: { rec: Recording; onError: (text: s
         }
         case "offline":
             return <span className="rec-state dim-badge warn" title={upload.error ?? ""}>Offline — will upload</span>
+        case "skipped":
+            return <span className="rec-state dim-badge" title={upload.error ?? ""}>Too small to upload</span>
         case "signin":
             return (
                 <button
@@ -98,7 +100,7 @@ function UploadButton({ rec, onError, ctx }: { rec: Recording; onError: (text: s
                     onClick={start}
                 >
                     <Icon name="refresh" size={12} />
-                    {upload.auto && upload.retryAt ? "Failed — retrying" : "Retry upload"}
+                    {upload.retryAt ? "Failed — retrying" : "Retry upload"}
                 </button>
             )
         default:

@@ -539,7 +539,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/recordings/{file}/upload",
-            "Upload a recording to the Dimensional cloud through Desktop's upload queue",
+            "Upload a recording to the Dimensional cloud through Desktop's upload queue (retried until it's done; under 1 MB is skipped: the cloud refuses it)",
             Some(json!({ "file": { "type": "string", "required": true } })),
             handler(|app, args| async move { app.upload_recording(&text(&args, "file").unwrap_or_default(), false).await }),
         ),

@@ -237,6 +237,8 @@ impl App {
             entry["startedAt"] = json!(started);
             entry["dryRun"] = json!(drive.dry);
             entry["mock"] = json!(self.mock);
+            // cleared once it's queued: still set at the next start, a quit or crash beat auto-upload to it
+            entry["toUpload"] = json!(self.auto_upload_on());
         });
         *self.recording.lock().unwrap() = Some(active.clone());
         drive.start_streams().await;

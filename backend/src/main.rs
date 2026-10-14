@@ -45,16 +45,21 @@ async fn main() {
         let app = app.clone();
         async move { app.refresh_ssid().await }
     });
-    // a run killed mid-recording left a file without its summary: finish it, so every tool reads it
-    tokio::task::spawn_blocking({
+    // a run killed mid-recording left a file without its summary: finish it, so every tool reads it; then upload what a
+    // quit or crash ended before auto-upload could
+    tokio::spawn({
         let app = app.clone();
-        move || app.recover_recordings()
+        async move {
+            let recovering = app.clone();
+            let _ = tokio::task::spawn_blocking(move || recovering.recover_recordings()).await;
+            app.upload_leftovers().await;
+        }
     });
     // a dog's hotspot joined outside this app (or before a restart): drive it
     app.watch_hotspot();
     // CPU and Wi-Fi every few seconds in the log, to piece a lost connection back together
     go2_dash::health::spawn(app.clone());
-    // uploads still open from the last run: follow them again
+    // uploads still open (or failed) from the last run: follow them again
     app.clone().watch_uploads();
     // Desktop stops apps with SIGTERM: finish a recording first, so its file is complete
     tokio::spawn({
