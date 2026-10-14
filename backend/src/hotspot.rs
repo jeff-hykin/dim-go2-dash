@@ -244,6 +244,7 @@ impl Switcher for MacOs {
             .lines()
             .find_map(|l| l.trim().strip_prefix("SSID :").map(|v| v.trim().to_string()))
             .filter(|s| !s.is_empty() && !s.to_lowercase().contains("redacted"))
+            .or_else(|| MAC_CURRENT.lock().unwrap().clone().filter(|s| !looks_like_go2(s)))
     }
     async fn join(&self, ssid: &str, password: Option<&str>) -> Result<(), String> {
         let device = mac_wifi_device().await;
@@ -276,6 +277,9 @@ impl Switcher for MacOs {
 /// bundle it runs from (nix: $out/Go2 Ctrl.app), else GO2_CTRL_WIFI_APP or ~/Applications (a dev build), run through
 /// `open` so the prompt names Go2 Ctrl. Its first run asks for Location. None: no bundle; Err: why the scan failed
 /// (e.g. Location denied).
+/// the joined network as of the last Go2 Ctrl.app scan (`ipconfig` redacts it)
+static MAC_CURRENT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 async fn mac_scan() -> Result<Option<Vec<Network>>, String> {
     // …/Go2 Ctrl.app/Contents/MacOS/dimos-app-server
     let beside = std::env::current_exe()
@@ -298,7 +302,10 @@ async fn mac_scan() -> Result<Option<Vec<Network>>, String> {
     let text = std::fs::read_to_string(&out).unwrap_or_default();
     let _ = std::fs::remove_file(&out);
     let json: Value = serde_json::from_str(&text).unwrap_or_default();
-    let Some(networks) = json.as_array() else {
+    if let Some(current) = json["current"].as_str() {
+        *MAC_CURRENT.lock().unwrap() = Some(current.to_string());
+    }
+    let Some(networks) = json["networks"].as_array() else {
         let error = json["error"].as_str().map(str::to_string).or(ran.err()).unwrap_or_else(|| "the scan wrote nothing".into());
         crate::dlog!("wifi scan via {}: {error}", app.display());
         return Err(error);

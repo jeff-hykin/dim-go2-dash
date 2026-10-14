@@ -36,7 +36,9 @@ fn scan() -> ! {
             found.push(json!({ "ssid": ssid.to_string(), "rssi": unsafe { network.rssiValue() }, "secured": secured }));
         }
         if !found.is_empty() || networks.count() == 0 {
-            finish(Value::Array(found))
+            // the joined network's name too: `ipconfig` shows it only as <redacted>, and the hotspot needs it to go back
+            let current = unsafe { interface.ssid() }.map(|s| s.to_string());
+            finish(json!({ "networks": found, "current": current }))
         }
         if attempt < 4 {
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -79,7 +81,7 @@ impl Delegate {
 }
 
 /// `dimos-app-server --wifi-scan <out.json>`, run as Go2 Ctrl.app through `open`: asks for Location the first time,
-/// then writes the nearby networks [{ssid, rssi, secured}] (or {error}) and exits.
+/// then writes {networks: [{ssid, rssi, secured}], current} (or {error}) and exits.
 pub fn run() -> ! {
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(120));

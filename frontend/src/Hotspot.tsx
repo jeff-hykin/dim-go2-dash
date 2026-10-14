@@ -245,7 +245,7 @@ export function HotspotBanner(
     const text = state.status === "joining"
         ? `Joining ${state.ssid}…`
         : state.status === "restoring"
-        ? `Switching back to ${state.previous}…`
+        ? `Switching back to ${state.previous ?? "your Wi-Fi"}…`
         : state.status === "error"
         ? "Hotspot failed"
         : null
