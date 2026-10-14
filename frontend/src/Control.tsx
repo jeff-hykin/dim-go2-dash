@@ -876,14 +876,14 @@ function OverheatWarning({ onToast }: { onToast: (text: string) => void }) {
 }
 
 /** The hottest motor above the commands, from 65°C: fading in to 68°C (blue), yellow to 70, pulsing yellow to 75, then
- * pulsing red */
+ * pulsing red; from 70 to 80°C it grows to 3× */
 export function MotorHeat({ celsius }: { celsius?: number | null }) {
     if (celsius == null || celsius <= 65) {
         return null
     }
     const tone = celsius >= 75 ? "red pulse" : celsius >= 70 ? "yellow pulse" : celsius >= 68 ? "yellow" : "blue"
     return (
-        <div className={`motor-heat dim-mono ${tone}`} style={{ opacity: Math.min(1, (celsius - 65) / 3) }} title="The hottest leg motor">
+        <div className={`motor-heat dim-mono ${tone}`} style={{ opacity: Math.min(1, (celsius - 65) / 3), scale: 1 + 2 * Math.min(1, Math.max(0, (celsius - 70) / 10)) }} title="The hottest leg motor">
             Motors {celsius}°C
         </div>
     )

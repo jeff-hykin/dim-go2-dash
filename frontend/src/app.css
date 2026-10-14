@@ -2240,6 +2240,9 @@ body .overheat-back .overheat.dim-modal > header {
     margin: 0 0 10px;
 }
 .motor-heat {
+    /* grows upward, away from the commands */
+    transform-origin: bottom center;
+    transition: scale 0.4s;
     padding: 4px 12px;
     border-radius: var(--radius-sm, 6px);
     border: 1px solid currentColor;
