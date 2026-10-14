@@ -19,6 +19,8 @@ uses:
         - POST /api/desktop/shell
         - "GET /api/desktop/shell/{id}"
         - "POST /api/desktop/shell/{id}/cancel"
+        - GET /api/desktop/zenoh
+        - "GET /api/apps/{app}/icon"
     "@zenoh-gateway": ">=0.5 <0.6"
 caches:
     - url: "https://dimos-desktop.cachix.org"
