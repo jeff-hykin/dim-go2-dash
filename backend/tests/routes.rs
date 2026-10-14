@@ -381,14 +381,14 @@ async fn launch_in_mock_and_dry_run() {
     assert_eq!(t.status("POST", "api/launch", Some(json!({ "replay": true }))).await, 409);
 }
 
-/// A stand-in for Desktop's /dimos endpoints: records what it's sent.
+/// A stand-in for Desktop's /dimos-gateway endpoints: records what it's sent.
 async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
     use axum::routing::{get, post};
     let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> = Default::default();
     let (s1, s2, s3) = (seen.clone(), seen.clone(), seen.clone());
     let router = axum::Router::new()
         .route(
-            "/dimos/runs",
+            "/dimos-gateway/runs",
             post(move |body: axum::Json<Value>| {
                 let seen = s1.clone();
                 async move {
@@ -403,7 +403,7 @@ async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, 
             .get(|| async { axum::Json(json!({ "runs": [], "launch": { "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
         )
         .route(
-            "/dimos/runs/stop",
+            "/dimos-gateway/runs/stop",
             post(move |body: String| {
                 let seen = s2.clone();
                 async move {
@@ -413,7 +413,7 @@ async fn fake_desktop(busy: bool) -> (String, Arc<std::sync::Mutex<Vec<(String, 
             }),
         )
         .route(
-            "/dimos/global-config",
+            "/dimos-gateway/global-config",
             get(|| async { axum::Json(json!({ "overrides": { "zenoh_mode": "peer" } })) }).put(move |body: axum::Json<Value>| {
                 let seen = s3.clone();
                 async move {

@@ -282,16 +282,16 @@ impl App {
         if as_default && !replay {
             self.save_default_ip(request["overrides"]["robot_ip"].as_str().unwrap_or("")).await?;
         }
-        let launch = sanitize_launch(self.desktop_call(reqwest::Method::POST, "/dimos/runs", Some(request)).await?);
+        let launch = sanitize_launch(self.desktop_call(reqwest::Method::POST, "/dimos-gateway/runs", Some(request)).await?);
         self.publish(json!({ "type": "launch", "launch": launch }));
         Ok(launch)
     }
 
     async fn save_default_ip(&self, ip: &str) -> Result<(), HttpError> {
-        let current = self.desktop_call(reqwest::Method::GET, "/dimos/global-config", None).await?;
+        let current = self.desktop_call(reqwest::Method::GET, "/dimos-gateway/global-config", None).await?;
         let mut overrides = current["overrides"].as_object().cloned().unwrap_or_default();
         overrides.insert("robot_ip".into(), json!(ip));
-        self.desktop_call(reqwest::Method::PUT, "/dimos/global-config", Some(json!({ "overrides": overrides }))).await?;
+        self.desktop_call(reqwest::Method::PUT, "/dimos-gateway/global-config", Some(json!({ "overrides": overrides }))).await?;
         Ok(())
     }
 
@@ -304,7 +304,7 @@ impl App {
         if self.mock && self.desktop_url.get().is_none() {
             return Ok(Value::Null);
         }
-        Ok(sanitize_launch(self.desktop_call(reqwest::Method::GET, "/dimos/runs", None).await?["launch"].take()))
+        Ok(sanitize_launch(self.desktop_call(reqwest::Method::GET, "/dimos-gateway/runs", None).await?["launch"].take()))
     }
 
     pub async fn stop_launch(&self) -> Result<Value, HttpError> {
@@ -312,7 +312,7 @@ impl App {
             self.publish(json!({ "type": "launch", "launch": null }));
             return Ok(json!({ "stopped": true, "mock": true }));
         }
-        let out = self.desktop_call(reqwest::Method::POST, "/dimos/runs/stop", Some(json!({}))).await?;
+        let out = self.desktop_call(reqwest::Method::POST, "/dimos-gateway/runs/stop", Some(json!({}))).await?;
         let launch = self.launch_state().await.unwrap_or(Value::Null);
         self.publish(json!({ "type": "launch", "launch": launch }));
         Ok(json!({ "stopped": true, "output": out["output"] }))
