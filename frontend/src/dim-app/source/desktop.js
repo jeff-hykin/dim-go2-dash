@@ -143,17 +143,25 @@ function button(label, onClick, primary) {
     return element
 }
 
+/** Sets `element`'s data-ui to `ui`, when given. */
+function tag(element, ui) {
+    if (ui) {
+        element.dataset.ui = ui
+    }
+    return element
+}
+
 /**
  * A first-run / empty / error message: what's wrong, and buttons for the next step. Styled by theme.css (`.dim-empty`,
  * Portal and Research). Wrap it in `.dim-empty-layer` to center it over a canvas, above the dock.
  *
  * An action is `{ label, onClick }` (something in this app), `{ label, href }` (a link), or `{ label, app, params,
- * appTitle }` (another app, `openApp(app, params)`). An app that isn't installed becomes "Install <appTitle> from the
+ * appTitle }` (another app, `openApp(app, params)`); `ui` names the button for a press log (its data-ui). An app that isn't installed becomes "Install <appTitle> from the
  * App Store" (opens the App Store); outside Desktop app actions are left out. The first action is the primary one
  * unless one says `primary: false`.
  * @param {{ title: string, body?: string | Node, label?: string, tone?: "info" | "warn" | "ok", busy?: boolean,
  *           actions?: Array<{ label: string, onClick?: () => void, href?: string, app?: string, params?: object,
- *                             appTitle?: string, primary?: boolean }>, testId?: string }} options
+ *                             appTitle?: string, primary?: boolean, ui?: string }>, testId?: string }} options
  * @returns {HTMLElement}
  */
 export function emptyState({ title, body, label, tone = "info", busy = false, actions = [], testId } = {}) {
@@ -190,6 +198,7 @@ export function emptyState({ title, body, label, tone = "info", busy = false, ac
             link.target = action.target ?? "_blank"
             link.rel = "noreferrer"
             link.textContent = action.label
+            tag(link, action.ui)
             row.append(link)
         } else if (action.app) {
             if (!underDesktop()) {
@@ -197,17 +206,19 @@ export function emptyState({ title, body, label, tone = "info", busy = false, ac
             }
             const element = button(action.label, () => openApp(action.app, action.params), primary)
             element.dataset.app = action.app
+            tag(element, action.ui)
             row.append(element)
             appInstalled(action.app).then((installed) => {
                 if (!installed) {
                     const name = action.appTitle ?? action.app
                     const install = button(`Install ${name} from the App Store`, () => openApp("appstore"), primary)
                     install.dataset.app = "appstore"
+                    tag(install, action.ui && `${action.ui}_install`)
                     element.replaceWith(install)
                 }
             })
         } else if (action.onClick) {
-            row.append(button(action.label, action.onClick, primary))
+            row.append(tag(button(action.label, action.onClick, primary), action.ui))
         }
     })
     if (actions.length) {

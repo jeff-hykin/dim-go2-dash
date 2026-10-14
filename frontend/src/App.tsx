@@ -391,8 +391,13 @@ export function App() {
                                 title="Can't reach the Go2 Ctrl server"
                                 body={`It didn't answer (${loadError}). Restarting the app usually fixes it: try again, or stop and start Go2 Ctrl from Desktop's App Store.`}
                                 actions={[
-                                    { label: "Try again", onClick: () => location.reload() },
-                                    { label: "Open the App Store", app: "appstore", primary: false },
+                                    { label: "Try again", onClick: () => location.reload(), ui: "app.try_again" },
+                                    {
+                                        label: "Open the App Store",
+                                        app: "appstore",
+                                        primary: false,
+                                        ui: "app.open_app_store",
+                                    },
                                 ]}
                             />
                         )
@@ -415,13 +420,14 @@ export function App() {
                                 title="No Go2 found on this network"
                                 body="Power the Go2 on and wait about a minute for it to boot. Then put this computer on the same Wi-Fi as the dog (or on the dog's own hotspot), or stay close to it: a new Go2 shows up over Bluetooth, and you can send it your Wi-Fi from here."
                                 actions={[
-                                    { label: "Scan again", onClick: scan },
+                                    { label: "Scan again", onClick: scan, ui: "app.scan_again" },
                                     {
                                         label: "Help: it shows but never gets an IP",
                                         onClick: () => {
                                             setSlid(false)
                                             setHelpRequest((n) => n + 1)
                                         },
+                                        ui: "app.no_ip_help",
                                     },
                                 ]}
                             />
@@ -433,7 +439,7 @@ export function App() {
                                 label="Go2 Ctrl"
                                 title="Find your Go2"
                                 body="Scan this network and Bluetooth for Unitree Go2s nearby. Then put one on your Wi-Fi and drive it, with its camera, from here."
-                                actions={[{ label: "Scan for Go2s", onClick: scan }]}
+                                actions={[{ label: "Scan for Go2s", onClick: scan, ui: "app.scan_for_go2s" }]}
                             />
                         )
                         : null}
