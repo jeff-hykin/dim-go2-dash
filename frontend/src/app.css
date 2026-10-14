@@ -2239,10 +2239,28 @@ body .overheat-back .overheat.dim-modal > header {
 .overheat-body p {
     margin: 0 0 10px;
 }
-.overheat-temp {
+.motor-heat {
+    padding: 4px 12px;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid currentColor;
+    background: rgba(0, 0, 0, 0.6);
     font-size: 14px;
+    font-weight: 600;
 }
-.overheat-note {
-    font-size: 13px;
-    opacity: 0.75;
+.motor-heat.blue {
+    color: #4ea8ff;
+}
+.motor-heat.yellow {
+    color: #f5c518;
+}
+.motor-heat.red {
+    color: #ff4d4f;
+}
+.motor-heat.pulse {
+    animation: motor-heat-pulse 1s ease-in-out infinite;
+}
+@keyframes motor-heat-pulse {
+    50% {
+        background: color-mix(in srgb, currentColor 35%, rgba(0, 0, 0, 0.6));
+    }
 }

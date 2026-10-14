@@ -693,7 +693,7 @@ export function Control(props: {
                     </div>
                 </div>
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
-                {drive.overheat && <OverheatWarning overheat={drive.overheat} onToast={onToast} />}
+                {drive.overheat && <OverheatWarning onToast={onToast} />}
                 {settings && <FormatToggle settings={settings} onToast={onToast} />}
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
@@ -722,6 +722,7 @@ export function Control(props: {
                     </div>
                 )}
                 <div className="cmd-dock">
+                    <MotorHeat celsius={drive.hottestMotor?.celsius} />
                     <span className={`mode-badge dim-badge ${MODE_TONE[drive.mode] ?? ""}`} title="Current dog mode">
                         Mode: {MODE_LABEL[drive.mode] ?? "—"}
                     </span>
@@ -822,13 +823,17 @@ export function Control(props: {
 }
 
 /** The recording format (Record options' Format) as a tiny switch over the speed readout: db / mcap. */
-/** The overheat warning: over everything until acknowledged (the button, or a fresh press of the pad's A); the deck
- * sounds it (backend drive.rs) and refuses driving meanwhile */
-function OverheatWarning({ overheat, onToast }: { overheat: NonNullable<Active["overheat"]>; onToast: (text: string) => void }) {
+/** The overheat warning: over everything until acknowledged; the default action (the focused button, or a fresh press of
+ * the pad's A) lies the dog down, the other just dismisses. The deck sounds it (backend drive.rs) and refuses driving meanwhile */
+function OverheatWarning({ onToast }: { onToast: (text: string) => void }) {
     const [sending, setSending] = useState(false)
-    const acknowledge = () => {
+    const acknowledge = (lieDown: boolean) => {
         setSending(true)
-        call("POST", "api/drive/overheat/ack").catch((e) => onToast(e.message)).finally(() => setSending(false))
+        const down = lieDown ? call("POST", "api/drive/lie_down") : Promise.resolve()
+        down.catch((e) => onToast(e.message))
+            .then(() => call("POST", "api/drive/overheat/ack"))
+            .catch((e) => onToast(e.message))
+            .finally(() => setSending(false))
     }
     const latest = useRef(acknowledge)
     latest.current = acknowledge
@@ -841,7 +846,7 @@ function OverheatWarning({ overheat, onToast }: { overheat: NonNullable<Active["
         const timer = setInterval(() => {
             const down = [...navigator.getGamepads()].some((pad) => pad?.buttons[BUTTON.a]?.pressed)
             if (down && !wasDown) {
-                latest.current()
+                latest.current(true)
             }
             wasDown = down
         }, PAD_POLL_MS)
@@ -855,21 +860,31 @@ function OverheatWarning({ overheat, onToast }: { overheat: NonNullable<Active["
                     Warning: Dog Overheating
                 </header>
                 <div className="overheat-body">
-                    <p>Please have the dog lie down. It will collapse if the temperature continues to rise.</p>
-                    <p className="dim-mono overheat-temp">
-                        {overheat.joint ?? "A leg motor"} at {overheat.celsius}°C (warns at {overheat.limit}°C)
-                    </p>
-                    <p className="overheat-note">Driving is off until you acknowledge. Lie down and Sit still work.</p>
+                    <p>Please have the dog lie down until it cools to 70°C.</p>
                 </div>
                 <footer>
-                    <button type="button" className="dim-btn" onClick={() => call("POST", "api/drive/lie_down").catch((e) => onToast(e.message))}>
-                        Lie down
+                    <button type="button" className="dim-btn" disabled={sending} onClick={() => acknowledge(false)}>
+                        Dismiss
                     </button>
-                    <button type="button" className="dim-btn primary" autoFocus disabled={sending} onClick={acknowledge}>
-                        Acknowledge (A)
+                    <button type="button" className="dim-btn primary" autoFocus disabled={sending} onClick={() => acknowledge(true)}>
+                        Lie down (A)
                     </button>
                 </footer>
             </div>
+        </div>
+    )
+}
+
+/** The hottest motor above the commands, from 65°C: fading in to 68°C (blue), yellow to 70, pulsing yellow to 75, then
+ * pulsing red */
+export function MotorHeat({ celsius }: { celsius?: number | null }) {
+    if (celsius == null || celsius <= 65) {
+        return null
+    }
+    const tone = celsius >= 75 ? "red pulse" : celsius >= 70 ? "yellow pulse" : celsius >= 68 ? "yellow" : "blue"
+    return (
+        <div className={`motor-heat dim-mono ${tone}`} style={{ opacity: Math.min(1, (celsius - 65) / 3) }} title="The hottest leg motor">
+            Motors {celsius}°C
         </div>
     )
 }
