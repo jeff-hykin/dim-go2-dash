@@ -266,6 +266,11 @@ impl App {
         Ok(json!({ "cancelled": file }))
     }
 
+    /// Smaller than the cloud takes (an older run queued it, and the cloud said 413)
+    fn under_upload_minimum(&self, file: &str) -> bool {
+        self.recording_path(file).is_ok_and(|path| path.metadata().map(|m| m.len()).unwrap_or(0) < MIN_UPLOAD_BYTES)
+    }
+
     fn set_upload(&self, file: &str, upload: Value) {
         self.index_update(file, |entry| {
             entry["upload"] = upload;
@@ -310,10 +315,10 @@ impl App {
                 let open: Vec<(String, Value)> = self
                     .index()
                     .into_iter()
-                    .filter(|(_, e)| {
+                    .filter(|(f, e)| {
                         let state = e["upload"]["state"].as_str().unwrap_or("");
                         matches!(state, "queued" | "uploading" | "waiting" | "offline" | "signin")
-                            || (state == "failed" && !too_small(&e["upload"]))
+                            || (state == "failed" && !too_small(&e["upload"]) && !self.under_upload_minimum(f))
                     })
                     .collect();
                 if open.is_empty() {

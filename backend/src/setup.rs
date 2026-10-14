@@ -206,9 +206,10 @@ impl App {
 
     pub(crate) async fn desktop_call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, HttpError> {
         let (status, data) = self.desktop_send(method.clone(), path, body.clone()).await?;
-        // a Desktop before 0.2.180 (gateway 3.0) has the gateway only at /dimos/
+        // a Desktop before 0.2.180 (gateway 3.0) has the gateway only at /dimos/ (it answers 404, or 405 to a POST)
+        let missing = matches!(status, reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::METHOD_NOT_ALLOWED);
         let (status, data) = match path.strip_prefix("/dimos-gateway/") {
-            Some(rest) if status == reqwest::StatusCode::NOT_FOUND => self.desktop_send(method, &format!("/dimos/{rest}"), body).await?,
+            Some(rest) if missing => self.desktop_send(method, &format!("/dimos/{rest}"), body).await?,
             _ => (status, data),
         };
         if status.is_success() {

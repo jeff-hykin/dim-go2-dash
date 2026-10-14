@@ -423,6 +423,8 @@ async fn fake_desktop(busy: bool, gateway: &str) -> (String, Arc<std::sync::Mute
                 }
             }),
         );
+    // Desktop 0.2.162 answers a POST to a path it doesn't have with 405 (its static pages), not 404
+    let router = if gateway == "/dimos" { router.fallback(|| async { axum::http::StatusCode::METHOD_NOT_ALLOWED }) } else { router };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -474,7 +476,7 @@ async fn launch_through_a_desktop_before_gateway_3() {
     let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused3")) };
     let (url, seen) = fake_desktop(false, "/dimos").await;
     t.app.desktop_url.set(url).unwrap();
-    assert_eq!(t.ok("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await["phase"], "starting", "/dimos-gateway 404s: /dimos/");
+    assert_eq!(t.ok("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await["phase"], "starting", "/dimos-gateway 405s: /dimos/");
     assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "launch"));
 }
 
