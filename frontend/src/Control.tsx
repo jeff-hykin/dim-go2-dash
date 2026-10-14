@@ -866,7 +866,13 @@ function OverheatWarning({ onToast }: { onToast: (text: string) => void }) {
                     <button type="button" className="dim-btn" disabled={sending} onClick={() => acknowledge(false)}>
                         Dismiss
                     </button>
-                    <button type="button" className="dim-btn primary" autoFocus disabled={sending} onClick={() => acknowledge(true)}>
+                    <button
+                        type="button"
+                        className="dim-btn primary"
+                        autoFocus
+                        disabled={sending}
+                        onClick={() => acknowledge(true)}
+                    >
                         Lie down (A)
                     </button>
                 </footer>
@@ -883,7 +889,14 @@ export function MotorHeat({ celsius }: { celsius?: number | null }) {
     }
     const tone = celsius >= 75 ? "red pulse" : celsius >= 70 ? "yellow pulse" : celsius >= 68 ? "yellow" : "blue"
     return (
-        <div className={`motor-heat dim-mono ${tone}`} style={{ opacity: Math.min(1, (celsius - 65) / 3), scale: 1 + 2 * Math.min(1, Math.max(0, (celsius - 70) / 10)) }} title="The hottest leg motor">
+        <div
+            className={`motor-heat dim-mono ${tone}`}
+            style={{
+                opacity: Math.min(1, (celsius - 65) / 3),
+                scale: 1 + 2 * Math.min(1, Math.max(0, (celsius - 70) / 10)),
+            }}
+            title="The hottest leg motor"
+        >
             Motors {celsius}°C
         </div>
     )

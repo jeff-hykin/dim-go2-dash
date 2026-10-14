@@ -335,6 +335,18 @@ provides:
                   type: boolean
           path: api/drive/sit-down
         - description: >-
+              Acknowledge the overheat warning (a leg motor at 75 °C or more): silences it and lets driving resume; it
+              comes back 5 °C hotter, or at 75 °C after the motors cool below 70 °C
+          method: POST
+          path: api/drive/overheat/ack
+        - description: "Try the overheat warning in a dry-run session: raises it as if a motor read celsius (default 76)"
+          method: POST
+          params:
+              celsius:
+                  description: the reading, default 76
+                  type: number
+          path: api/drive/overheat/simulate
+        - description: >-
               Turn the dog's head light on (brightness 10) or off (0) through its VUI api (SetBrightness); without `on` it
               toggles. The drive state's `light` says which it is
           method: POST
