@@ -37,6 +37,6 @@ cd backend && GO2_DASH_MOCK=1 cargo run -- --port 8787 --frontend ../frontend/di
 ```
 
 Every button is also an HTTP endpoint (listed under `agent:` in `dimos.yaml`), so Desktop's agent can do anything
-you can. Checks: `cargo test`, `npm run typecheck`, `deno task check-endpoints`.
+you can. Checks: `cargo test`, `npm run typecheck`, `deno test frontend/test`, `deno task check-endpoints`.
 
 Apache-2.0

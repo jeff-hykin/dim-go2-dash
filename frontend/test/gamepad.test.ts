@@ -99,7 +99,7 @@ Deno.test("Joy samples are the raw axes, then the triggers' analog travel, and 0
     press(7, true)
     ;(pad.buttons[6] as { value: number }).value = 0.4567
     const sample = joySample(pad)
-    assertEquals(sample.axes, [0.123, -1, 0, 0.5, 0.457, pad.buttons[7].value])
+    assertEquals(sample.axes, [0.1235, -1, 0, 0.5, 0.4567, pad.buttons[7].value])
     assertEquals(sample.buttons[7], 1)
     assertEquals(sample.buttons.length, 17)
 })

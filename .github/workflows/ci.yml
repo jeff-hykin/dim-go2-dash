@@ -29,3 +29,4 @@ jobs:
             # dimos.yaml's agent: == the endpoints the built server serves
             - run: deno task check-endpoints
             - run: deno fmt --check && deno lint
+            - run: deno test frontend/test
