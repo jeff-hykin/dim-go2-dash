@@ -278,7 +278,7 @@ function Row({ rec, onError, ctx }: { rec: Recording; onError: (text: string) =>
 type Account = { loggedIn: boolean; email: string | null; available: boolean; error?: string | null }
 type Ctx = { account: Account | null; signIn: () => void }
 
-/** Desktop's own sign-in page in a frame (GET /dimos/cloud/login/page, the same one Recordings uses): it shows a code,
+/** Desktop's own sign-in page in a frame (GET /dimos-gateway/cloud/login/page, the same one Recordings uses): it shows a code,
  * opens the console in a new tab to approve it, and tells this page when it's done. */
 function LoginPanel({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
     useEffect(() => {
@@ -290,7 +290,7 @@ function LoginPanel({ onDone, onClose }: { onDone: () => void; onClose: () => vo
         addEventListener("message", onMessage)
         return () => removeEventListener("message", onMessage)
     }, [onDone])
-    const src = new URL("../../dimos/cloud/login/page?theme=dark", location.href).href
+    const src = new URL("../../dimos-gateway/cloud/login/page?theme=dark", location.href).href
     return (
         <div className="rec-login">
             <div className="rec-login-head">

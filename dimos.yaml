@@ -7,13 +7,12 @@ uses:
         - POST /runs/stop
         - GET /global-config
         - PUT /global-config
-        - GET /uploads
-        - POST /uploads
-        - "DELETE /uploads/{id}"
-        - "POST /uploads/{id}/retry"
+        - GET /cloud/uploads
+        - POST /cloud/uploads
+        - DELETE /cloud/uploads
         - GET /cloud/account
         - GET /cloud/login/page
-        - POST /cloud/logout
+        - DELETE /cloud/login
     "@desktop-gateway":
         - GET /api/apps
         - "GET /api/apps/{app}/icon"

@@ -401,7 +401,7 @@ async fn fake_desktop(busy: bool, gateway: &str) -> (String, Arc<std::sync::Mute
                     (axum::http::StatusCode::OK, axum::Json(json!({ "blueprint": body.0["blueprint"], "phase": "starting", "overrides": body.0["overrides"], "output": format!("$ dimos {flags} run x"), "steps": [] })))
                 }
             })
-            .get(|| async { axum::Json(json!({ "runs": [], "launch": { "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
+            .get(|| async { axum::Json(json!({ "runs": [], "launch": { "runId": "run-1", "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
         )
         .route(
             &format!("{gateway}/runs/stop"),
@@ -458,7 +458,7 @@ async fn launch_through_desktop() {
     t.ok("POST", "api/launch", Some(json!({ "replay": true, "blueprint": "unitree-go2" }))).await;
     assert_eq!(seen.lock().unwrap()[2].1, json!({ "blueprint": "unitree-go2", "replay": true, "overrides": {} }));
     t.ok("POST", "api/launch/stop", None).await;
-    assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "stop"));
+    assert!(seen.lock().unwrap().iter().any(|(name, body)| name == "stop" && *body == json!({ "runId": "run-1" })), "stops the launch by its runId");
     // Desktop already running something: a 409 that says so
     let (busy_url, _) = fake_desktop(true, "/dimos-gateway").await;
     let busy = Test { app: App::new(dir.join("busy"), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused2")) };

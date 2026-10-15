@@ -1,6 +1,6 @@
 // The first-run guide (the page's Setup): the step the user is on and the robot they picked, saved so a reload, another
 // viewer or the agent picks up where they left off; checking that a robot answers at an IP; and launching dimos for it
-// through Desktop (POST <desktopUrl>/dimos/runs with robot_ip, plus its AES key when one is saved), or a replay.
+// through Desktop (POST <desktopUrl>/dimos-gateway/runs with robot_ip, plus its AES key when one is saved), or a replay.
 
 use std::time::Duration;
 
@@ -230,7 +230,7 @@ impl App {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
-    /// What POST /dimos/runs gets: the blueprint, replay, and robot_ip (+ the robot's AES key) for a real robot.
+    /// What POST /dimos-gateway/runs gets: the blueprint, replay, and robot_ip (+ the robot's AES key) for a real robot.
     pub fn launch_request(&self, replay: bool, blueprint: Option<&str>, ip: Option<&str>) -> Result<Value, HttpError> {
         let blueprint = blueprint.filter(|b| !b.is_empty()).unwrap_or(BLUEPRINT);
         if !valid_blueprint(blueprint) {
@@ -322,11 +322,24 @@ impl App {
             self.publish(json!({ "type": "launch", "launch": null }));
             return Ok(json!({ "stopped": true, "mock": true }));
         }
-        let out = self.desktop_call(reqwest::Method::POST, "/dimos-gateway/runs/stop", Some(json!({}))).await?;
+        let runs = self.desktop_call(reqwest::Method::GET, "/dimos-gateway/runs", None).await?;
+        let Some(run_id) = run_to_stop(&runs) else {
+            return Ok(json!({ "stopped": false, "output": "nothing is running" }));
+        };
+        let out = self.desktop_call(reqwest::Method::POST, "/dimos-gateway/runs/stop", Some(json!({ "runId": run_id }))).await?;
         let launch = self.launch_state().await.unwrap_or(Value::Null);
         self.publish(json!({ "type": "launch", "launch": launch }));
         Ok(json!({ "stopped": true, "output": out["output"] }))
     }
+}
+
+/// Which run POST runs/stop gets (it needs a runId): Desktop's launch while it's active, else the newest other run.
+fn run_to_stop(runs: &Value) -> Option<String> {
+    let launch = &runs["launch"];
+    let active = matches!(launch["phase"].as_str(), Some("starting" | "running" | "stopping"));
+    let launched = launch["runId"].as_str().filter(|_| active);
+    let other = runs["runs"].as_array().and_then(|runs| runs.iter().find_map(|run| run["run_id"].as_str())); // newest first
+    launched.or(other).map(str::to_string)
 }
 
 /// a simulated robot launch: blueprint, overrides (key hidden), when it started
@@ -358,6 +371,15 @@ mod tests {
         let done = mock_launch_view("unitree-go2-basic", &overrides, 0, MOCK_STEP_MS * 3);
         assert_eq!(done["phase"], "running");
         assert!(done["steps"].as_array().unwrap().iter().all(|s| s["state"] == "done"));
+    }
+
+    #[test]
+    fn stops_the_active_launch_else_the_newest_run() {
+        let runs = json!({ "runs": [{ "run_id": "b" }, { "run_id": "a" }], "launch": { "runId": "l", "phase": "running" } });
+        assert_eq!(run_to_stop(&runs).as_deref(), Some("l"));
+        let runs = json!({ "runs": [{ "run_id": "b" }, { "run_id": "a" }], "launch": { "runId": "l", "phase": "stopped" } });
+        assert_eq!(run_to_stop(&runs).as_deref(), Some("b"));
+        assert_eq!(run_to_stop(&json!({ "runs": [], "launch": null })), None);
     }
 
     #[test]
