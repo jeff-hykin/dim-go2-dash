@@ -10,6 +10,7 @@ pub mod clock;
 pub mod db;
 mod cloud;
 pub mod discovery;
+pub mod gps;
 pub mod drain;
 pub mod log;
 pub mod msg;

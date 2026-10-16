@@ -17,6 +17,8 @@ const TOPICS = [
     "/cmd_vel",
     "/robot_action",
     "/logs",
+    "/gps",
+    "/gps_nmea",
 ]
 const defaults: Options = {
     directory: "",

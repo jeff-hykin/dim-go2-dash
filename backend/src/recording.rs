@@ -8,6 +8,7 @@
 //   /robot_action  String: each sport command sent (stand, sit, …) as JSON
 //   /logs          String: JSON events by "type", incl. rx_stats (per second, what the dog sent per topic before parsing,
 //                  rx.rs) and lidar_state / service_state (the dog's own reports, under "data")
+//   /gps /gps_nmea  NavSatFix (frame "deck") and raw NMEA from a USB GPS plugged into this computer, if any (gps.rs)
 // A recording lives as long as the drive session: disconnecting ends it (and the file is finished).
 
 use std::collections::BTreeMap;
@@ -50,6 +51,12 @@ pub fn channel_metadata(topic: &str) -> BTreeMap<String, String> {
         "/robot_action" => {
             m.insert("description".into(), "each sport command sent to the dog, as JSON {name, sends, sent, dryRun}".into());
         }
+        "/gps" => {
+            m.insert("description".into(), "a USB GPS puck on this computer (frame deck, not the dog): one fix per GGA, ~1 Hz; NaN position without a fix".into());
+        }
+        "/gps_nmea" => {
+            m.insert("description".into(), "every checksum-valid NMEA sentence the USB GPS sent, verbatim".into());
+        }
         "/lidar" => {
             m.insert("description".into(), "the Go2's local voxel map (rt/utlidar/voxel_map_compressed), decoded to points".into());
         }
@@ -65,6 +72,7 @@ pub struct Active {
     pub robot: String,
     pub dry: bool,
     camera: Mutex<Option<CameraTap>>,
+    gps: Mutex<Option<crate::gps::Gps>>,
     last_battery_ns: AtomicU64,
     camera_drops: AtomicU64,
     ended: AtomicBool,
@@ -144,6 +152,7 @@ impl Active {
         status["robot"] = json!(self.robot);
         status["dryRun"] = json!(self.dry);
         status["cameraDrops"] = json!(self.camera_drops.load(Ordering::Relaxed));
+        status["gps"] = json!(self.gps.lock().unwrap().as_ref().map(|gps| gps.detail.lock().unwrap().clone()));
         let silent = self.lidar_silent_ms.load(Ordering::Relaxed);
         status["lidarSilentS"] = if silent > 0 { json!(silent / 1000) } else { Value::Null };
         status
@@ -223,7 +232,8 @@ impl App {
             file: file.clone(),
             robot: drive.name.clone(),
             dry: drive.dry,
-            camera: Mutex::new(Some(crate::camera::start(recorder, want_keyframe))),
+            camera: Mutex::new(Some(crate::camera::start(recorder.clone(), want_keyframe))),
+            gps: Mutex::new(Some(crate::gps::start(recorder))),
             last_battery_ns: AtomicU64::new(0),
             camera_drops: AtomicU64::new(0),
             ended: AtomicBool::new(false),
@@ -261,6 +271,7 @@ impl App {
         }
         // the camera thread holds the recorder: end it first so its last frames are in
         drop(active.camera.lock().unwrap().take());
+        drop(active.gps.lock().unwrap().take());
         tokio::time::sleep(Duration::from_millis(200)).await;
         let recorder = active.recorder.clone();
         let status = tokio::task::spawn_blocking(move || recorder.finish()).await.map_err(|e| HttpError::new(500, e.to_string()))?;

@@ -12,7 +12,8 @@
 //   joint_state   dimos.msgs.sensor_msgs.JointState.JointState
 //   joystick      dimos.msgs.sensor_msgs.Joy.Joy
 //   cmd_vel       dimos.msgs.geometry_msgs.Twist.Twist
-//   robot_action, logs, metadata   dimos.msgs.std_msgs.String.String (JSON text)
+//   gps           dimos_lcm.sensor_msgs.NavSatFix.NavSatFix   (dimos.msgs has no NavSatFix: the raw dimos-lcm class)
+//   robot_action, logs, metadata, gps_nmea   dimos.msgs.std_msgs.String.String (JSON text)
 
 use lcm_msgs::{geometry_msgs as geo, sensor_msgs as sensor, std_msgs};
 
@@ -79,7 +80,8 @@ pub fn stream_type(name: &str, raw_images: bool, compress: bool) -> Option<(&'st
         "joint_state" => ("dimos.msgs.sensor_msgs.JointState.JointState", "lcm"),
         "joystick" => ("dimos.msgs.sensor_msgs.Joy.Joy", "lcm"),
         "cmd_vel" => ("dimos.msgs.geometry_msgs.Twist.Twist", "lcm"),
-        "robot_action" | "logs" | "metadata" => ("dimos.msgs.std_msgs.String.String", "lcm"),
+        "gps" => ("dimos_lcm.sensor_msgs.NavSatFix.NavSatFix", "lcm"),
+        "robot_action" | "logs" | "metadata" | "gps_nmea" => ("dimos.msgs.std_msgs.String.String", "lcm"),
         _ => return None,
     })
 }
@@ -112,6 +114,8 @@ pub enum Msg {
     Joints(Header<'static>, &'static [&'static str], Vec<f64>),
     Joy(Header<'static>, Vec<f32>, Vec<i32>),
     Twist([f64; 3], [f64; 3]),
+    /// sensor_msgs/NavSatFix: status (NavSatStatus, service GPS), degrees, metres above the WGS84 ellipsoid
+    NavSatFix { header: Header<'static>, status: i8, latitude: f64, longitude: f64, altitude: f64, covariance: [f64; 9], covariance_type: u8 },
     Text(String),
 }
 
@@ -233,6 +237,18 @@ impl Msg {
             Msg::Twist(linear, angular) => {
                 let twist = geo::Twist { linear: vector3(linear), angular: vector3(angular) };
                 (None, twist.encode())
+            }
+            Msg::NavSatFix { header, status, latitude, longitude, altitude, covariance, covariance_type } => {
+                let fix = sensor::NavSatFix {
+                    header: lcm_header(&header),
+                    status: sensor::NavSatStatus { status, service: 1 },
+                    latitude,
+                    longitude,
+                    altitude,
+                    position_covariance: covariance,
+                    position_covariance_type: covariance_type,
+                };
+                (Some(header), fix.encode())
             }
             Msg::Text(text) => (None, std_msgs::String { data: text }.encode()),
         };
