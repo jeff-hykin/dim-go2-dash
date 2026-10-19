@@ -359,14 +359,14 @@ async fn launch_in_mock_and_dry_run() {
     let dry = t.ok("POST", "api/launch", Some(json!({ "dryRun": true }))).await;
     assert_eq!(dry["sent"], false);
     assert_eq!(dry["request"]["blueprint"], "unitree-go2-basic");
-    assert_eq!(dry["request"]["overrides"]["robot_ip"], "192.0.2.10");
-    assert_eq!(dry["request"]["overrides"]["unitree_aes_128_key"], "(saved key)", "the key is sent, never shown");
+    assert_eq!(dry["request"]["config"]["global"]["robot_ip"], "192.0.2.10");
+    assert_eq!(dry["request"]["config"]["global"]["unitree_aes_128_key"], "(saved key)", "the key is sent, never shown");
     // what really goes to Desktop carries the key
     let request = t.app.launch_request(false, None, None).unwrap();
-    assert_eq!(request["overrides"]["unitree_aes_128_key"], "00112233445566778899aabbccddeeff");
+    assert_eq!(request["config"]["global"]["unitree_aes_128_key"], "00112233445566778899aabbccddeeff");
     assert_eq!(
         t.app.launch_request(true, None, None).unwrap(),
-        json!({ "blueprint": "unitree-go2-basic", "replay": true, "overrides": {} })
+        json!({ "blueprint": "unitree-go2-basic", "config": { "global": { "replay": true } } })
     );
     // mock: a robot launch is simulated, step by step
     assert_eq!(t.ok("GET", "api/launch", None).await["launch"], Value::Null);
@@ -397,8 +397,8 @@ async fn fake_desktop(busy: bool, gateway: &str) -> (String, Arc<std::sync::Mute
                     if busy {
                         return (axum::http::StatusCode::BAD_REQUEST, axum::Json(json!({ "error": "unitree-go2 is still running; stop it first" })));
                     }
-                    let flags = body.0["overrides"].as_object().unwrap().iter().map(|(k, v)| format!("--{} {}", k.replace('_', "-"), v.as_str().unwrap_or(""))).collect::<Vec<_>>().join(" ");
-                    (axum::http::StatusCode::OK, axum::Json(json!({ "blueprint": body.0["blueprint"], "phase": "starting", "overrides": body.0["overrides"], "output": format!("$ dimos {flags} run x"), "steps": [] })))
+                    let flags = body.0["config"]["global"].as_object().unwrap().iter().map(|(k, v)| format!("--{} {}", k.replace('_', "-"), v.as_str().unwrap_or(""))).collect::<Vec<_>>().join(" ");
+                    (axum::http::StatusCode::OK, axum::Json(json!({ "blueprint": body.0["blueprint"], "phase": "starting", "overrides": body.0["config"]["global"], "output": format!("$ dimos {flags} run x"), "steps": [] })))
                 }
             })
             .get(|| async { axum::Json(json!({ "runs": [], "launch": { "runId": "run-1", "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
@@ -414,11 +414,11 @@ async fn fake_desktop(busy: bool, gateway: &str) -> (String, Arc<std::sync::Mute
             }),
         )
         .route(
-            &format!("{gateway}/global-config"),
+            &format!("{gateway}/config/global"),
             get(|| async { axum::Json(json!({ "overrides": { "zenoh_mode": "peer" } })) }).put(move |body: axum::Json<Value>| {
                 let seen = s3.clone();
                 async move {
-                    seen.lock().unwrap().push(("global-config".into(), body.0));
+                    seen.lock().unwrap().push(("config/global".into(), body.0));
                     axum::Json(json!({}))
                 }
             }),
@@ -445,18 +445,18 @@ async fn launch_through_desktop() {
     assert_eq!(launch["phase"], "starting");
     {
         let seen = seen.lock().unwrap();
-        assert_eq!(seen[0].0, "global-config");
+        assert_eq!(seen[0].0, "config/global");
         assert_eq!(seen[0].1["overrides"], json!({ "zenoh_mode": "peer", "robot_ip": "10.0.0.7" }), "Desktop's other settings are kept");
         assert_eq!(
             seen[1],
-            ("launch".to_string(), json!({ "blueprint": "unitree-go2-basic", "replay": false, "overrides": { "robot_ip": "10.0.0.7" } }))
+            ("launch".to_string(), json!({ "blueprint": "unitree-go2-basic", "config": { "global": { "robot_ip": "10.0.0.7" } } }))
         );
     }
     let state = t.ok("GET", "api/launch", None).await["launch"].clone();
     assert_eq!(state["phase"], "running");
     assert_eq!(state["overrides"]["unitree_aes_128_key"], "(saved key)");
     t.ok("POST", "api/launch", Some(json!({ "replay": true, "blueprint": "unitree-go2" }))).await;
-    assert_eq!(seen.lock().unwrap()[2].1, json!({ "blueprint": "unitree-go2", "replay": true, "overrides": {} }));
+    assert_eq!(seen.lock().unwrap()[2].1, json!({ "blueprint": "unitree-go2", "config": { "global": { "replay": true } } }));
     t.ok("POST", "api/launch/stop", None).await;
     assert!(seen.lock().unwrap().iter().any(|(name, body)| name == "stop" && *body == json!({ "runId": "run-1" })), "stops the launch by its runId");
     // Desktop already running something: a 409 that says so

@@ -230,14 +230,14 @@ impl App {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
-    /// What POST /dimos-gateway/runs gets: the blueprint, replay, and robot_ip (+ the robot's AES key) for a real robot.
+    /// What POST /dimos-gateway/runs gets: the blueprint, and replay or robot_ip (+ the robot's AES key) as its global config.
     pub fn launch_request(&self, replay: bool, blueprint: Option<&str>, ip: Option<&str>) -> Result<Value, HttpError> {
         let blueprint = blueprint.filter(|b| !b.is_empty()).unwrap_or(BLUEPRINT);
         if !valid_blueprint(blueprint) {
             return Err(HttpError::bad(format!("{blueprint} isn't a blueprint name")));
         }
         if replay {
-            return Ok(json!({ "blueprint": blueprint, "replay": true, "overrides": {} }));
+            return Ok(json!({ "blueprint": blueprint, "config": { "global": { "replay": true } } }));
         }
         let setup = self.setup_state();
         let ip = ip
@@ -258,7 +258,7 @@ impl App {
         if let Some(aes) = key.map(|k| self.aes_key_for(&k)).filter(|k| !k.is_empty()) {
             overrides[AES_FLAG] = json!(aes);
         }
-        Ok(json!({ "blueprint": blueprint, "replay": false, "overrides": overrides }))
+        Ok(json!({ "blueprint": blueprint, "config": { "global": overrides } }))
     }
 
     /// Launches dimos (Desktop runs one launch at a time: a running one answers 409 with what to stop). In mock mode a
@@ -274,15 +274,15 @@ impl App {
     ) -> Result<Value, HttpError> {
         let request = self.launch_request(replay, blueprint, ip)?;
         let mut shown = request.clone();
-        if shown["overrides"].get(AES_FLAG).is_some() {
-            shown["overrides"][AES_FLAG] = json!("(saved key)");
+        if shown["config"]["global"].get(AES_FLAG).is_some() {
+            shown["config"]["global"][AES_FLAG] = json!("(saved key)");
         }
         if dry_run {
             return Ok(json!({ "dryRun": true, "sent": false, "request": shown, "default": as_default && !replay }));
         }
         if self.mock && !replay {
             let started = now_ms();
-            let overrides = shown["overrides"].clone();
+            let overrides = shown["config"]["global"].clone();
             *self.mock_launch.lock().unwrap() = Some((request["blueprint"].as_str().unwrap_or(BLUEPRINT).to_string(), overrides, started));
             let launch = self.launch_state().await?;
             self.publish(json!({ "type": "launch", "launch": launch }));
@@ -290,7 +290,7 @@ impl App {
         }
         *self.mock_launch.lock().unwrap() = None;
         if as_default && !replay {
-            self.save_default_ip(request["overrides"]["robot_ip"].as_str().unwrap_or("")).await?;
+            self.save_default_ip(request["config"]["global"]["robot_ip"].as_str().unwrap_or("")).await?;
         }
         let launch = sanitize_launch(self.desktop_call(reqwest::Method::POST, "/dimos-gateway/runs", Some(request)).await?);
         self.publish(json!({ "type": "launch", "launch": launch }));
@@ -298,10 +298,10 @@ impl App {
     }
 
     async fn save_default_ip(&self, ip: &str) -> Result<(), HttpError> {
-        let current = self.desktop_call(reqwest::Method::GET, "/dimos-gateway/global-config", None).await?;
+        let current = self.desktop_call(reqwest::Method::GET, "/dimos-gateway/config/global", None).await?;
         let mut overrides = current["overrides"].as_object().cloned().unwrap_or_default();
         overrides.insert("robot_ip".into(), json!(ip));
-        self.desktop_call(reqwest::Method::PUT, "/dimos-gateway/global-config", Some(json!({ "overrides": overrides }))).await?;
+        self.desktop_call(reqwest::Method::PUT, "/dimos-gateway/config/global", Some(json!({ "overrides": overrides }))).await?;
         Ok(())
     }
 

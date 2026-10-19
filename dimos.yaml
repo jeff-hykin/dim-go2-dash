@@ -5,8 +5,8 @@ uses:
         - GET /runs
         - POST /runs
         - POST /runs/stop
-        - GET /global-config
-        - PUT /global-config
+        - GET /config/global
+        - PUT /config/global
         - GET /cloud/uploads
         - POST /cloud/uploads
         - DELETE /cloud/uploads
