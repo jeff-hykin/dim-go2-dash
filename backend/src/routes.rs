@@ -1,5 +1,5 @@
 // Every action this app has, as an endpoint (api.rs). The UI calls only these; so can Desktop's agent. Served as
-// agent.json and repeated in dimos.yaml's `agent:` (`deno task check-endpoints` keeps them equal).
+// openapi.json and repeated in dimos.yaml's `provides:` (`deno task check-endpoints` keeps them equal).
 
 use std::time::Duration;
 
@@ -8,9 +8,19 @@ use serde_json::{json, Value};
 use crate::api::{flag, handler, number, text, HttpError, Route};
 use crate::drive::{self, commands_json, Command, COMMANDS};
 
+pub const TITLE: &str = "Go2 Ctrl";
+
+/// the endpoints' API version (openapi.json's info.version): major = breaking, minor = added
+pub const API_VERSION: &str = "1.0.0";
+
 pub const DESCRIPTION: &str = "Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, \
 drive one live (stand, sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with the \
 robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.";
+
+/// The endpoints as an OpenAPI 3.1 document: the served openapi.json, and dimos.yaml's `provides:`.
+pub fn openapi(routes: &[Route]) -> Value {
+    crate::api::openapi(TITLE, API_VERSION, DESCRIPTION, routes)
+}
 
 const DRY_RUN: &str = "true: check everything and say what would be sent, without touching the robot";
 

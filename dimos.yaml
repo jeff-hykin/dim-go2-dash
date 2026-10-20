@@ -26,7 +26,17 @@ caches:
     - url: "https://dimos-desktop.cachix.org"
       key: "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ="
 provides:
-    private:
+    openapi: 3.1.0
+    info:
+        title: Go2 Ctrl
+        version: 1.0.0
+        description: >-
+            Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, drive one live (stand,
+            sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with the robot's IP and
+            saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
+        x-when: >-
+            you need to find a Unitree Go2 dog (its IP, AES key), run a dimos blueprint on one, or connect and drive it
+    x-private:
         - api/state/*
         - api/drive/*
         - api/launch/*
@@ -40,783 +50,1030 @@ provides:
         - api/hotspot/*
         - api/aes-keys
         - api/events/*
-    when: >-
-        you need to find a Unitree Go2 dog (its IP, AES key), run a dimos blueprint on one, or connect and drive
-        it
-    description: >-
-        Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, drive one live (stand,
-        sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with
-        the robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
-    endpoints:
-        - when: you want everything about the robots and this app in one call
-          description: >-
-              Everything at once, as one object: robots (the last scan's), scan (its status), wifi (Wi-Fi provisioning),
-              drive (the drive session), network (this computer's Wi-Fi), accounts (Unitree), commands (the robot
-              commands), setup (the first-run guide), record, recordings, settings, hotspot
-          method: GET
-          path: api/state
-          role: context
-        - when: you need the list of Go2s the last scan found
-          description: >-
-              The robots found by the last scan, as an array of {key, name, customName, bleName, serial, bleId, ip,
-              ipSource, matched, arpOnly, hasAesKey, canProvisionWifi}; key is what the other robot endpoints take
-          method: GET
-          path: api/robots
-        - when: you need one robot's details (its IP, name, AES key status)
-          description: >-
-              One robot from the last scan: {key, name, customName, bleName, serial, bleId, ip, ipSource, matched,
-              arpOnly, hasAesKey, canProvisionWifi}; 404 when no scan found it
-          method: GET
-          params:
-              key:
-                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
-                  required: true
-                  type: string
-          path: "api/robots/{key}"
-        - when: you need a Go2's ROBOT_IP and AES key to run a dimos blueprint on it by hand (dimos run)
-          description: >-
-              What dimos needs to reach this robot: {ROBOT_IP, UNITREE_AES_128_KEY, export}, export being the line to
-              paste into a shell; 409 when it has no IP or no saved AES key
-          method: GET
-          params:
-              key:
-                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
-                  required: true
-                  type: string
-          path: "api/robots/{key}/env"
-        - when: you need to find Go2s nearby or refresh the robot list
-          description: >-
-              Scan for Go2s over Bluetooth and the local network (passive: nothing is paired or changed): LAN discovery,
-              plus an ARP sweep (one ping per address) joined to Bluetooth by MAC, for networks that drop discovery's
-              multicast. Forgets the previous results; answers {scan, robots}, with wait (default) when the scan ends
-          method: POST
-          params:
-              sweep:
-                  description: >-
-                      the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024 addresses, else the /24
-                      around this computer, widened to the whole subnet when a dog on Bluetooth is still missing, at most every 10
-                      minutes), full (the whole subnet up to a /16; a /17 takes ~1 min on macOS, ~6 min on Linux), known
-                      (remembered IPs only) or off
-                  type: string
-              timeout:
-                  description: seconds to scan, 1..60 (default 7; a sweep can run longer)
-                  type: number
-              wait:
-                  description: answer when the scan ends with the robots found (default true); false answers right away
-                  type: boolean
-          path: api/scan
-        - when: you need to export every saved AES key
-          description: >-
-              Every saved AES key with its robot, as {exportedAt, keys: [{key, name, serial, aesKey}]}: for the page's
-              download button (private: only this app's pages can read it)
-          method: GET
-          path: api/aes-keys
-        - when: you need to restore AES keys from a downloaded keys file
-          description: >-
-              Import AES keys (the keys of a file GET api/aes-keys exported) into this computer's saved keys, with their
-              names when given; every entry is checked first, so a bad one imports nothing. Answers {imported: count}
-          method: POST
-          params:
-              keys:
-                  description: 1..10000 entries of {key or serial, aesKey (32 hex chars), name (optional)}
-                  required: true
-                  type: array
-          path: api/aes-keys
-        - when: a scan is running and should end now
-          description: >-
-              Stop the running scan (and its sweep) now; what it found so far stays. Answers {stopped (whether one was
-              running), scan}
-          method: POST
-          path: api/scan/stop
-        - when: you need to rename a robot
-          description: >-
-              Rename a robot (saved on this computer); an empty name goes back to its Bluetooth name. Answers the robot
-              (as GET api/robots/{key})
-          method: PUT
-          params:
-              key:
-                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
-                  required: true
-                  type: string
-              name:
-                  description: the new name; empty resets it to its Bluetooth name
-                  required: true
-                  type: string
-          path: "api/robots/{key}/name"
-        - when: you have a robot's AES key to save by hand
-          description: >-
-              Save a robot's per-device AES-128 key (32 hex chars; firmware ≥ 1.1.15 needs it to connect); empty clears
-              it. POST api/accounts fetches keys instead. Answers the robot (as GET api/robots/{key})
-          method: PUT
-          params:
-              aesKey:
-                  description: 32 hex characters, or empty to clear the saved key
-                  required: true
-                  type: string
-              key:
-                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
-                  required: true
-                  type: string
-          path: "api/robots/{key}/aes-key"
-        - when: a robot isn't found by the scan but you know its IP
-          description: >-
-              Set the IP to drive a robot at when the scan can't see it on the network (a VPN, another subnet); empty
-              clears it. Answers the robot (as GET api/robots/{key})
-          method: PUT
-          params:
-              ip:
-                  description: an IPv4 address, or empty to clear it
-                  required: true
-                  type: string
-              key:
-                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
-                  required: true
-                  type: string
-          path: "api/robots/{key}/ip"
-        - when: robots aren't found and you suspect this computer's network
-          description: >-
-              This computer's Wi-Fi (SSID) and, on macOS, whether LAN discovery's multicast can reach the robots (a VPN can
-              hijack it; `fix` is the command that routes it)
-          method: GET
-          path: api/network
-        - when: the user asks to put a Go2 on wifi
-          description: >-
-              Put a robot on a Wi-Fi network: sends the SSID, password and country over Bluetooth (the robot needs
-              canProvisionWifi), answers once the robot accepted them: {ok, sent, robot, serial, ssid, warning, next}.
-              The robot joins in ~30 s: scan again for its IP. 409 while another provisioning runs. Use dryRun: true to
-              check without sending
-          method: POST
-          params:
-              country:
-                  description: two-letter Wi-Fi country code (default US)
-                  type: string
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-              key:
-                  description: 'the robot''s key from GET api/robots (its serial, else Bluetooth id, else IP)'
-                  required: true
-                  type: string
-              password:
-                  description: the Wi-Fi password (empty for an open network)
-                  type: string
-              ssid:
-                  description: the Wi-Fi network's name
-                  required: true
-                  type: string
-          path: "api/robots/{key}/wifi"
-        - when: you want the progress of a Wi-Fi provisioning
-          description: >-
-              The current or last Wi-Fi provisioning: status (idle, running, ok, error, cancelled, dry-run), robot, SSID and
-              its log
-          method: GET
-          path: api/wifi
-        - when: a Wi-Fi provisioning is stuck or should be aborted
-          description: "Abort the running Wi-Fi provisioning: answers {cancelled: true}; 409 when none is running"
-          method: POST
-          path: api/wifi/cancel
-        - when: you want to dismiss the last Wi-Fi provisioning result
-          description: >-
-              Forget the last Wi-Fi provisioning result (closes it in the UI): answers the reset state ({status: idle});
-              409 while one is running
-          method: DELETE
-          path: api/wifi
-        - when: you want the drive session's status or the robot's mode
-          description: >-
-              The drive session: robot, status (connecting, ready, reconnecting, error), mode (resting, rising, stand, pose),
-              velocity, last command
-          method: GET
-          path: api/drive
-        - when: you need to connect to a robot to drive it or see its camera
-          description: >-
-              Connect to a robot for live control and camera (closes any other session); answers the session (as GET
-              api/drive) when ready. Give robot or ip. dryRun: true opens a simulated session that sends nothing
-          method: POST
-          params:
-              aesKey:
-                  description: 'the robot''s AES key for this connection (default: the saved one)'
-                  type: string
-              dryRun:
-                  description: "true: a simulated session — commands and moves are accepted and shown, never sent"
-                  type: boolean
-              ip:
-                  description: 'drive this IP directly (no scan needed), or override the robot''s'
-                  type: string
-              robot:
-                  description: a key from GET api/robots
-                  type: string
-          path: api/drive/connect
-        - when: you are done driving a robot
-          description: >-
-              Close the drive session (stops any move, and finishes a recording in progress, first): answers {closed:
-              the session's last state}; 409 when none is open
-          method: POST
-          path: api/drive/disconnect
-        - when: you want the robot to walk, strafe or turn
-          description: >-
-              Walk (or, in pose mode, tilt) at a velocity for a while, then stop; a new move replaces the last. Axes are
-              -1..1 of 1.0 m/s forward, 0.6 m/s sideways, 1.5 rad/s turning, up to ×1.5 with boost. Needs stand first.
-              Answers {dryRun, sent, metersPerSecond: {forward, strafe}, radiansPerSecond, durationMs, mode}; 409 with
-              no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              boost:
-                  description: "0..1 (a trigger's pull): up to 1.5× faster"
-                  type: number
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-              durationMs:
-                  description: "how long, 100..5000 (default 500)"
-                  type: number
-              forward:
-                  description: "-1..1, positive = forward"
-                  type: number
-              run:
-                  description: "full boost (boost: 1)"
-                  type: boolean
-              strafe:
-                  description: "-1..1, positive = left"
-                  type: number
-              turn:
-                  description: "-1..1, positive = turn left"
-                  type: number
-          path: api/drive/move
-        - when: the robot is moving and must stop now
-          description: "Stop moving now (StopMove): answers {dryRun, sent, stopped}; 409 with no drive session"
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/stop
-        - when: a page needs the robot's live camera over WebRTC
-          description: >-
-              For pages: a WebRTC offer (receive-only video) in, the answer that streams the robot's camera out: {type:
-              answer, sdp, placeholder (true in a dry-run session)}; 409 with no drive session
-          method: POST
-          params:
-              sdp:
-                  description: the page's SDP offer
-                  required: true
-                  type: string
-          path: api/drive/video
-        - when: you want the saved Unitree accounts and their robots
-          description: >-
-              Saved Unitree app accounts (the AES keys come from them) and the robots bound to each, as an array of
-              {email, lastPull, pulling, error, robots: [{sn, alias, hasKey}]}
-          method: GET
-          path: api/accounts
-        - when: the user gives Unitree app credentials to fetch AES keys
-          description: >-
-              Save a Unitree app account (on this computer only) and pull the AES key of every robot bound to it.
-              Answers the account (as in GET api/accounts); 502 when the sign-in fails
-          method: POST
-          params:
-              email:
-                  description: the Unitree app account's email
-                  required: true
-                  type: string
-              password:
-                  description: its password (saved on this computer)
-                  required: true
-                  type: string
-          path: api/accounts
-        - when: an account's robots or AES keys may have changed
-          description: >-
-              Sign in again and refresh the AES keys of the robots bound to a saved account. Answers the account (as in
-              GET api/accounts); 404 for an unsaved one, 502 when the sign-in fails
-          method: POST
-          params:
-              email:
-                  description: a saved account's email
-                  required: true
-                  type: string
-          path: "api/accounts/{email}/pull"
-        - when: you need to remove a saved Unitree account
-          description: >-
-              Forget a saved account (keys already pulled stay): answers {removed: email}; 404 for an unsaved one
-          method: DELETE
-          params:
-              email:
-                  description: a saved account's email
-                  required: true
-                  type: string
-          path: "api/accounts/{email}"
-        - when: you need to know where the first-run guide is
-          description: >-
-              The first-run guide: its step (welcome, find, wifi, address, launch, done), mode (robot or replay) and the robot
-              picked (key, name, ip, whether its AES key is saved)
-          method: GET
-          path: api/setup
-        - when: you need to advance the first-run guide or pick its robot
-          description: >-
-              Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it), ip (that
-              robot's IP, saved for it; with no robot, the robot is that IP) and mode. Answers the guide (as GET
-              api/setup)
-          method: PUT
-          params:
-              ip:
-                  description: the picked robot's IPv4 address
-                  type: string
-              mode:
-                  description: "robot, or replay (no robot: try a recording)"
-                  type: string
-              robot:
-                  description: a key from GET api/robots; empty forgets the picked robot
-                  type: string
-              step:
-                  description: "welcome, find, wifi, address, launch or done"
-                  type: string
-          path: api/setup
-        - when: you need to restart the first-run guide
-          description: >-
-              Start the first-run guide over (robots, names and keys stay): answers the guide (as GET api/setup)
-          method: DELETE
-          path: api/setup
-        - when: you need to know whether a Go2 is reachable at an IP
-          description: >-
-              Whether a Go2 answers at an IP: opens and closes a connection to its WebRTC signaling port (9991), sends
-              nothing. Answers {ip, port, reachable, ms, error}; gives up after 2.5 s
-          method: POST
-          params:
-              ip:
-                  description: the IPv4 address to try
-                  required: true
-                  type: string
-          path: api/check-ip
-        - when: you need the status of the dimos launch
-          description: >-
-              {launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems), or
-              null
-          method: GET
-          path: api/launch
-        - when: >-
-              the user wants a dimos blueprint running on a Go2 (through Desktop, with its IP and AES key), or a
-              replay
-          description: >-
-              Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one
-              launch at a time (a running one answers 409: POST api/launch/stop first). Answers the launch (as GET
-              api/launch's launch). dryRun: true says what it would send
-          method: POST
-          params:
-              blueprint:
-                  description: the dimos blueprint to run (default unitree-go2-basic)
-                  type: string
-              default:
-                  description: 'also save robot_ip in Desktop''s global config, for the Launcher''s launches'
-                  type: boolean
-              dryRun:
-                  description: "true: say what would be launched, launch nothing"
-                  type: boolean
-              ip:
-                  description: 'the robot''s IP (default: the guide''s robot)'
-                  type: string
-              replay:
-                  description: play a recording instead of connecting to a robot
-                  type: boolean
-          path: api/launch
-        - when: you need to stop the running dimos launch
-          description: >-
-              Stop Desktop's dimos launch: answers {stopped, output}; stopped is false when nothing is running
-          method: POST
-          path: api/launch/stop
-        - when: the robot must be put down safely (low battery, bad link)
-          description: >-
-              Sit the dog down safely, without closing the app (a low battery, a bad link): stop moving, then StandDown
-              (lies down, motors holding; never Damp). Answers {dryRun, sent, sends, mode: resting}
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/sit-down
-        - when: an overheat warning is up and driving is blocked
-          description: >-
-              Acknowledge the overheat warning (a leg motor at 75 °C or more; while it's up only lie_down and sit are
-              sent): silences it and lets driving resume; it comes back 5 °C hotter, or at 75 °C after the motors cool
-              below 70 °C. Answers {acknowledged, celsius, joint}, or acknowledged false when none is up
-          method: POST
-          path: api/drive/overheat/ack
-        - when: you want to test the overheat warning without a hot robot
-          description: >-
-              Try the overheat warning in a dry-run session (409 otherwise): raises it as if a motor read celsius
-              (default 76). Answers the drive session (as GET api/drive)
-          method: POST
-          params:
-              celsius:
-                  description: the reading, default 76
-                  type: number
-          path: api/drive/overheat/simulate
-        - when: you want the robot's head light on or off
-          description: >-
-              Turn the dog's head light on (brightness 10) or off (0) through its VUI api (SetBrightness); without `on`
-              it toggles. Answers {dryRun, sent, light, sends}; the drive state's `light` says which it is
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-              "on":
-                  description: true = on, false = off; leave out to toggle
-                  type: boolean
-          path: api/drive/light
-        - when: you want the robot's own obstacle avoidance on or off
-          description: >-
-              Turn the dog's own obstacle avoidance on or off (its obstacles_avoid api, SwitchSet); without `on` it
-              toggles. Answers {dryRun, sent, obstacleAvoidance, sends}; the drive state's `obstacleAvoidance` says
-              which it is (the dog is asked on connect; null until it answers)
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-              "on":
-                  description: true = on, false = off; leave out to toggle
-                  type: boolean
-          path: api/drive/obstacle_avoidance
-        - when: a page is forwarding gamepad samples for the recording
-          description: >-
-              For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping),
-              recorded as a dimos Joy on the joystick stream while recording. Drives nothing. Answers {recorded}: false
-              when nothing is recording
-          method: POST
-          params:
-              axes:
-                  description: "raw axes, -1..1"
-                  required: true
-                  type: array
-              buttons:
-                  description: "buttons, 0 or 1"
-                  required: true
-                  type: array
-          path: api/drive/joy
-        - when: a page's camera video failed to start or fell back
-          description: >-
-              For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the
-              WebSocket): logged, published as a video_note event (zenoh topic `events`) and written to the recording's
-              /logs. Answers {ok: true}
-          method: POST
-          params:
-              note:
-                  description: what happened
-                  required: true
-                  type: string
-          path: api/drive/video_note
-        - when: a page reports a button the user pressed
-          description: >-
-              For pages: a button the user pressed (its data-ui id): logged, published as a ui_press event (zenoh topic
-              `events`) and written to the recording's /logs. Answers {ok: true}
-          method: POST
-          params:
-              id:
-                  description: the button's id (data-ui), e.g. control.record
-                  required: true
-                  type: string
-              label:
-                  description: its visible text or title, when that says more
-                  type: string
-          path: api/ui/press
-        - when: you want the progress of the recording in progress
-          description: "The recording in progress: file, seconds, messages, bytes, dropped, messages per topic; or {active: false}"
-          method: GET
-          path: api/record
-        - when: the user wants to record the drive session
-          description: >-
-              Record the drive session to a dimos memory store (.db, the default) or a dimos-layout mcap (Record
-              options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom,
-              tf, IMU, battery, joints, the gamepad (joystick), the velocity sent (cmd_vel) and commands. Needs a drive
-              session (409 without); nothing records until this is called, and it runs until api/record/stop or the
-              session closes. Answers the recording's status (as GET api/record), the running one's
-              when already recording
-          method: POST
-          path: api/record/start
-        - when: you need to stop recording and finish the file
-          description: >-
-              Stop recording and finish the file (then auto-upload it, when that's on): answers {file, path, status};
-              409 when not recording
-          method: POST
-          path: api/record/stop
-        - when: you need the list of this app's recordings
-          description: >-
-              This app's recordings, newest first: name, file, size, start, duration, robot, whether still recording, upload
-              state
-          method: GET
-          path: api/recordings
-        - when: you need to rename a recording
-          description: >-
-              Rename a recording (the file keeps its .db / .mcap; the name is made file-safe): answers {file: the new
-              file name}; 409 while it records or uploads, or when the name is taken
-          method: PUT
-          params:
-              file:
-                  description: the recording's file name, from GET api/recordings
-                  required: true
-                  type: string
-              name:
-                  description: the new name, without the extension
-                  required: true
-                  type: string
-          path: "api/recordings/{file}/name"
-        - when: you need to delete a recording
-          description: "Delete a recording (cancels its upload first): answers {deleted: file}; 409 while it records"
-          method: DELETE
-          params:
-              file:
-                  description: the recording's file name, from GET api/recordings
-                  required: true
-                  type: string
-          path: "api/recordings/{file}"
-        - when: you need to upload a recording to the Dimensional cloud
-          description: >-
-              Upload a recording to the Dimensional cloud through Desktop's upload queue (retried until it's done;
-              offline, it waits for the network; under 1 MB is skipped with a 400: the cloud refuses it). Answers
-              {upload: its upload state}; 409 while it records
-          method: POST
-          params:
-              file:
-                  description: the recording's file name, from GET api/recordings
-                  required: true
-                  type: string
-          path: "api/recordings/{file}/upload"
-        - when: you need to stop a recording's upload
-          description: "Cancel a recording's upload (on Desktop's queue too): answers {cancelled: file}"
-          method: POST
-          params:
-              file:
-                  description: the recording's file name, from GET api/recordings
-                  required: true
-                  type: string
-          path: "api/recordings/{file}/upload/cancel"
-        - when: you need to know which cloud account uploads go to
-          description: 'The Dimensional cloud account uploads go to (Desktop''s): {loggedIn, email, available}; fresh: true asks again'
-          method: GET
-          params:
-              fresh:
-                  description: "true: have Desktop check the account again"
-                  type: boolean
-          path: api/cloud
-        - when: the user wants this computer signed out of the Dimensional cloud
-          description: >-
-              Sign this computer out of the Dimensional cloud (Desktop's account: every app's uploads): answers the
-              account (as GET api/cloud)
-          method: POST
-          path: api/cloud/logout
-        - when: you need the status of the link to a Go2's hotspot (AP mode)
-          description: >-
-              AP mode: the hotspot link (idle, joining, linked, restoring, error), the hotspot and the network this computer
-              left, saved hotspot passwords' names, whether this platform can scan Wi-Fi
-          method: GET
-          path: api/hotspot
-        - when: you need to find Go2s broadcasting their own Wi-Fi hotspot
-          description: >-
-              List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS: Go2 Ctrl.app,
-              with Location allowed): {canScan, hotspots: [{ssid, signal, security, current}], current, note}. canScan
-              false and a note when it can't list Wi-Fi names. Read-only
-          method: POST
-          path: api/hotspot/scan
-        - when: a Go2 is in AP mode and you want to drive it over its hotspot
-          description: >-
-              Switch this computer's Wi-Fi to a Go2's hotspot (it loses its internet), then drive the dog at
-              192.168.12.1. The password is saved for that hotspot. Answers {hotspot, drive}; 401 when the password is
-              missing or wrong. dryRun: true says what it would do
-          method: POST
-          params:
-              dryRun:
-                  description: "true: say what would happen, change nothing"
-                  type: boolean
-              name:
-                  description: 'the dog''s name, when it isn''t a found robot (default: read from the SSID, Go2_60968_83d1a1fa → Go2_60968)'
-                  type: string
-              password:
-                  description: 'the hotspot''s password (default: the saved one)'
-                  type: string
-              robot:
-                  description: "a key from GET api/robots: which dog it is (its name and AES key)"
-                  type: string
-              ssid:
-                  description: the Go2's hotspot name, e.g. from POST api/hotspot/scan
-                  required: true
-                  type: string
-          path: api/hotspot/connect
-        - when: you are done with a Go2's hotspot and want normal Wi-Fi back
-          description: >-
-              Leave the Go2's hotspot: close its drive session and rejoin the Wi-Fi this computer was on. Answers
-              {rejoined, hotspot}
-          method: POST
-          path: api/hotspot/restore
-        - when: a saved hotspot password is wrong or unwanted
-          description: "Forget a hotspot's saved password: answers the hotspot state (as GET api/hotspot)"
-          method: DELETE
-          params:
-              ssid:
-                  description: the hotspot's name
-                  required: true
-                  type: string
-          path: "api/hotspot/password/{ssid}"
-        - when: you need this app's settings
-          description: "This app's settings: {autoUpload, recordOptions (once set)}"
-          method: GET
-          path: api/settings
-        - when: you need to turn auto-upload on or off or change how recording works
-          description: >-
-              Change settings: autoUpload (upload each finished recording; retries failures, waits while offline) and
-              recordOptions. Answers the settings (as GET api/settings)
-          method: PUT
-          params:
-              autoUpload:
-                  description: upload each finished recording automatically
-                  type: boolean
-              recordOptions:
-                  description: >-
-                      {directory (absolute; empty = default), format (db or mcap), compression (zstd or none),
-                      imageFormat (jpeg, jpeg-high, jpeg-best or raw), recordNew, logs, topics, rates (Hz)}; folder,
-                      compression and image format can't change while recording (409)
-                  type: object
-          path: api/settings
-        - when: the robot should stand up, e.g. before walking
-          description: >-
-              Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first (on
-              the robot of the open drive session). Answers {dryRun, sent, command, robot, sends, mode}; 409 with no
-              drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/stand
-        - when: the robot should lie down
-          description: >-
-              Lie down (StandDown) (on the robot of the open drive session). Answers {dryRun, sent, command, robot,
-              sends, mode}; 409 with no drive session (sent even while an overheat warning is up)
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/lie_down
-        - when: you want to tilt or turn the robot's body in place
-          description: >-
-              Balance-stand in pose mode: api/drive/move then tilts/turns the body in place instead of walking (on the
-              robot of the open drive session). Answers {dryRun, sent, command, robot, sends, mode}; 409 with no drive
-              session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/pose
-        - when: the robot should sit
-          description: >-
-              Sit down (the robot can't walk until it stands again) (on the robot of the open drive session). Answers
-              {dryRun, sent, command, robot, sends, mode}; 409 with no drive session (sent even while an overheat
-              warning is up)
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/sit
-        - when: the robot should jump forward
-          description: >-
-              Jump forward (FrontJump) — needs clear space in front (on the robot of the open drive session). Answers
-              {dryRun, sent, command, robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/jump
-        - when: the robot should wave hello
-          description: >-
-              Wave a front paw (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
-              mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/hello
-        - when: the robot should stretch
-          description: >-
-              Stretch (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends, mode}; 409
-              with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/stretch
-        - when: the robot has fallen over and should get up
-          description: >-
-              Get back on its feet after a fall (RecoveryStand) (on the robot of the open drive session). Answers
-              {dryRun, sent, command, robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/recover
-        - when: the robot's motors should go limp
-          description: >-
-              Go limp and lie down (Damp) (on the robot of the open drive session). Answers {dryRun, sent, command,
-              robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/relax
-        - when: the robot is sitting and should get up
-          description: >-
-              Get up from sitting (RiseSit) (on the robot of the open drive session). Answers {dryRun, sent, command,
-              robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/rise_sit
-        - when: the robot should dance (routine 1)
-          description: >-
-              Dance routine 1 (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
-              mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/dance1
-        - when: the robot should dance (routine 2)
-          description: >-
-              Dance routine 2 (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
-              mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/dance2
-        - when: the robot should wiggle its hips
-          description: >-
-              Wiggle its hips (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
-              mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/wiggle_hips
-        - when: the robot should make a heart with its paws
-          description: >-
-              Make a heart with its front paws (on the robot of the open drive session). Answers {dryRun, sent, command,
-              robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
-          method: POST
-          params:
-              dryRun:
-                  description: "true: check everything and say what would be sent, without touching the robot"
-                  type: boolean
-          path: api/drive/finger_heart
+    paths:
+        /api/state:
+            get:
+                description: >-
+                    Everything at once, as one object: robots (the last scan's), scan (its status), wifi (Wi-Fi provisioning),
+                    drive (the drive session), network (this computer's Wi-Fi), accounts (Unitree), commands (the robot commands),
+                    setup (the first-run guide), record, recordings, settings, hotspot
+                x-when: you want everything about the robots and this app in one call
+                x-dimos-role: context
+        /api/robots:
+            get:
+                description: >-
+                    The robots found by the last scan, as an array of {key, name, customName, bleName, serial, bleId, ip,
+                    ipSource, matched, arpOnly, hasAesKey, canProvisionWifi}; key is what the other robot endpoints take
+                x-when: you need the list of Go2s the last scan found
+        /api/robots/{key}:
+            get:
+                description: >-
+                    One robot from the last scan: {key, name, customName, bleName, serial, bleId, ip, ipSource, matched, arpOnly,
+                    hasAesKey, canProvisionWifi}; 404 when no scan found it
+                x-when: you need one robot's details (its IP, name, AES key status)
+                parameters:
+                    - name: key
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the robot's key from GET api/robots (its serial, else Bluetooth id, else IP)
+        /api/robots/{key}/env:
+            get:
+                description: >-
+                    What dimos needs to reach this robot: {ROBOT_IP, UNITREE_AES_128_KEY, export}, export being the line to
+                    paste into a shell; 409 when it has no IP or no saved AES key
+                x-when: you need a Go2's ROBOT_IP and AES key to run a dimos blueprint on it by hand (dimos run)
+                parameters:
+                    - name: key
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the robot's key from GET api/robots (its serial, else Bluetooth id, else IP)
+        /api/scan:
+            post:
+                description: >-
+                    Scan for Go2s over Bluetooth and the local network (passive: nothing is paired or changed): LAN discovery,
+                    plus an ARP sweep (one ping per address) joined to Bluetooth by MAC, for networks that drop discovery's
+                    multicast. Forgets the previous results; answers {scan, robots}, with wait (default) when the scan ends
+                x-when: you need to find Go2s nearby or refresh the robot list
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    sweep:
+                                        description: >-
+                                            the ARP sweep: quick (default: IPs dogs were seen at, then the subnet if ≤ 1024
+                                            addresses, else the /24 around this computer, widened to the whole subnet when
+                                            a dog on Bluetooth is still missing, at most every 10 minutes), full (the whole
+                                            subnet up to a /16; a /17 takes ~1 min on macOS, ~6 min on Linux), known (remembered
+                                            IPs only) or off
+                                        type: string
+                                    timeout:
+                                        description: seconds to scan, 1..60 (default 7; a sweep can run longer)
+                                        type: number
+                                    wait:
+                                        description: answer when the scan ends with the robots found (default true); false
+                                            answers right away
+                                        type: boolean
+        /api/aes-keys:
+            get:
+                description: >-
+                    Every saved AES key with its robot, as {exportedAt, keys: [{key, name, serial, aesKey}]}: for the page's
+                    download button (private: only this app's pages can read it)
+                x-when: you need to export every saved AES key
+            post:
+                description: >-
+                    Import AES keys (the keys of a file GET api/aes-keys exported) into this computer's saved keys, with their
+                    names when given; every entry is checked first, so a bad one imports nothing. Answers {imported: count}
+                x-when: you need to restore AES keys from a downloaded keys file
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    keys:
+                                        description: 1..10000 entries of {key or serial, aesKey (32 hex chars), name (optional)}
+                                        type: array
+                                required:
+                                    - keys
+        /api/scan/stop:
+            post:
+                description: >-
+                    Stop the running scan (and its sweep) now; what it found so far stays. Answers {stopped (whether one was
+                    running), scan}
+                x-when: a scan is running and should end now
+        /api/robots/{key}/name:
+            put:
+                description: >-
+                    Rename a robot (saved on this computer); an empty name goes back to its Bluetooth name. Answers the robot
+                    (as GET api/robots/{key})
+                x-when: you need to rename a robot
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    name:
+                                        description: the new name; empty resets it to its Bluetooth name
+                                        type: string
+                                required:
+                                    - name
+                parameters:
+                    - name: key
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the robot's key from GET api/robots (its serial, else Bluetooth id, else IP)
+        /api/robots/{key}/aes-key:
+            put:
+                description: >-
+                    Save a robot's per-device AES-128 key (32 hex chars; firmware ≥ 1.1.15 needs it to connect); empty clears
+                    it. POST api/accounts fetches keys instead. Answers the robot (as GET api/robots/{key})
+                x-when: you have a robot's AES key to save by hand
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    aesKey:
+                                        description: 32 hex characters, or empty to clear the saved key
+                                        type: string
+                                required:
+                                    - aesKey
+                parameters:
+                    - name: key
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the robot's key from GET api/robots (its serial, else Bluetooth id, else IP)
+        /api/robots/{key}/ip:
+            put:
+                description: >-
+                    Set the IP to drive a robot at when the scan can't see it on the network (a VPN, another subnet); empty
+                    clears it. Answers the robot (as GET api/robots/{key})
+                x-when: a robot isn't found by the scan but you know its IP
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    ip:
+                                        description: an IPv4 address, or empty to clear it
+                                        type: string
+                                required:
+                                    - ip
+                parameters:
+                    - name: key
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the robot's key from GET api/robots (its serial, else Bluetooth id, else IP)
+        /api/network:
+            get:
+                description: >-
+                    This computer's Wi-Fi (SSID) and, on macOS, whether LAN discovery's multicast can reach the robots (a
+                    VPN can hijack it; `fix` is the command that routes it)
+                x-when: robots aren't found and you suspect this computer's network
+        /api/robots/{key}/wifi:
+            post:
+                description: >-
+                    Put a robot on a Wi-Fi network: sends the SSID, password and country over Bluetooth (the robot needs canProvisionWifi),
+                    answers once the robot accepted them: {ok, sent, robot, serial, ssid, warning, next}. The robot joins
+                    in ~30 s: scan again for its IP. 409 while another provisioning runs. Use dryRun: true to check without
+                    sending
+                x-when: the user asks to put a Go2 on wifi
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    country:
+                                        description: two-letter Wi-Fi country code (default US)
+                                        type: string
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+                                    password:
+                                        description: the Wi-Fi password (empty for an open network)
+                                        type: string
+                                    ssid:
+                                        description: the Wi-Fi network's name
+                                        type: string
+                                required:
+                                    - ssid
+                parameters:
+                    - name: key
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the robot's key from GET api/robots (its serial, else Bluetooth id, else IP)
+        /api/wifi:
+            get:
+                description: >-
+                    The current or last Wi-Fi provisioning: status (idle, running, ok, error, cancelled, dry-run), robot,
+                    SSID and its log
+                x-when: you want the progress of a Wi-Fi provisioning
+            delete:
+                description: >-
+                    Forget the last Wi-Fi provisioning result (closes it in the UI): answers the reset state ({status: idle});
+                    409 while one is running
+                x-when: you want to dismiss the last Wi-Fi provisioning result
+        /api/wifi/cancel:
+            post:
+                summary: "Abort the running Wi-Fi provisioning: answers {cancelled: true}; 409 when none is running"
+                x-when: a Wi-Fi provisioning is stuck or should be aborted
+        /api/drive:
+            get:
+                description: >-
+                    The drive session: robot, status (connecting, ready, reconnecting, error), mode (resting, rising, stand,
+                    pose), velocity, last command
+                x-when: you want the drive session's status or the robot's mode
+        /api/drive/connect:
+            post:
+                description: >-
+                    Connect to a robot for live control and camera (closes any other session); answers the session (as GET
+                    api/drive) when ready. Give robot or ip. dryRun: true opens a simulated session that sends nothing
+                x-when: you need to connect to a robot to drive it or see its camera
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    aesKey:
+                                        description: 'the robot''s AES key for this connection (default: the saved one)'
+                                        type: string
+                                    dryRun:
+                                        description: "true: a simulated session — commands and moves are accepted and shown,
+                                            never sent"
+                                        type: boolean
+                                    ip:
+                                        description: drive this IP directly (no scan needed), or override the robot's
+                                        type: string
+                                    robot:
+                                        description: a key from GET api/robots
+                                        type: string
+        /api/drive/disconnect:
+            post:
+                description: >-
+                    Close the drive session (stops any move, and finishes a recording in progress, first): answers {closed:
+                    the session's last state}; 409 when none is open
+                x-when: you are done driving a robot
+        /api/drive/move:
+            post:
+                description: >-
+                    Walk (or, in pose mode, tilt) at a velocity for a while, then stop; a new move replaces the last. Axes
+                    are -1..1 of 1.0 m/s forward, 0.6 m/s sideways, 1.5 rad/s turning, up to ×1.5 with boost. Needs stand
+                    first. Answers {dryRun, sent, metersPerSecond: {forward, strafe}, radiansPerSecond, durationMs, mode};
+                    409 with no drive session, or while an overheat warning is up
+                x-when: you want the robot to walk, strafe or turn
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    boost:
+                                        description: '0..1 (a trigger''s pull): up to 1.5× faster'
+                                        type: number
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+                                    durationMs:
+                                        description: how long, 100..5000 (default 500)
+                                        type: number
+                                    forward:
+                                        description: -1..1, positive = forward
+                                        type: number
+                                    run:
+                                        description: "full boost (boost: 1)"
+                                        type: boolean
+                                    strafe:
+                                        description: -1..1, positive = left
+                                        type: number
+                                    turn:
+                                        description: -1..1, positive = turn left
+                                        type: number
+        /api/drive/stop:
+            post:
+                summary: "Stop moving now (StopMove): answers {dryRun, sent, stopped}; 409 with no drive session"
+                x-when: the robot is moving and must stop now
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/video:
+            post:
+                description: >-
+                    For pages: a WebRTC offer (receive-only video) in, the answer that streams the robot's camera out: {type:
+                    answer, sdp, placeholder (true in a dry-run session)}; 409 with no drive session
+                x-when: a page needs the robot's live camera over WebRTC
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    sdp:
+                                        description: the page's SDP offer
+                                        type: string
+                                required:
+                                    - sdp
+        /api/accounts:
+            get:
+                description: >-
+                    Saved Unitree app accounts (the AES keys come from them) and the robots bound to each, as an array of
+                    {email, lastPull, pulling, error, robots: [{sn, alias, hasKey}]}
+                x-when: you want the saved Unitree accounts and their robots
+            post:
+                description: >-
+                    Save a Unitree app account (on this computer only) and pull the AES key of every robot bound to it. Answers
+                    the account (as in GET api/accounts); 502 when the sign-in fails
+                x-when: the user gives Unitree app credentials to fetch AES keys
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    email:
+                                        description: the Unitree app account's email
+                                        type: string
+                                    password:
+                                        description: its password (saved on this computer)
+                                        type: string
+                                required:
+                                    - email
+                                    - password
+        /api/accounts/{email}/pull:
+            post:
+                description: >-
+                    Sign in again and refresh the AES keys of the robots bound to a saved account. Answers the account (as
+                    in GET api/accounts); 404 for an unsaved one, 502 when the sign-in fails
+                x-when: an account's robots or AES keys may have changed
+                parameters:
+                    - name: email
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: a saved account's email
+        /api/accounts/{email}:
+            delete:
+                summary: "Forget a saved account (keys already pulled stay): answers {removed: email}; 404 for an unsaved
+                    one"
+                x-when: you need to remove a saved Unitree account
+                parameters:
+                    - name: email
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: a saved account's email
+        /api/setup:
+            get:
+                description: >-
+                    The first-run guide: its step (welcome, find, wifi, address, launch, done), mode (robot or replay) and
+                    the robot picked (key, name, ip, whether its AES key is saved)
+                x-when: you need to know where the first-run guide is
+            put:
+                description: >-
+                    Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it), ip (that robot's
+                    IP, saved for it; with no robot, the robot is that IP) and mode. Answers the guide (as GET api/setup)
+                x-when: you need to advance the first-run guide or pick its robot
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    ip:
+                                        description: the picked robot's IPv4 address
+                                        type: string
+                                    mode:
+                                        description: "robot, or replay (no robot: try a recording)"
+                                        type: string
+                                    robot:
+                                        description: a key from GET api/robots; empty forgets the picked robot
+                                        type: string
+                                    step:
+                                        description: welcome, find, wifi, address, launch or done
+                                        type: string
+            delete:
+                summary: "Start the first-run guide over (robots, names and keys stay): answers the guide (as GET api/setup)"
+                x-when: you need to restart the first-run guide
+        /api/check-ip:
+            post:
+                description: >-
+                    Whether a Go2 answers at an IP: opens and closes a connection to its WebRTC signaling port (9991), sends
+                    nothing. Answers {ip, port, reachable, ms, error}; gives up after 2.5 s
+                x-when: you need to know whether a Go2 is reachable at an IP
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    ip:
+                                        description: the IPv4 address to try
+                                        type: string
+                                required:
+                                    - ip
+        /api/launch:
+            get:
+                description: >-
+                    {launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems),
+                    or null
+                x-when: you need the status of the dimos launch
+            post:
+                description: >-
+                    Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one
+                    launch at a time (a running one answers 409: POST api/launch/stop first). Answers the launch (as GET api/launch's
+                    launch). dryRun: true says what it would send
+                x-when: >-
+                    the user wants a dimos blueprint running on a Go2 (through Desktop, with its IP and AES key), or a replay
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    blueprint:
+                                        description: the dimos blueprint to run (default unitree-go2-basic)
+                                        type: string
+                                    default:
+                                        description: also save robot_ip in Desktop's global config, for the Launcher's launches
+                                        type: boolean
+                                    dryRun:
+                                        description: "true: say what would be launched, launch nothing"
+                                        type: boolean
+                                    ip:
+                                        description: 'the robot''s IP (default: the guide''s robot)'
+                                        type: string
+                                    replay:
+                                        description: play a recording instead of connecting to a robot
+                                        type: boolean
+        /api/launch/stop:
+            post:
+                summary: 'Stop Desktop''s dimos launch: answers {stopped, output}; stopped is false when nothing is running'
+                x-when: you need to stop the running dimos launch
+        /api/drive/sit-down:
+            post:
+                description: >-
+                    Sit the dog down safely, without closing the app (a low battery, a bad link): stop moving, then StandDown
+                    (lies down, motors holding; never Damp). Answers {dryRun, sent, sends, mode: resting}
+                x-when: the robot must be put down safely (low battery, bad link)
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/overheat/ack:
+            post:
+                description: >-
+                    Acknowledge the overheat warning (a leg motor at 75 °C or more; while it's up only lie_down and sit are
+                    sent): silences it and lets driving resume; it comes back 5 °C hotter, or at 75 °C after the motors cool
+                    below 70 °C. Answers {acknowledged, celsius, joint}, or acknowledged false when none is up
+                x-when: an overheat warning is up and driving is blocked
+        /api/drive/overheat/simulate:
+            post:
+                description: >-
+                    Try the overheat warning in a dry-run session (409 otherwise): raises it as if a motor read celsius (default
+                    76). Answers the drive session (as GET api/drive)
+                x-when: you want to test the overheat warning without a hot robot
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    celsius:
+                                        description: the reading, default 76
+                                        type: number
+        /api/drive/light:
+            post:
+                description: >-
+                    Turn the dog's head light on (brightness 10) or off (0) through its VUI api (SetBrightness); without `on`
+                    it toggles. Answers {dryRun, sent, light, sends}; the drive state's `light` says which it is
+                x-when: you want the robot's head light on or off
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+                                    "on":
+                                        description: true = on, false = off; leave out to toggle
+                                        type: boolean
+        /api/drive/obstacle_avoidance:
+            post:
+                description: >-
+                    Turn the dog's own obstacle avoidance on or off (its obstacles_avoid api, SwitchSet); without `on` it
+                    toggles. Answers {dryRun, sent, obstacleAvoidance, sends}; the drive state's `obstacleAvoidance` says
+                    which it is (the dog is asked on connect; null until it answers)
+                x-when: you want the robot's own obstacle avoidance on or off
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+                                    "on":
+                                        description: true = on, false = off; leave out to toggle
+                                        type: boolean
+        /api/drive/joy:
+            post:
+                description: >-
+                    For pages: one gamepad sample (the Gamepad API's raw axes -1..1 and buttons 0/1, standard mapping), recorded
+                    as a dimos Joy on the joystick stream while recording. Drives nothing. Answers {recorded}: false when
+                    nothing is recording
+                x-when: a page is forwarding gamepad samples for the recording
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    axes:
+                                        description: raw axes, -1..1
+                                        type: array
+                                    buttons:
+                                        description: buttons, 0 or 1
+                                        type: array
+                                required:
+                                    - axes
+                                    - buttons
+        /api/drive/video_note:
+            post:
+                description: >-
+                    For pages: one line about the page's camera (why its WebRTC video didn't start, that it fell back to the
+                    WebSocket): logged, published as a video_note event (zenoh topic `events`) and written to the recording's
+                    /logs. Answers {ok: true}
+                x-when: a page's camera video failed to start or fell back
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    note:
+                                        description: what happened
+                                        type: string
+                                required:
+                                    - note
+        /api/ui/press:
+            post:
+                description: >-
+                    For pages: a button the user pressed (its data-ui id): logged, published as a ui_press event (zenoh topic
+                    `events`) and written to the recording's /logs. Answers {ok: true}
+                x-when: a page reports a button the user pressed
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    id:
+                                        description: the button's id (data-ui), e.g. control.record
+                                        type: string
+                                    label:
+                                        description: its visible text or title, when that says more
+                                        type: string
+                                required:
+                                    - id
+        /api/record:
+            get:
+                description: >-
+                    The recording in progress: file, seconds, messages, bytes, dropped, messages per topic; or {active: false}
+                x-when: you want the progress of the recording in progress
+        /api/record/start:
+            post:
+                description: >-
+                    Record the drive session to a dimos memory store (.db, the default) or a dimos-layout mcap (Record options)
+                    in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU,
+                    battery, joints, the gamepad (joystick), the velocity sent (cmd_vel) and commands. Needs a drive session
+                    (409 without); nothing records until this is called, and it runs until api/record/stop or the session
+                    closes. Answers the recording's status (as GET api/record), the running one's when already recording
+                x-when: the user wants to record the drive session
+        /api/record/stop:
+            post:
+                description: >-
+                    Stop recording and finish the file (then auto-upload it, when that's on): answers {file, path, status};
+                    409 when not recording
+                x-when: you need to stop recording and finish the file
+        /api/recordings:
+            get:
+                description: >-
+                    This app's recordings, newest first: name, file, size, start, duration, robot, whether still recording,
+                    upload state
+                x-when: you need the list of this app's recordings
+        /api/recordings/{file}/name:
+            put:
+                description: >-
+                    Rename a recording (the file keeps its .db / .mcap; the name is made file-safe): answers {file: the new
+                    file name}; 409 while it records or uploads, or when the name is taken
+                x-when: you need to rename a recording
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    name:
+                                        description: the new name, without the extension
+                                        type: string
+                                required:
+                                    - name
+                parameters:
+                    - name: file
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the recording's file name, from GET api/recordings
+        /api/recordings/{file}:
+            delete:
+                summary: "Delete a recording (cancels its upload first): answers {deleted: file}; 409 while it records"
+                x-when: you need to delete a recording
+                parameters:
+                    - name: file
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the recording's file name, from GET api/recordings
+        /api/recordings/{file}/upload:
+            post:
+                description: >-
+                    Upload a recording to the Dimensional cloud through Desktop's upload queue (retried until it's done; offline,
+                    it waits for the network; under 1 MB is skipped with a 400: the cloud refuses it). Answers {upload: its
+                    upload state}; 409 while it records
+                x-when: you need to upload a recording to the Dimensional cloud
+                parameters:
+                    - name: file
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the recording's file name, from GET api/recordings
+        /api/recordings/{file}/upload/cancel:
+            post:
+                summary: 'Cancel a recording''s upload (on Desktop''s queue too): answers {cancelled: file}'
+                x-when: you need to stop a recording's upload
+                parameters:
+                    - name: file
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the recording's file name, from GET api/recordings
+        /api/cloud:
+            get:
+                description: >-
+                    The Dimensional cloud account uploads go to (Desktop's): {loggedIn, email, available}; fresh: true asks
+                    again
+                x-when: you need to know which cloud account uploads go to
+                parameters:
+                    - name: fresh
+                      in: query
+                      schema:
+                          type: boolean
+                      description: "true: have Desktop check the account again"
+        /api/cloud/logout:
+            post:
+                description: >-
+                    Sign this computer out of the Dimensional cloud (Desktop's account: every app's uploads): answers the
+                    account (as GET api/cloud)
+                x-when: the user wants this computer signed out of the Dimensional cloud
+        /api/hotspot:
+            get:
+                description: >-
+                    AP mode: the hotspot link (idle, joining, linked, restoring, error), the hotspot and the network this
+                    computer left, saved hotspot passwords' names, whether this platform can scan Wi-Fi
+                x-when: you need the status of the link to a Go2's hotspot (AP mode)
+        /api/hotspot/scan:
+            post:
+                description: >-
+                    List nearby Wi-Fi hotspots that look like Go2s in AP mode (Linux: NetworkManager; macOS: Go2 Ctrl.app,
+                    with Location allowed): {canScan, hotspots: [{ssid, signal, security, current}], current, note}. canScan
+                    false and a note when it can't list Wi-Fi names. Read-only
+                x-when: you need to find Go2s broadcasting their own Wi-Fi hotspot
+        /api/hotspot/connect:
+            post:
+                description: >-
+                    Switch this computer's Wi-Fi to a Go2's hotspot (it loses its internet), then drive the dog at 192.168.12.1.
+                    The password is saved for that hotspot. Answers {hotspot, drive}; 401 when the password is missing or
+                    wrong. dryRun: true says what it would do
+                x-when: a Go2 is in AP mode and you want to drive it over its hotspot
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: say what would happen, change nothing"
+                                        type: boolean
+                                    name:
+                                        description: >-
+                                            the dog's name, when it isn't a found robot (default: read from the SSID, Go2_60968_83d1a1fa
+                                            → Go2_60968)
+                                        type: string
+                                    password:
+                                        description: 'the hotspot''s password (default: the saved one)'
+                                        type: string
+                                    robot:
+                                        description: "a key from GET api/robots: which dog it is (its name and AES key)"
+                                        type: string
+                                    ssid:
+                                        description: the Go2's hotspot name, e.g. from POST api/hotspot/scan
+                                        type: string
+                                required:
+                                    - ssid
+        /api/hotspot/restore:
+            post:
+                description: >-
+                    Leave the Go2's hotspot: close its drive session and rejoin the Wi-Fi this computer was on. Answers {rejoined,
+                    hotspot}
+                x-when: you are done with a Go2's hotspot and want normal Wi-Fi back
+        /api/hotspot/password/{ssid}:
+            delete:
+                summary: 'Forget a hotspot''s saved password: answers the hotspot state (as GET api/hotspot)'
+                x-when: a saved hotspot password is wrong or unwanted
+                parameters:
+                    - name: ssid
+                      in: path
+                      required: true
+                      schema:
+                          type: string
+                      description: the hotspot's name
+        /api/settings:
+            get:
+                summary: 'This app''s settings: {autoUpload, recordOptions (once set)}'
+                x-when: you need this app's settings
+            put:
+                description: >-
+                    Change settings: autoUpload (upload each finished recording; retries failures, waits while offline) and
+                    recordOptions. Answers the settings (as GET api/settings)
+                x-when: you need to turn auto-upload on or off or change how recording works
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    autoUpload:
+                                        description: upload each finished recording automatically
+                                        type: boolean
+                                    recordOptions:
+                                        description: >-
+                                            {directory (absolute; empty = default), format (db or mcap), compression (zstd
+                                            or none), imageFormat (jpeg, jpeg-high, jpeg-best or raw), recordNew, logs, topics,
+                                            rates (Hz)}; folder, compression and image format can't change while recording
+                                            (409)
+                                        type: object
+        /api/drive/stand:
+            post:
+                description: >-
+                    Stand up and balance, ready to walk (StandUp, wait 3 s, BalanceStand); api/drive/move needs this first
+                    (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends, mode}; 409 with
+                    no drive session, or while an overheat warning is up
+                x-when: the robot should stand up, e.g. before walking
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/lie_down:
+            post:
+                description: >-
+                    Lie down (StandDown) (on the robot of the open drive session). Answers {dryRun, sent, command, robot,
+                    sends, mode}; 409 with no drive session (sent even while an overheat warning is up)
+                x-when: the robot should lie down
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/pose:
+            post:
+                description: >-
+                    Balance-stand in pose mode: api/drive/move then tilts/turns the body in place instead of walking (on the
+                    robot of the open drive session). Answers {dryRun, sent, command, robot, sends, mode}; 409 with no drive
+                    session, or while an overheat warning is up
+                x-when: you want to tilt or turn the robot's body in place
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/sit:
+            post:
+                description: >-
+                    Sit down (the robot can't walk until it stands again) (on the robot of the open drive session). Answers
+                    {dryRun, sent, command, robot, sends, mode}; 409 with no drive session (sent even while an overheat warning
+                    is up)
+                x-when: the robot should sit
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/jump:
+            post:
+                description: >-
+                    Jump forward (FrontJump) — needs clear space in front (on the robot of the open drive session). Answers
+                    {dryRun, sent, command, robot, sends, mode}; 409 with no drive session, or while an overheat warning is
+                    up
+                x-when: the robot should jump forward
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/hello:
+            post:
+                description: >-
+                    Wave a front paw (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
+                    mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot should wave hello
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/stretch:
+            post:
+                description: >-
+                    Stretch (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends, mode};
+                    409 with no drive session, or while an overheat warning is up
+                x-when: the robot should stretch
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/recover:
+            post:
+                description: >-
+                    Get back on its feet after a fall (RecoveryStand) (on the robot of the open drive session). Answers {dryRun,
+                    sent, command, robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot has fallen over and should get up
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/relax:
+            post:
+                description: >-
+                    Go limp and lie down (Damp) (on the robot of the open drive session). Answers {dryRun, sent, command,
+                    robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot's motors should go limp
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/rise_sit:
+            post:
+                description: >-
+                    Get up from sitting (RiseSit) (on the robot of the open drive session). Answers {dryRun, sent, command,
+                    robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot is sitting and should get up
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/dance1:
+            post:
+                description: >-
+                    Dance routine 1 (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
+                    mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot should dance (routine 1)
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/dance2:
+            post:
+                description: >-
+                    Dance routine 2 (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
+                    mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot should dance (routine 2)
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/wiggle_hips:
+            post:
+                description: >-
+                    Wiggle its hips (on the robot of the open drive session). Answers {dryRun, sent, command, robot, sends,
+                    mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot should wiggle its hips
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
+        /api/drive/finger_heart:
+            post:
+                description: >-
+                    Make a heart with its front paws (on the robot of the open drive session). Answers {dryRun, sent, command,
+                    robot, sends, mode}; 409 with no drive session, or while an overheat warning is up
+                x-when: the robot should make a heart with its paws
+                requestBody:
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    dryRun:
+                                        description: "true: check everything and say what would be sent, without touching
+                                            the robot"
+                                        type: boolean
 nix:
     # prebuilt copies to look for in the cache, in order (a Mac's cross build, then a Linux machine's own build:
     # CI's Ubuntu runner or any Linux box that pushed); none there: Desktop builds it here

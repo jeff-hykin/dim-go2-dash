@@ -69,14 +69,15 @@ const DOG: &str = "MOCK0000GO2A0001";
 const BLE_ONLY: &str = "MOCK0000GO2A0002";
 
 #[tokio::test]
-async fn state_and_agent_json() {
+async fn state_and_openapi_json() {
     let t = setup();
     let state = t.ok("GET", "api/state", None).await;
     assert_eq!(state["drive"]["active"], false);
     assert!(state["commands"].as_array().unwrap().iter().any(|c| c["name"] == "jump"));
-    let agent = t.ok("GET", "agent.json", None).await;
-    assert_eq!(agent["endpoints"].as_array().unwrap().len(), t.app.routes.len());
-    assert!(agent["endpoints"].as_array().unwrap().iter().any(|e| e["path"] == "api/drive/jump" && e["method"] == "POST"));
+    let openapi = t.ok("GET", "openapi.json", None).await;
+    let paths = openapi["paths"].as_object().unwrap();
+    assert_eq!(paths.values().map(|item| item.as_object().unwrap().len()).sum::<usize>(), t.app.routes.len());
+    assert!(paths["/api/drive/jump"]["post"].is_object());
     assert_eq!(t.status("GET", "api/nope", None).await, 404);
     assert_eq!(t.status("POST", "api/state", None).await, 404);
 }

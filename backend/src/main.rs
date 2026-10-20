@@ -1,6 +1,6 @@
 // dimos-app-server: this app's API and its built frontend on the unix socket Desktop gives (DIMOS_APP's `socket`), else
 // a port. What Desktop passes: the DIMOS_APP env var, one JSON object and the whole interface (docs/apps.md).
-// `--agent-json` prints the endpoints (what dimos.yaml's `agent:` must list) and exits. GO2_DASH_MOCK=1 simulates
+// `--openapi-json` prints the endpoints (what dimos.yaml's `provides:` must list) and exits. GO2_DASH_MOCK=1 simulates
 // every robot, Bluetooth and cloud interaction (for trying the UI without hardware).
 
 use std::path::PathBuf;
@@ -37,8 +37,8 @@ async fn main() {
     if let Some(url) = dimos_app::get().and_then(|given| given.desktop_url.clone()) {
         let _ = app.desktop_url.set(url);
     }
-    if std::env::args().any(|arg| arg == "--agent-json") {
-        println!("{}", serde_json::to_string_pretty(&go2_dash::api::describe(go2_dash::routes::DESCRIPTION, &app.routes)).unwrap());
+    if std::env::args().any(|arg| arg == "--openapi-json") {
+        println!("{}", serde_json::to_string_pretty(&go2_dash::routes::openapi(&app.routes)).unwrap());
         return;
     }
     tokio::spawn({

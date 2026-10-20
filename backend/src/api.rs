@@ -1,5 +1,5 @@
 // The HTTP layer: a table of routes (method, relative path, description, params, role) that is both what the server
-// answers and what agent.json / dimos.yaml say about it, so the UI, Desktop's agent and the docs can't drift apart.
+// answers and what openapi.json / dimos.yaml say about it, so the UI, Desktop's agent and the docs can't drift apart.
 // Same shape as the Deno template's backend/http.ts (dimos-desktop docs/apps.md, docs/agent.md).
 
 use std::future::Future;
@@ -23,7 +23,7 @@ pub struct Route {
     /// relative to the app, e.g. `api/scan`; `{name}` segments become params
     pub path: String,
     pub description: String,
-    /// `{ name: { type, description, required } }`, the agent.json shorthand
+    /// `{ name: { type, description, required } }`, Desktop's shorthand (openapi() turns it into parameters or a body)
     pub params: Option<Value>,
     /// "view": what Desktop's screenshot() calls; "context": what desktop_context adds while the app is focused
     pub role: Option<&'static str>,
@@ -63,21 +63,71 @@ impl HttpError {
     }
 }
 
-pub fn describe(description: &str, routes: &[Route]) -> Value {
-    let endpoints: Vec<Value> = routes
-        .iter()
-        .map(|route| {
-            let mut endpoint = json!({ "method": route.method, "path": route.path, "description": route.description });
-            if let Some(params) = &route.params {
-                endpoint["params"] = params.clone();
+/// The table as an OpenAPI 3.1 document (dimos.yaml's `provides:`, served at openapi.json): `{name}` path parts are
+/// path parameters, the other params query parameters (GET, DELETE) or a JSON body's properties (POST, PUT, PATCH).
+pub fn openapi(title: &str, version: &str, description: &str, routes: &[Route]) -> Value {
+    let mut paths = Map::new();
+    for route in routes {
+        let mut properties = route.params.as_ref().and_then(Value::as_object).cloned().unwrap_or_default();
+        let mut required = Vec::new();
+        // only a boolean `required` is the param's flag; a list is an object param's own schema
+        for (name, spec) in properties.iter_mut() {
+            let Some(spec) = spec.as_object_mut() else { continue };
+            if spec.get("required").is_some_and(Value::is_boolean) && spec.remove("required") == Some(json!(true)) {
+                required.push(name.clone());
             }
-            if let Some(role) = route.role {
-                endpoint["role"] = json!(role);
+        }
+        let mut parameters = Vec::new();
+        let mut parameter = |name: &str, place: &str, required: bool, mut schema: Value| {
+            let text = schema.as_object_mut().and_then(|schema| schema.remove("description"));
+            if schema.as_object().is_none_or(|schema| schema.is_empty()) {
+                schema = json!({ "type": "string" });
             }
-            endpoint
-        })
-        .collect();
-    json!({ "description": description, "endpoints": endpoints })
+            let mut parameter = json!({ "name": name, "in": place, "schema": schema });
+            if required {
+                parameter["required"] = json!(true);
+            }
+            if let Some(text) = text {
+                parameter["description"] = text;
+            }
+            parameters.push(parameter);
+        };
+        let in_path: Vec<&str> =
+            route.path.split('/').filter_map(|part| part.strip_prefix('{')?.strip_suffix('}')).collect();
+        for name in &in_path {
+            parameter(name, "path", true, properties.remove(*name).unwrap_or(json!({})));
+        }
+        required.retain(|name| !in_path.contains(&name.as_str()));
+        let mut operation = Map::new();
+        let text = route.description.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !text.is_empty() {
+            let key = if text.chars().count() <= 100 { "summary" } else { "description" };
+            operation.insert(key.into(), json!(text));
+        }
+        if let Some(role) = route.role {
+            operation.insert("x-dimos-role".into(), json!(role));
+        }
+        if matches!(route.method, "POST" | "PUT" | "PATCH") {
+            if !properties.is_empty() {
+                let mut schema = json!({ "type": "object", "properties": properties });
+                if !required.is_empty() {
+                    schema["required"] = json!(required);
+                }
+                operation.insert("requestBody".into(), json!({ "content": { "application/json": { "schema": schema } } }));
+            }
+        } else {
+            for (name, schema) in properties {
+                parameter(&name, "query", required.contains(&name), schema);
+            }
+        }
+        if !parameters.is_empty() {
+            operation.insert("parameters".into(), json!(parameters));
+        }
+        let item = paths.entry(format!("/{}", route.path)).or_insert_with(|| json!({}));
+        item[route.method.to_lowercase()] = Value::Object(operation);
+    }
+    let description = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    json!({ "openapi": "3.1.0", "info": { "title": title, "version": version, "description": description }, "paths": paths })
 }
 
 fn matches(route: &Route, method: &str, path: &str) -> Option<Args> {
@@ -123,11 +173,11 @@ fn error(status: u16, message: impl Into<String>) -> Response {
     (status, Json(json!({ "error": message.into() }))).into_response()
 }
 
-/// Answers `/api/...` and `/agent.json`; None for anything else (the static frontend).
+/// Answers `/api/...` and `/openapi.json`; None for anything else (the static frontend).
 pub async fn handle(app: Arc<App>, method: &Method, uri: &Uri, body: Bytes) -> Option<Response> {
     let path = uri.path().trim_start_matches('/');
-    if path == "agent.json" {
-        return Some(Json(describe(crate::routes::DESCRIPTION, &app.routes)).into_response());
+    if path == "openapi.json" {
+        return Some(Json(crate::routes::openapi(&app.routes)).into_response());
     }
     for route in app.routes.iter() {
         let Some(path_params) = matches(route, method.as_str(), path) else {
