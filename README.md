@@ -8,7 +8,7 @@ Drive a Unitree Go2 from your laptop or Steam Deck. It's an app for [dimOS Deskt
 
 - **Finds your dogs** over Bluetooth and the local network, and shows the hotspot of any Go2 nearby.
 - **Puts a dog on your Wi-Fi** over Bluetooth. If you can't do that, it can join the dog's own hotspot.
-- **Drives**: you get the camera, the usual tricks (stand, sit, hello, jump...), and a keyboard or gamepad.
+- **Drives**: you get the camera, the usual tricks (stand, sit, hello, jump...), and a keyboard, a gamepad, or on a phone two touch sticks (MOVE and TURN).
   On a gamepad, B stops the dog, A resumes, and holding B for a second sits it down.
 - **Records** a drive when you press Record (press it again to stop), as a dimos memory store (`.db`) or an `.mcap`.
   Recordings upload to Dimensional's cloud unless you turn that off.

@@ -2268,6 +2268,93 @@ body .overheat-back .overheat.dim-modal > header {
     }
 }
 
+/* ── touch sticks (Sticks.tsx): MOVE on the left, TURN on the right; over the video at the edges, except on a portrait
+   phone, where they take a row of the bottom band (below) ── */
+.sticks {
+    --stick-size: 124px;
+    --stick-travel: 38px;
+    position: absolute;
+    left: calc(56px + var(--dim-inset-left)); /* clear of the Robots tab */
+    right: calc(20px + var(--dim-inset-right));
+    bottom: calc(96px + var(--dim-inset-bottom)); /* above Show controls and Recordings */
+    z-index: 4;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    pointer-events: none;
+}
+.sticks > * {
+    pointer-events: auto;
+}
+.stick {
+    position: relative;
+    flex: none;
+    width: var(--stick-size);
+    height: var(--stick-size);
+    border-radius: 50%;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    cursor: grab;
+}
+.stick-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    background: rgba(12, 18, 28, 0.55);
+}
+/* TURN only goes side to side: a track across the ring */
+.stick-ring.x-only::after {
+    content: "";
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    top: calc(50% - 1px);
+    height: 2px;
+    background: rgba(255, 255, 255, 0.25);
+}
+.stick-knob {
+    position: absolute;
+    left: calc(50% - 26px);
+    top: calc(50% - 26px);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.28);
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    pointer-events: none;
+}
+.stick.held .stick-knob {
+    background: color-mix(in srgb, var(--primary) 70%, transparent);
+    border-color: var(--primary);
+}
+.stick-label {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 8px;
+    text-align: center;
+    font: 400 10px/1 var(--hud);
+    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.7);
+    pointer-events: none;
+}
+/* FAST: above TURN over the video; between the sticks on a portrait phone */
+.sticks .stick-fast {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    min-width: 64px;
+    justify-content: center;
+}
+.ctl .sticks .stick-fast.on.dim-btn.dim-btn.dim-btn {
+    color: #fde047;
+    border-color: color-mix(in srgb, #fde047 60%, transparent);
+}
+
 /* ── phones (portrait): the Robots panel is a full-screen sheet, and driving stacks the top bar, the camera, the
    commands and a bottom row instead of floating them over the video (a portrait camera is a short band anyway) ── */
 @media (max-width: 600px) {
@@ -2309,11 +2396,12 @@ body .overheat-back .overheat.dim-modal > header {
     .ctl .cam-wrap {
         display: grid;
         grid-template-columns: auto auto 1fr auto;
-        grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+        grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
         grid-template-areas:
             "top top top top"
             "video video video video"
             "dock dock dock dock"
+            "sticks sticks sticks sticks"
             "robots fmt ctrls recs"
             "vel vel vel vel";
         gap: 6px 8px;
@@ -2408,6 +2496,15 @@ body .overheat-back .overheat.dim-modal > header {
         grid-area: recs;
         margin-right: 8px;
         box-shadow: none;
+    }
+    .ctl .sticks {
+        grid-area: sticks;
+        position: static;
+        padding: 0 16px;
+    }
+    .ctl .sticks .stick-fast {
+        position: static;
+        align-self: center;
     }
     .ctl .vel {
         grid-area: vel;

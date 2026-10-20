@@ -18,6 +18,7 @@ import {
     type PadLike,
 } from "./gamepad.ts"
 import { RecordOptions } from "./RecordOptions.tsx"
+import { Sticks } from "./Sticks.tsx"
 import { Icon } from "./icons.tsx"
 import { store, stored } from "./util.ts"
 import type { Command, Drive, HostBattery, RecordState, Settings } from "./state.ts"
@@ -59,6 +60,24 @@ const MODE_LABEL: Record<string, string> = {
 /** The camera: a receive-only WebRTC peer with the backend, which forwards the robot's track. */
 /** whether the on-screen driving buttons are shown (localStorage) */
 const SHOW_CONTROLS_KEY = "go2dash.showControls"
+/** on a touchscreen: "sticks" (MOVE / TURN, the default) or "arrows" (the on-screen arrow buttons) */
+const TOUCH_CONTROLS_KEY = "go2dash.touchControls"
+
+/** Whether the main pointer is a finger (a phone or tablet): the touch sticks show there. */
+function useCoarsePointer(): boolean {
+    const query = "(pointer: coarse)"
+    const [coarse, setCoarse] = useState(() => globalThis.matchMedia?.(query).matches ?? false)
+    useEffect(() => {
+        const list = globalThis.matchMedia?.(query)
+        if (!list) {
+            return
+        }
+        const changed = () => setCoarse(list.matches)
+        list.addEventListener("change", changed)
+        return () => list.removeEventListener("change", changed)
+    }, [])
+    return coarse
+}
 
 /** a line in the backend's log about the page's camera (why it fell back), so a deck's log shows it */
 function noteVideo(note: string) {
@@ -459,6 +478,13 @@ export function Control(props: {
     const canvas = useRef<HTMLCanvasElement>(null)
     const [showControls, setShowControls] = useState<boolean>(() => stored(SHOW_CONTROLS_KEY, false))
     useEffect(() => store(SHOW_CONTROLS_KEY, showControls), [showControls])
+    const touch = useCoarsePointer()
+    const [touchControls, setTouchControls] = useState<string>(() => stored(TOUCH_CONTROLS_KEY, "sticks"))
+    useEffect(() => store(TOUCH_CONTROLS_KEY, touchControls), [touchControls])
+    const showSticks = touch && touchControls !== "arrows"
+    const showDpad = touch ? !showSticks : showControls
+    const [stickAxes, setStickAxes] = useState<Axes>(ZERO_AXES)
+    const [stickFast, setStickFast] = useState(false)
     const { live, status: cameraStatus, ws } = useCamera(drive, video, canvas)
     const [pressed, setPressed] = useState<Set<string>>(new Set())
     const [boost, setBoost] = useState(0)
@@ -518,19 +544,30 @@ export function Control(props: {
     }
     const [pad, padAxes] = useGamepad({ stop: stopNow, sitDown, setBoost })
     const padMoving = !!(padAxes.forward || padAxes.strafe || padAxes.turn) && standing && ready
+    const sticksMoving = showSticks && !!(stickAxes.forward || stickAxes.strafe || stickAxes.turn) && standing && ready
+    const sticks = (axis: keyof Axes) => (sticksMoving ? stickAxes[axis] : 0)
+    const speedBoost = Math.max(boost, showSticks && stickFast ? 1 : 0)
     const clamp = (v: number) => Math.max(-1, Math.min(1, v))
     const vector = {
-        forward: clamp((pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0) + (padMoving ? padAxes.forward : 0)),
-        strafe: clamp((pressed.has("q") ? 1 : 0) - (pressed.has("e") ? 1 : 0) + (padMoving ? padAxes.strafe : 0)),
-        turn: clamp((pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0) + (padMoving ? padAxes.turn : 0)),
+        forward: clamp(
+            (pressed.has("w") ? 1 : 0) - (pressed.has("s") ? 1 : 0) + (padMoving ? padAxes.forward : 0) +
+                sticks("forward"),
+        ),
+        strafe: clamp(
+            (pressed.has("q") ? 1 : 0) - (pressed.has("e") ? 1 : 0) + (padMoving ? padAxes.strafe : 0) +
+                sticks("strafe"),
+        ),
+        turn: clamp(
+            (pressed.has("a") ? 1 : 0) - (pressed.has("d") ? 1 : 0) + (padMoving ? padAxes.turn : 0) + sticks("turn"),
+        ),
     }
     const anyAxis = !drive.overheat && !!(vector.forward || vector.strafe || vector.turn)
 
     // held keys → a steady stream of short moves; letting go → one stop
     const vectorRef = useRef(vector)
     vectorRef.current = vector
-    const boostRef = useRef(boost)
-    boostRef.current = boost
+    const boostRef = useRef(speedBoost)
+    boostRef.current = speedBoost
     useEffect(() => {
         if (!anyAxis || !ready) {
             return
@@ -704,10 +741,18 @@ export function Control(props: {
                 {settings && <FormatToggle settings={settings} onToast={onToast} />}
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
                     fwd {shown.forward.toFixed(2)} · str {shown.strafe.toFixed(2)} · yaw {shown.turn.toFixed(2)}
-                    {`  ·  trig ${boost.toFixed(2)}`}
-                    {boost ? "" : "  ·  shift / LT = boost"}
+                    {`  ·  trig ${speedBoost.toFixed(2)}`}
+                    {speedBoost ? "" : touch ? "  ·  FAST = boost" : "  ·  shift / LT = boost"}
                 </div>
-                {showControls && (
+                {showSticks && (
+                    <Sticks
+                        onAxes={setStickAxes}
+                        boost={stickFast}
+                        onBoost={setStickFast}
+                        onGrab={() => !drive.overheat && driveAllowed()}
+                    />
+                )}
+                {showDpad && (
                     <div className="dpad">
                         {dpad.map(([key, cls, icon, title]) => (
                             <button
@@ -823,11 +868,16 @@ export function Control(props: {
                     type="button"
                     data-ui="control.toggle_onscreen_controls"
                     className="controls-toggle dim-btn sm"
-                    title="Show or hide the on-screen arrow and turn buttons (keyboard and gamepad work either way)"
-                    onClick={() => setShowControls((shown) => !shown)}
+                    title={touch
+                        ? "Drive with the MOVE / TURN sticks or the arrow buttons (a gamepad works either way)"
+                        : "Show or hide the on-screen arrow and turn buttons (keyboard and gamepad work either way)"}
+                    onClick={() =>
+                        touch
+                            ? setTouchControls((mode) => (mode === "arrows" ? "sticks" : "arrows"))
+                            : setShowControls((shown) => !shown)}
                 >
-                    <Icon name={showControls ? "close" : "gamepad"} size={13} />
-                    {showControls ? "Hide controls" : "Show controls"}
+                    <Icon name={touch || !showControls ? "gamepad" : "close"} size={13} />
+                    {touch ? (showSticks ? "Arrows" : "Sticks") : showControls ? "Hide controls" : "Show controls"}
                 </button>
                 {props.footSlot}
             </div>
