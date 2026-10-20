@@ -432,6 +432,8 @@ export function Control(props: {
     onToast: (text: string) => void
     /** shown in the top bar after the robot's name (the hotspot's way back) */
     topSlot?: React.ReactNode
+    /** the Robots tab and the Recordings button: on a phone they take the row under the commands */
+    footSlot?: React.ReactNode
     /** this computer's battery, shown beside the dog's */
     deckBattery?: HostBattery | null
 }) {
@@ -693,7 +695,7 @@ export function Control(props: {
                             onClick={() => call("POST", "api/drive/disconnect").catch(() => {})}
                         >
                             <Icon name="close" size={14} />
-                            Disconnect
+                            <span className="ctl-close-label">Disconnect</span>
                         </button>
                     </div>
                 </div>
@@ -827,6 +829,7 @@ export function Control(props: {
                     <Icon name={showControls ? "close" : "gamepad"} size={13} />
                     {showControls ? "Hide controls" : "Show controls"}
                 </button>
+                {props.footSlot}
             </div>
         </div>
     )

@@ -2267,3 +2267,163 @@ body .overheat-back .overheat.dim-modal > header {
         background: color-mix(in srgb, currentColor 35%, rgba(0, 0, 0, 0.6));
     }
 }
+
+/* ── phones (portrait): the Robots panel is a full-screen sheet, and driving stacks the top bar, the camera, the
+   commands and a bottom row instead of floating them over the video (a portrait camera is a short band anyway) ── */
+@media (max-width: 600px) {
+    .panel.panel {
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: var(--dim-inset-bottom);
+        width: auto;
+        border-width: 0 0 1px;
+        border-radius: 0;
+    }
+    .panel.slid {
+        transform: translateX(-100%);
+    }
+    /* the card behind the sheet would be a one-word-wide column beside it: it waits until the sheet closes */
+    .stage.beside-panel {
+        display: none;
+    }
+    .panel:not(.slid) ~ .rec-fab {
+        display: none;
+    }
+    .hs-banner.beside-panel {
+        left: 50%;
+        max-width: calc(100% - 24px);
+    }
+    /* not driving: the Robots tab sits bottom left, level with Recordings, off the centre card */
+    .edge-tabs {
+        top: auto;
+        bottom: calc(80px + var(--dim-inset-bottom));
+        transform: none;
+    }
+    .reopen {
+        writing-mode: horizontal-tb;
+        rotate: none;
+        padding: 8px 13px;
+    }
+
+    .ctl .cam-wrap {
+        display: grid;
+        grid-template-columns: auto auto 1fr auto;
+        grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+        grid-template-areas:
+            "top top top top"
+            "video video video video"
+            "dock dock dock dock"
+            "robots fmt ctrls recs"
+            "vel vel vel vel";
+        gap: 6px 8px;
+        padding-bottom: calc(4px + var(--dim-inset-bottom));
+    }
+    .ctl .cam-wrap > video,
+    .ctl .cam-wrap > .cam-canvas,
+    .ctl .cam-ph,
+    .ctl .ctl-err,
+    .ctl .dpad {
+        grid-area: video;
+    }
+    .ctl .cam-wrap > video,
+    .ctl .cam-wrap > .cam-canvas {
+        min-height: 0;
+    }
+    .ctl .ctl-err {
+        top: 8px;
+    }
+    .ctl .dpad {
+        bottom: 8px;
+    }
+
+    /* top bar: the name, then Record and Disconnect; the batteries and chips wrap onto the next line */
+    .ctl .ctl-top {
+        grid-area: top;
+        position: static;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 8px 0;
+        background: none;
+    }
+    .ctl-top .ctl-top-side,
+    .ctl-top .ctl-top-center {
+        display: contents;
+    }
+    .ctl-top-side > *,
+    .ctl-top-center > * {
+        pointer-events: auto;
+        order: 2;
+    }
+    .ctl-top .ctl-id {
+        order: 0;
+        margin-right: auto;
+    }
+    .ctl-top-side.end > * {
+        order: 1;
+    }
+
+    .ctl .cmd-dock {
+        grid-area: dock;
+        position: static;
+        transform: none;
+        max-width: none;
+        min-width: 0;
+        padding: 0 8px;
+        gap: 6px;
+    }
+    .ctl .cmd-bar {
+        flex-wrap: wrap;
+        justify-content: center;
+        row-gap: 6px;
+        min-width: 0;
+        width: 100%;
+    }
+    .ctl .cmd-scroll {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+    .ctl .format-toggle,
+    .ctl .controls-toggle,
+    .ctl .edge-tabs,
+    .ctl .rec-fab {
+        position: static;
+        transform: none;
+        align-self: center;
+    }
+    .ctl .edge-tabs {
+        grid-area: robots;
+        margin-left: 8px;
+    }
+    .ctl .format-toggle {
+        grid-area: fmt;
+        padding: 6px 8px;
+    }
+    .ctl .controls-toggle {
+        grid-area: ctrls;
+        justify-self: start;
+        white-space: nowrap;
+    }
+    .ctl .rec-fab {
+        grid-area: recs;
+        margin-right: 8px;
+        box-shadow: none;
+    }
+    .ctl .vel {
+        grid-area: vel;
+        position: static;
+        margin: 0 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+@media (max-width: 380px) {
+    /* the × alone: Record and Disconnect stay on the name's line */
+    .ctl-close-label {
+        display: none;
+    }
+    .ctl-close .dim-icon {
+        margin-right: 0;
+    }
+}

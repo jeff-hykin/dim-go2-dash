@@ -332,6 +332,33 @@ export function App() {
         : null
     const closeCard = () =>
         card === "setup" ? call("PUT", "api/setup", { step: "done" }).catch(() => {}) : setClosedCard(card)
+    // the Robots tab and this app's recordings float on the page's edges; while driving, Control places them (on a phone, the row under the commands)
+    const corner = (
+        <>
+            <div className="edge-tabs dim-tabs vertical">
+                <button
+                    type="button"
+                    data-ui="app.show_panel"
+                    className={`reopen dim-tab active${slid ? " show" : ""}`}
+                    onClick={() => setSlid(false)}
+                >
+                    Robots
+                </button>
+            </div>
+            <button
+                type="button"
+                data-ui="app.recordings"
+                className={`rec-fab dim-btn${state?.record.active ? " live" : ""}`}
+                title="This app's recordings: upload, rename, open in Recordings"
+                disabled={!state}
+                onClick={() => setRecordingsOpen(true)}
+            >
+                <Icon name="folder" size={15} />
+                Recordings
+                {!!state?.recordings.length && <span className="rec-fab-n">{state.recordings.length}</span>}
+            </button>
+        </>
+    )
     return (
         <>
             <div
@@ -608,17 +635,7 @@ export function App() {
                 <Help route={routeFix} openRequest={helpRequest} />
             </div>
 
-            <div className="edge-tabs dim-tabs vertical">
-                <button
-                    type="button"
-                    data-ui="app.show_panel"
-                    className={`reopen dim-tab active${slid ? " show" : ""}`}
-                    onClick={() => setSlid(false)}
-                >
-                    Robots
-                </button>
-            </div>
-
+            {!(drive.active && state) && corner}
             {drive.active && state && (
                 <Control
                     drive={drive}
@@ -630,6 +647,7 @@ export function App() {
                     record={state.record}
                     settings={state.settings}
                     topSlot={<HotspotBanner state={state.hotspot} inline />}
+                    footSlot={corner}
                     deckBattery={state.network.battery}
                 />
             )}
@@ -642,19 +660,6 @@ export function App() {
                     onClose={() => setDriveAsked(state.hotspot.ssid ?? "")}
                 />
             )}
-            {/* this app's recordings: one floating button, bottom right, connected or not */}
-            <button
-                type="button"
-                data-ui="app.recordings"
-                className={`rec-fab dim-btn${state?.record.active ? " live" : ""}`}
-                title="This app's recordings: upload, rename, open in Recordings"
-                disabled={!state}
-                onClick={() => setRecordingsOpen(true)}
-            >
-                <Icon name="folder" size={15} />
-                Recordings
-                {!!state?.recordings.length && <span className="rec-fab-n">{state.recordings.length}</span>}
-            </button>
             {recordingsOpen && state && (
                 <Recordings
                     recordings={state.recordings}
