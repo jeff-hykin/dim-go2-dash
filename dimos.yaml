@@ -41,12 +41,12 @@ provides:
         - api/aes-keys
         - api/events/*
     when: >-
-        you need to find a Unitree Go2 dog (its IP, AES key), run a dimos blueprint on one (from any checkout, via dtk
-        run), or connect and drive it
+        you need to find a Unitree Go2 dog (its IP, AES key), run a dimos blueprint on one, or connect and drive
+        it
     description: >-
         Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, drive one live (stand,
-        sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (Desktop's dimos, or any checkout through
-        dtk run, with the robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
+        sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with
+        the robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
     endpoints:
         - when: you want everything about the robots and this app in one call
           description: >-
@@ -73,7 +73,7 @@ provides:
                   required: true
                   type: string
           path: "api/robots/{key}"
-        - when: you need a Go2's ROBOT_IP and AES key to run a dimos blueprint on it by hand (dtk run, dimos run)
+        - when: you need a Go2's ROBOT_IP and AES key to run a dimos blueprint on it by hand (dimos run)
           description: >-
               What dimos needs to reach this robot: {ROBOT_IP, UNITREE_AES_128_KEY, export}, export being the line to
               paste into a shell; 409 when it has no IP or no saved AES key
@@ -387,28 +387,21 @@ provides:
           path: api/check-ip
         - when: you need the status of the dimos launch
           description: >-
-              {launch}: the dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems; a
-              checkout's dtk run has checkout and shellId), or null
+              {launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems), or
+              null
           method: GET
           path: api/launch
         - when: >-
-              the user wants a dimos blueprint running on a Go2 (Desktop's dimos, or from any checkout or worktree via
-              dtk run), or a replay
+              the user wants a dimos blueprint running on a Go2 (through Desktop, with its IP and AES key), or a
+              replay
           description: >-
-              Launch dimos for the guide's robot (robot_ip, plus its saved AES key) or a replay: through Desktop's
-              dimos, or with checkout as `dtk run <blueprint>` in that dimos checkout (its .venv activated), in a
-              Desktop shell window the user starts with Run (the key goes through a private env file, never the
-              command). One launch at a time (a running one answers 409: POST api/launch/stop first). Answers the
-              launch (as GET api/launch's launch). dryRun: true says what it would send
+              Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one
+              launch at a time (a running one answers 409: POST api/launch/stop first). Answers the launch (as GET
+              api/launch's launch). dryRun: true says what it would send
           method: POST
           params:
               blueprint:
                   description: the dimos blueprint to run (default unitree-go2-basic)
-                  type: string
-              checkout:
-                  description: >-
-                      a dimos checkout or worktree (absolute or ~/ path): run the blueprint from it with dtk run instead
-                      of Desktop's dimos
                   type: string
               default:
                   description: 'also save robot_ip in Desktop''s global config, for the Launcher''s launches'
@@ -425,8 +418,7 @@ provides:
           path: api/launch
         - when: you need to stop the running dimos launch
           description: >-
-              Stop the dimos launch (Desktop's, or a checkout's dtk run, by cancelling its shell session): answers
-              {stopped, output}; stopped is false when nothing is running
+              Stop Desktop's dimos launch: answers {stopped, output}; stopped is false when nothing is running
           method: POST
           path: api/launch/stop
         - when: the robot must be put down safely (low battery, bad link)

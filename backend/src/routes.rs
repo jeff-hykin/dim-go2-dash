@@ -9,8 +9,8 @@ use crate::api::{flag, handler, number, text, HttpError, Route};
 use crate::drive::{self, commands_json, Command, COMMANDS};
 
 pub const DESCRIPTION: &str = "Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, \
-drive one live (stand, sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (Desktop's dimos, or any \
-checkout through dtk run, with the robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.";
+drive one live (stand, sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with the \
+robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.";
 
 const DRY_RUN: &str = "true: check everything and say what would be sent, without touching the robot";
 
@@ -379,28 +379,26 @@ pub fn routes() -> Vec<Route> {
         route(
             "GET",
             "api/launch",
-            "{launch}: the dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems; a checkout's dtk run has checkout and shellId), or null",
+            "{launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems), or null",
             None,
             handler(|app, _| async move { Ok(json!({ "launch": app.launch_state().await? })) }),
         ),
         route(
             "POST",
             "api/launch",
-            "Launch dimos for the guide's robot (robot_ip, plus its saved AES key) or a replay: through Desktop's dimos, or with checkout as `dtk run <blueprint>` in that dimos checkout (its .venv activated), in a Desktop shell window the user starts with Run; one launch at a time (a running one answers 409: POST api/launch/stop first). dryRun: true says what it would send",
+            "Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one launch at a time (a running one answers 409: POST api/launch/stop first). dryRun: true says what it would send",
             Some(json!({
                 "blueprint": { "type": "string", "description": "default unitree-go2-basic" },
                 "replay": { "type": "boolean", "description": "play a recording instead of connecting to a robot" },
                 "ip": { "type": "string", "description": "the robot's IP (default: the guide's robot)" },
                 "default": { "type": "boolean", "description": "also save robot_ip in Desktop's global config, for the Launcher's launches" },
                 "dryRun": { "type": "boolean", "description": "true: say what would be launched, launch nothing" },
-                "checkout": { "type": "string", "description": "a dimos checkout or worktree (absolute or ~/ path): run the blueprint from it with dtk run instead of Desktop's dimos" },
             })),
             handler(|app, args| async move {
-                let (blueprint, ip, checkout) = (text(&args, "blueprint"), text(&args, "ip"), text(&args, "checkout"));
-                app.launch(flag(&args, "replay")?, blueprint.as_deref(), ip.as_deref(), flag(&args, "dryRun")?, flag(&args, "default")?, checkout.as_deref()).await
+                app.launch(flag(&args, "replay")?, text(&args, "blueprint").as_deref(), text(&args, "ip").as_deref(), flag(&args, "dryRun")?, flag(&args, "default")?).await
             }),
         ),
-        route("POST", "api/launch/stop", "Stop the dimos launch (Desktop's, or a checkout's dtk run)", None, handler(|app, _| async move { app.stop_launch().await })),
+        route("POST", "api/launch/stop", "Stop Desktop's dimos launch", None, handler(|app, _| async move { app.stop_launch().await })),
         route(
             "POST",
             "api/drive/sit-down",
