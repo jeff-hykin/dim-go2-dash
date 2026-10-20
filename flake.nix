@@ -64,7 +64,14 @@
                         let
                             target = "${arch}-unknown-linux-musl";
                             envTarget = builtins.replaceStrings [ "-" ] [ "_" ] target;
-                            zigShim = wrapper: pkgs.writeShellScript "zigbuild-shim" "exec \"$CARGO_ZIGBUILD_CACHE_DIR\"/cargo-zigbuild/*/wrappers/*/${wrapper} \"$@\"";
+                            # (nixos-25.05's zigbuild 0.20 writes them straight into cargo-zigbuild/<version>/, newer ones under wrappers/<hash>/)
+                            zigShim = wrapper: pkgs.writeShellScript "zigbuild-shim" ''
+                                for f in "$CARGO_ZIGBUILD_CACHE_DIR"/cargo-zigbuild/*/${wrapper} "$CARGO_ZIGBUILD_CACHE_DIR"/cargo-zigbuild/*/wrappers/*/${wrapper}; do
+                                    [ -e "$f" ] && exec "$f" "$@"
+                                done
+                                echo "zigbuild-shim: no ${wrapper} under $CARGO_ZIGBUILD_CACHE_DIR" >&2
+                                exit 127
+                            '';
                             cc = zigShim "zigcc-${target}-*.sh";
                             cxx = zigShim "zigcxx-${target}-*.sh";
                             ar = zigShim "ar";
