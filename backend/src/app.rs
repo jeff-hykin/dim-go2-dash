@@ -82,6 +82,7 @@ pub struct App {
     /// the first-run guide's step and robot (setup.rs)
     pub(crate) setup: Mutex<Value>,
     pub(crate) mock_launch: crate::setup::MockLaunch,
+    pub(crate) checkout_launch: crate::setup::CheckoutLaunchSlot,
     /// Desktop's URL (DIMOS_APP's desktopUrl): where dimos is launched
     pub desktop_url: std::sync::OnceLock<String>,
     /// mock only: when each robot given Wi-Fi shows up on the network (ms), as a real one does ~30 s later
@@ -208,6 +209,7 @@ impl App {
             drive: tokio::sync::Mutex::new(None),
             setup: Mutex::new(setup),
             mock_launch: Default::default(),
+            checkout_launch: Default::default(),
             desktop_url: Default::default(),
             mock_joined: Default::default(),
             recording: Mutex::new(None),

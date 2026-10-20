@@ -480,6 +480,139 @@ async fn launch_through_a_desktop_before_gateway_3() {
     assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "launch"));
 }
 
+#[tokio::test]
+async fn robot_env() {
+    let t = setup();
+    t.scanned().await;
+    assert_eq!(t.status("GET", "api/robots/nobody/env", None).await, 404);
+    let (status, body) = t.call("GET", &format!("api/robots/{DOG}/env"), None).await;
+    assert_eq!(status, 409);
+    assert!(body["error"].as_str().unwrap().contains("no AES key"), "{body}");
+    assert_eq!(t.status("GET", &format!("api/robots/{BLE_ONLY}/env"), None).await, 409, "no IP");
+    t.ok("PUT", &format!("api/robots/{DOG}/aes-key"), Some(json!({ "aesKey": "00112233445566778899aabbccddeeff" }))).await;
+    let env = t.ok("GET", &format!("api/robots/{DOG}/env"), None).await;
+    assert_eq!(env["ROBOT_IP"], "192.0.2.10");
+    assert_eq!(env["UNITREE_AES_128_KEY"], "00112233445566778899aabbccddeeff");
+    assert_eq!(env["export"], "export ROBOT_IP=192.0.2.10 UNITREE_AES_128_KEY=00112233445566778899aabbccddeeff");
+}
+
+/// A dimos checkout (a folder with dimos/ and a .venv) for checkout launches.
+fn fake_checkout(root: &std::path::Path) -> String {
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(checkout.join("dimos")).unwrap();
+    std::fs::create_dir_all(checkout.join(".venv/bin")).unwrap();
+    std::fs::write(checkout.join(".venv/bin/activate"), "").unwrap();
+    checkout.display().to_string()
+}
+
+#[tokio::test]
+async fn launch_from_a_checkout_dry_run() {
+    let t = setup();
+    let checkout = fake_checkout(&t._dir.0);
+    t.scanned().await;
+    t.ok("PUT", &format!("api/robots/{DOG}/aes-key"), Some(json!({ "aesKey": "00112233445566778899aabbccddeeff" }))).await;
+    t.ok("PUT", "api/setup", Some(json!({ "robot": DOG }))).await;
+    let dry = t.ok("POST", "api/launch", Some(json!({ "checkout": checkout, "blueprint": "unitree-go2-pgo", "dryRun": true }))).await;
+    assert_eq!(dry["sent"], false);
+    let run = dry["request"]["run"].as_str().unwrap();
+    assert!(run.starts_with(". .venv/bin/activate && . '"), "{run}");
+    assert!(run.ends_with("&& dtk run unitree-go2-pgo"), "{run}");
+    assert_eq!(dry["request"]["env"], json!({ "ROBOT_IP": "192.0.2.10", "UNITREE_AES_128_KEY": "(saved key)" }));
+    assert!(!dry.to_string().contains("0011223344"), "the key is never shown");
+    assert!(
+        std::fs::read_dir(&t._dir.0).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().starts_with("launch_env")),
+        "a dry run writes nothing"
+    );
+    // not a checkout, not absolute, or a replay
+    let not_one = t._dir.0.display().to_string();
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "checkout": not_one, "dryRun": true }))).await, 400);
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "checkout": "repos/dimos", "dryRun": true }))).await, 400);
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "checkout": checkout, "replay": true, "dryRun": true }))).await, 400);
+}
+
+/// A stand-in for Desktop's /api/desktop/shell: records what it's sent; `status` is the session's status.
+async fn fake_desktop_shell(status: Arc<std::sync::Mutex<String>>) -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+    use axum::routing::{get, post};
+    let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> = Default::default();
+    let (s1, s2) = (seen.clone(), seen.clone());
+    let (st1, st2) = (status.clone(), status.clone());
+    let router = axum::Router::new()
+        .route(
+            "/api/desktop/shell",
+            post(move |body: axum::Json<Value>| {
+                let (seen, status) = (s1.clone(), st1.clone());
+                async move {
+                    seen.lock().unwrap().push(("shell".into(), body.0));
+                    axum::Json(json!({ "id": "sh-1", "status": "pending", "session": { "status": status.lock().unwrap().clone() } }))
+                }
+            }),
+        )
+        .route(
+            "/api/desktop/shell/sh-1",
+            get(move || {
+                let status = st2.clone();
+                async move { axum::Json(json!({ "id": "sh-1", "status": status.lock().unwrap().clone() })) }
+            }),
+        )
+        .route(
+            "/api/desktop/shell/sh-1/cancel",
+            post(move || {
+                let seen = s2.clone();
+                async move {
+                    seen.lock().unwrap().push(("cancel".into(), Value::Null));
+                    axum::Json(json!({}))
+                }
+            }),
+        )
+        .route("/dimos-gateway/runs", get(|| async { axum::Json(json!({ "runs": [], "launch": null })) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (url, seen)
+}
+
+#[tokio::test]
+async fn launch_from_a_checkout_through_desktop_shell() {
+    let dir = std::env::temp_dir().join(format!("go2_dash_test_checkout_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = TempDir(dir.clone());
+    let checkout = fake_checkout(&dir);
+    // a saved robot with a key, so the launch has an IP and a key without scanning
+    std::fs::write(dir.join("go2_dash_setup.json"), r#"{"step":"done","mode":"robot","robot":{"key":"SER1","ip":"10.0.0.7"}}"#).unwrap();
+    std::fs::write(dir.join("go2_dash_aes_keys.json"), r#"{"SER1":"00112233445566778899aabbccddeeff"}"#).unwrap();
+    // a real (not mock) app: it only talks to the fake Desktop, nothing runs
+    let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused4")) };
+    let status = Arc::new(std::sync::Mutex::new("pending".to_string()));
+    let (url, seen) = fake_desktop_shell(status.clone()).await;
+    t.app.desktop_url.set(url).unwrap();
+    let launch = t.ok("POST", "api/launch", Some(json!({ "checkout": checkout, "blueprint": "unitree-go2-pgo" }))).await;
+    assert_eq!(launch["phase"], "starting");
+    assert_eq!(launch["shellId"], "sh-1");
+    let sent = seen.lock().unwrap()[0].1.clone();
+    assert_eq!(sent["commands"][0]["cwd"], checkout);
+    assert!(!sent.to_string().contains("0011223344"), "the key isn't in the shell session: {sent}");
+    let env_file = dir
+        .read_dir()
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("launch_env"))
+        .unwrap();
+    let text = std::fs::read_to_string(&env_file).unwrap();
+    assert_eq!(text, "export ROBOT_IP=10.0.0.7\nexport UNITREE_AES_128_KEY=00112233445566778899aabbccddeeff\n");
+    #[cfg(unix)]
+    assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&env_file).unwrap().permissions()) & 0o777, 0o600);
+    *status.lock().unwrap() = "running".into();
+    let state = t.ok("GET", "api/launch", None).await["launch"].clone();
+    assert_eq!(state["phase"], "running");
+    assert_eq!(state["checkout"], checkout);
+    // one launch at a time
+    assert_eq!(t.status("POST", "api/launch", Some(json!({ "checkout": checkout }))).await, 409);
+    assert_eq!(t.status("POST", "api/launch", Some(json!({}))).await, 409);
+    assert_eq!(t.ok("POST", "api/launch/stop", None).await["stopped"], true);
+    assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "cancel"), "stops by cancelling the shell session");
+    assert!(!env_file.exists(), "the env file goes with it");
+}
+
 #[test]
 fn data_dir_and_migration() {
     use go2_dash::app::{data_dir, migrate_legacy};

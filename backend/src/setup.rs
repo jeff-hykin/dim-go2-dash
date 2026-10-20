@@ -1,10 +1,13 @@
 // The first-run guide (the page's Setup): the step the user is on and the robot they picked, saved so a reload, another
 // viewer or the agent picks up where they left off; checking that a robot answers at an IP; and launching dimos for it
-// through Desktop (POST <desktopUrl>/dimos-gateway/runs with robot_ip, plus its AES key when one is saved), or a replay.
+// through Desktop (POST <desktopUrl>/dimos-gateway/runs with robot_ip, plus its AES key when one is saved), or a replay;
+// or from any dimos checkout, as `dtk run <blueprint>` in a Desktop shell session (POST <desktopUrl>/api/desktop/shell).
 
 use std::time::Duration;
 
 use serde_json::{json, Value};
+
+use std::path::{Path, PathBuf};
 
 use crate::api::HttpError;
 use crate::app::{now_ms, valid_ipv4, App};
@@ -271,8 +274,16 @@ impl App {
         ip: Option<&str>,
         dry_run: bool,
         as_default: bool,
+        checkout: Option<&str>,
     ) -> Result<Value, HttpError> {
+        let checkout = checkout.map(str::trim).filter(|c| !c.is_empty());
+        if replay && checkout.is_some() {
+            return Err(HttpError::bad("checkout runs a robot, not a replay: give one or the other"));
+        }
         let request = self.launch_request(replay, blueprint, ip)?;
+        if let Some(checkout) = checkout {
+            return self.launch_checkout(&request, checkout, dry_run).await;
+        }
         let mut shown = request.clone();
         if shown["config"]["global"].get(AES_FLAG).is_some() {
             shown["config"]["global"][AES_FLAG] = json!("(saved key)");
@@ -289,12 +300,120 @@ impl App {
             return Ok(launch);
         }
         *self.mock_launch.lock().unwrap() = None;
+        self.refuse_while_checkout_runs().await?;
         if as_default && !replay {
             self.save_default_ip(request["config"]["global"]["robot_ip"].as_str().unwrap_or("")).await?;
         }
         let launch = sanitize_launch(self.desktop_call(reqwest::Method::POST, "/dimos-gateway/runs", Some(request)).await?);
         self.publish(json!({ "type": "launch", "launch": launch }));
         Ok(launch)
+    }
+
+    /// `dtk run <blueprint>` in `checkout` (its .venv activated), as a Desktop shell session the user starts with Run.
+    /// robot_ip and the AES key reach it through a 0600 env file the command reads and deletes, so the key is never in
+    /// the session (which Desktop lists) nor in a dry run's answer.
+    async fn launch_checkout(&self, request: &Value, checkout: &str, dry_run: bool) -> Result<Value, HttpError> {
+        let dir = checkout_dir(checkout)?;
+        let blueprint = request["blueprint"].as_str().unwrap_or(BLUEPRINT).to_string();
+        let ip = request["config"]["global"]["robot_ip"].as_str().unwrap_or_default().to_string();
+        let aes = request["config"]["global"][AES_FLAG].as_str().map(str::to_string);
+        if aes.as_deref().is_some_and(|k| !k.chars().all(|c| c.is_ascii_hexdigit())) {
+            return Err(HttpError::bad("the saved AES key isn't hex: PUT api/robots/{key}/aes-key again"));
+        }
+        let env_file = self.data_dir().join(format!("launch_env_{}.sh", now_ms()));
+        let run = checkout_command(&dir, &env_file, &blueprint);
+        let mut env = json!({ "ROBOT_IP": ip });
+        if aes.is_some() {
+            env["UNITREE_AES_128_KEY"] = json!("(saved key)");
+        }
+        let shown = json!({ "checkout": dir, "blueprint": blueprint, "run": run, "env": env });
+        if dry_run {
+            return Ok(json!({ "dryRun": true, "sent": false, "request": shown }));
+        }
+        self.refuse_while_checkout_runs().await?;
+        let mut lines = format!("export ROBOT_IP={ip}\n");
+        if let Some(aes) = &aes {
+            lines += &format!("export UNITREE_AES_128_KEY={aes}\n");
+        }
+        write_private(&env_file, &lines).map_err(|err| HttpError::new(500, format!("couldn't write {}: {err}", env_file.display())))?;
+        let session = self
+            .desktop_call(
+                reqwest::Method::POST,
+                "/api/desktop/shell",
+                Some(json!({
+                    "app": "dim-go2-dash",
+                    "title": format!("Run {blueprint} on the Go2 at {ip}"),
+                    "message": format!("dtk run {blueprint} in {}", dir.display()),
+                    "commands": [{ "run": run, "note": "Start dimos from this checkout", "cwd": dir }],
+                    "timeout": 600,
+                })),
+            )
+            .await;
+        let session = match session {
+            Ok(session) => session,
+            Err(err) => {
+                let _ = std::fs::remove_file(&env_file);
+                return Err(err);
+            }
+        };
+        let shell_id = session["id"].as_str().unwrap_or_default().to_string();
+        let launch = CheckoutLaunch { shell_id, blueprint, checkout: dir.display().to_string(), ip, env_file };
+        let view = checkout_view(&launch, &session["session"]);
+        *self.checkout_launch.lock().unwrap() = Some(launch);
+        self.publish(json!({ "type": "launch", "launch": view }));
+        Ok(view)
+    }
+
+    /// The checkout launch's view and whether its shell session has ended; None when there is none (or Desktop has
+    /// forgotten it). An ended one is dropped, its env file with it.
+    async fn checkout_state(&self) -> Result<Option<(Value, bool)>, HttpError> {
+        let Some(launch) = self.checkout_launch.lock().unwrap().clone() else {
+            return Ok(None);
+        };
+        let (status, session) = self.desktop_send(reqwest::Method::GET, &format!("/api/desktop/shell/{}", launch.shell_id), None).await?;
+        let finished =
+            status == reqwest::StatusCode::NOT_FOUND || matches!(session["status"].as_str(), Some("succeeded" | "failed" | "cancelled"));
+        if finished {
+            self.checkout_launch.lock().unwrap().take();
+            let _ = std::fs::remove_file(&launch.env_file);
+        }
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        Ok(Some((checkout_view(&launch, &session), finished)))
+    }
+
+    async fn refuse_while_checkout_runs(&self) -> Result<(), HttpError> {
+        match self.checkout_state().await? {
+            Some((view, false)) => Err(HttpError::conflict(format!(
+                "dtk run {} from {} is still {} (shell {}): POST api/launch/stop first",
+                view["blueprint"].as_str().unwrap_or("?"),
+                view["checkout"].as_str().unwrap_or("?"),
+                view["phase"].as_str().unwrap_or("?"),
+                view["shellId"].as_str().unwrap_or("?"),
+            ))),
+            _ => Ok(()),
+        }
+    }
+
+    /// What dimos needs to reach a robot, for running it by hand: its IP and AES key, and the line to export them.
+    pub fn robot_env(&self, key: &str) -> Result<Value, HttpError> {
+        let robot = self.robot(key)?;
+        let ip =
+            robot["ip"].as_str().filter(|ip| !ip.is_empty()).map(str::to_string).ok_or_else(|| {
+                HttpError::conflict(format!("{key} has no IP yet: put it on Wi-Fi, scan again, or PUT api/robots/{key}/ip"))
+            })?;
+        let aes = self.aes_key_for(key);
+        if aes.is_empty() {
+            return Err(HttpError::conflict(format!(
+                "no AES key saved for {key}: PUT api/robots/{key}/aes-key, or fetch it with POST api/accounts"
+            )));
+        }
+        Ok(json!({
+            "ROBOT_IP": ip,
+            "UNITREE_AES_128_KEY": aes,
+            "export": format!("export ROBOT_IP={ip} UNITREE_AES_128_KEY={aes}"),
+        }))
     }
 
     async fn save_default_ip(&self, ip: &str) -> Result<(), HttpError> {
@@ -314,13 +433,27 @@ impl App {
         if self.mock && self.desktop_url.get().is_none() {
             return Ok(Value::Null);
         }
-        Ok(sanitize_launch(self.desktop_call(reqwest::Method::GET, "/dimos-gateway/runs", None).await?["launch"].take()))
+        // a dtk run from a checkout: while it runs it is the launch; once it ends, it shows only if Desktop has none
+        let finished = match self.checkout_state().await? {
+            Some((view, false)) => return Ok(view),
+            Some((view, true)) => Some(view),
+            None => None,
+        };
+        let launch = sanitize_launch(self.desktop_call(reqwest::Method::GET, "/dimos-gateway/runs", None).await?["launch"].take());
+        Ok(if launch.is_null() { finished.unwrap_or(launch) } else { launch })
     }
 
     pub async fn stop_launch(&self) -> Result<Value, HttpError> {
         if self.mock_launch.lock().unwrap().take().is_some() {
             self.publish(json!({ "type": "launch", "launch": null }));
             return Ok(json!({ "stopped": true, "mock": true }));
+        }
+        if let Some((_, false)) = self.checkout_state().await? {
+            let launch = self.checkout_launch.lock().unwrap().take().expect("checkout_state saw it");
+            let _ = std::fs::remove_file(&launch.env_file);
+            self.desktop_call(reqwest::Method::POST, &format!("/api/desktop/shell/{}/cancel", launch.shell_id), Some(json!({}))).await?;
+            self.publish(json!({ "type": "launch", "launch": null }));
+            return Ok(json!({ "stopped": true, "output": format!("cancelled dtk run {} (shell {})", launch.blueprint, launch.shell_id) }));
         }
         let runs = self.desktop_call(reqwest::Method::GET, "/dimos-gateway/runs", None).await?;
         let Some(run_id) = run_to_stop(&runs) else {
@@ -344,6 +477,74 @@ fn run_to_stop(runs: &Value) -> Option<String> {
 
 /// a simulated robot launch: blueprint, overrides (key hidden), when it started
 pub type MockLaunch = std::sync::Mutex<Option<(String, Value, u64)>>;
+
+/// a launch from a dimos checkout: the Desktop shell session running `dtk run`, and its env file (until it's read)
+#[derive(Clone)]
+pub struct CheckoutLaunch {
+    pub shell_id: String,
+    pub blueprint: String,
+    pub checkout: String,
+    pub ip: String,
+    pub env_file: PathBuf,
+}
+
+pub type CheckoutLaunchSlot = std::sync::Mutex<Option<CheckoutLaunch>>;
+
+/// An absolute path (or ~/…) to a folder with dimos/ in it.
+fn checkout_dir(checkout: &str) -> Result<PathBuf, HttpError> {
+    let dir = match checkout.strip_prefix("~/") {
+        Some(rest) => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest),
+        None => PathBuf::from(checkout),
+    };
+    if !dir.is_absolute() {
+        return Err(HttpError::bad(format!("checkout must be an absolute path (or ~/…), not {checkout}")));
+    }
+    if !dir.join("dimos").is_dir() {
+        return Err(HttpError::bad(format!("{} isn't a dimos checkout (no dimos/ folder in it)", dir.display())));
+    }
+    Ok(dir)
+}
+
+/// The shell line: the checkout's .venv when it has one, the env file read then deleted, then dtk run.
+fn checkout_command(dir: &Path, env_file: &Path, blueprint: &str) -> String {
+    let venv = if dir.join(".venv/bin/activate").is_file() { ". .venv/bin/activate && " } else { "" };
+    let env = shell_quote(&env_file.display().to_string());
+    format!("{venv}. {env} && rm -f {env} && dtk run {blueprint}")
+}
+
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(text.as_bytes())
+}
+
+/// A checkout launch shaped like Desktop's: the shell session's status as the phase (pending = waiting for Run).
+fn checkout_view(launch: &CheckoutLaunch, session: &Value) -> Value {
+    let status = session["status"].as_str().unwrap_or("pending");
+    let phase = match status {
+        "pending" => "starting",
+        "running" => "running",
+        "succeeded" | "cancelled" => "stopped",
+        _ => "failed",
+    };
+    json!({
+        "blueprint": launch.blueprint,
+        "phase": phase,
+        "checkout": launch.checkout,
+        "shellId": launch.shell_id,
+        "shellStatus": status,
+        "reason": session["reason"],
+        "overrides": { "robot_ip": launch.ip },
+        "note": if status == "pending" { json!("waiting for Run in Desktop's shell window") } else { Value::Null },
+    })
+}
 
 #[cfg(test)]
 mod tests {
