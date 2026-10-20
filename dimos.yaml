@@ -526,7 +526,8 @@ provides:
               Record the drive session to a dimos memory store (.db, the default) or a dimos-layout mcap (Record
               options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom,
               tf, IMU, battery, joints, the gamepad (joystick), the velocity sent (cmd_vel) and commands. Needs a drive
-              session (409 without); ends with it. Answers the recording's status (as GET api/record), the running one's
+              session (409 without); nothing records until this is called, and it runs until api/record/stop or the
+              session closes. Answers the recording's status (as GET api/record), the running one's
               when already recording
           method: POST
           path: api/record/start

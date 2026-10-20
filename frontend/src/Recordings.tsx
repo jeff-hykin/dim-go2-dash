@@ -420,7 +420,7 @@ export function Recordings(
                 <div className="rec-list">
                     {sorted.length === 0 && (
                         <div className="rec-empty">
-                            No recordings yet. Recording starts automatically when you connect to a dog.
+                            No recordings yet. Connect to a dog and press Record.
                         </div>
                     )}
                     {sorted.map((rec) => <Row key={rec.file} rec={rec} onError={setError} ctx={ctx} />)}

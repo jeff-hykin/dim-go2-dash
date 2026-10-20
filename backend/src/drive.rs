@@ -489,12 +489,10 @@ impl Drive {
                     }
                 });
             }
-            app.record_start().await?;
             return Ok(drive.snapshot());
         }
         match drive.clone().connect_until(Instant::now() + CONNECT_WINDOW).await {
             Ok(()) => {
-                app.record_start().await?;
                 // connected: stand up right away, ready to drive (the same Stand as the button: normal mode, StandUp,
                 // BalanceStand). In the background, so connecting answers now; not on reconnects
                 let standing = drive.clone();

@@ -512,7 +512,7 @@ pub fn routes() -> Vec<Route> {
         route(
             "POST",
             "api/record/start",
-            "Record the drive session to a dimos memory store (.db, the default) or a dimos-layout mcap (Record options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (joystick), the velocity sent (cmd_vel) and commands. Needs a drive session; ends with it",
+            "Record the drive session to a dimos memory store (.db, the default) or a dimos-layout mcap (Record options) in Desktop's recordings folder (go2/<date>_<time>_<dog>_<machine id>.db): camera, lidar, odom, tf, IMU, battery, joints, the gamepad (joystick), the velocity sent (cmd_vel) and commands. Needs a drive session; nothing records until this is called, and it runs until api/record/stop or the session closes",
             None,
             handler(|app, _| async move { app.record_start().await }),
         ),

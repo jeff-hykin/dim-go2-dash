@@ -514,7 +514,7 @@ fn data_dir_and_migration() {
     assert_eq!(migrate_legacy(&old, &new), 0, "only once: the new folder already has saved files");
 }
 
-/// Connects (which starts recording), sends commands and a gamepad sample, disconnects: the recording's path.
+/// Connects, presses Record, sends commands and a gamepad sample, disconnects: the recording's path.
 async fn record_a_session(t: &Test, format: &str) -> String {
     assert_eq!(t.app.settings()["autoUpload"], true);
     // Prevent any upload attempt: the fake session is only a local regression test.
@@ -523,6 +523,8 @@ async fn record_a_session(t: &Test, format: &str) -> String {
     options["format"] = json!(format);
     t.ok("PUT", "api/settings", Some(json!({ "recordOptions": options }))).await;
     t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.30", "dryRun": true }))).await;
+    assert_eq!(t.ok("GET", "api/record", None).await["active"], false, "connecting doesn't record");
+    t.ok("POST", "api/record/start", None).await;
     let recording = t.ok("GET", "api/record", None).await;
     assert_eq!(recording["active"], true);
     let path = recording["path"].as_str().unwrap().to_string();
@@ -599,6 +601,32 @@ async fn a_session_records_to_a_dimos_db_by_default() {
     assert!(joy_type.contains(r#""payload_module": "dimos.msgs.sensor_msgs.Joy.Joy""#));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_finishes_the_recording_mid_session_and_record_starts_a_new_one() {
+    let t = setup();
+    t.app.update_settings(Some(false));
+    assert_eq!(t.status("POST", "api/record/start", None).await, 409, "no drive session");
+    t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.30", "dryRun": true }))).await;
+    assert_eq!(t.status("POST", "api/record/stop", None).await, 409, "nothing records on connect");
+    let first = t.ok("POST", "api/record/start", None).await;
+    t.ok("POST", "api/drive/stand", None).await;
+    let stopped = t.ok("POST", "api/record/stop", None).await;
+    assert_eq!(stopped["file"], first["file"]);
+    let path = stopped["path"].as_str().unwrap().to_string();
+    assert!(go2_dash::record::is_finished(std::path::Path::new(&path)), "stop finishes the file");
+    assert_eq!(t.ok("GET", "api/record", None).await["active"], false);
+    assert_eq!(t.ok("GET", "api/drive", None).await["active"], true, "the session stays connected");
+    let listed = t.ok("GET", "api/recordings", None).await;
+    let row = listed.as_array().unwrap().iter().find(|r| r["path"] == path.as_str()).cloned().expect("listed");
+    assert_eq!(row["recording"], false, "{row}");
+    assert_eq!(t.status("POST", "api/record/stop", None).await, 409);
+    t.ok("POST", "api/drive/stand", None).await;
+    let second = t.ok("POST", "api/record/start", None).await;
+    assert_ne!(second["file"], first["file"], "a new file");
+    t.ok("POST", "api/drive/disconnect", None).await;
+    assert_eq!(t.app.record_state()["active"], false, "disconnect still finishes one in progress");
+}
+
 #[tokio::test]
 async fn record_options_are_validated_and_live_filters_are_saved() {
     let t = setup();
@@ -611,6 +639,7 @@ async fn record_options_are_validated_and_live_filters_are_saved() {
     assert_eq!(t.app.settings()["recordOptions"]["rates"]["/lidar"].as_f64(), Some(2.0));
     t.app.update_settings(Some(false));
     t.ok("POST", "api/drive/connect", Some(json!({ "ip": "192.0.2.30", "dryRun": true }))).await;
+    t.ok("POST", "api/record/start", None).await;
     options["format"] = json!("mcap");
     t.ok("PUT", "api/settings", Some(json!({ "recordOptions": options.clone() }))).await;
     assert_eq!(t.app.recording().unwrap().file.rsplit('.').next(), Some("db"), "a format change is for the next recording");

@@ -367,15 +367,10 @@ function RecordButton(
         const timer = setInterval(() => tick((n) => n + 1), 1000)
         return () => clearInterval(timer)
     }, [record.active])
-    // a session records from connect to disconnect: the button only starts one that isn't (it never stops it)
+    // nothing records until Record is pressed; pressed again it stops and finishes the file
     const toggle = () => {
-        if (record.active) {
-            const text = "Recording stays on until disconnect"
-            notify({ title: text, kind: "ok", app: "dim-go2-dash" }).then((id) => id === null && onToast(text))
-            return
-        }
         setBusy(true)
-        call("POST", "api/record/start")
+        call("POST", record.active ? "api/record/stop" : "api/record/start")
             .catch((e) => onToast(e.message))
             .finally(() => setBusy(false))
     }
@@ -389,17 +384,17 @@ function RecordButton(
                     className={`rec-btn dim-btn sm${record.active ? " on" : ""}`}
                     disabled={busy}
                     title={record.active
-                        ? `Recording to ${record.file} until disconnect`
+                        ? `Recording to ${record.file}: click to stop and save it`
                         : `Record this session (camera, lidar, odometry, IMU, battery, gamepad, commands) to ${
                             settings?.recordOptions.format === "mcap" ? "an .mcap" : "a .db (a dimos memory store)"
                         }`}
                     onClick={toggle}
                 >
                     <span className="rec-dot" />
-                    {record.active
-                        ? `Recording · ${clock(seconds)} · ${megabytes(record.bytes)}`
-                        : busy
-                        ? "Starting…"
+                    {busy
+                        ? record.active ? "Saving…" : "Starting…"
+                        : record.active
+                        ? `Stop · ${clock(seconds)} · ${megabytes(record.bytes)}`
                         : "Record"}
                 </button>
                 <button
