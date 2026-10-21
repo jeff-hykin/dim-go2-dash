@@ -202,7 +202,17 @@ fn run(
     let mut rgb = Vec::new();
     want_keyframe();
     let mut asked_at = std::time::Instant::now();
+    let mut ssrc = None;
     while let Ok((packet, arrived_ns)) = receiver.recv() {
+        // a reconnect is a new stream with new sequence numbers: the builder would wait MAX_LATE_PACKETS (~20 s of video)
+        // for the old ones before giving up, so start it over
+        if ssrc.replace(packet.header.ssrc).is_some_and(|old| old != packet.header.ssrc) {
+            builder = SampleBuilder::new(MAX_LATE_PACKETS, H264Packet::default(), 90_000);
+            first_arrival.clear();
+            synced = false;
+            want_keyframe();
+            asked_at = std::time::Instant::now();
+        }
         if first_arrival.back().is_none_or(|&(rtp, _)| rtp != packet.header.timestamp) {
             first_arrival.push_back((packet.header.timestamp, arrived_ns));
             if first_arrival.len() > 64 {
@@ -539,6 +549,53 @@ mod tests {
         let span_ms = (stamps[stamps.len() - 1] - stamps[0]) as f64 / 1e6;
         let sent_ms = sent.as_secs_f64() * 1e3 * (stamps.len() - 1) as f64 / 59.0;
         assert!((span_ms - sent_ms).abs() < sent_ms * 0.25, "stamps span {span_ms} ms, sent over {sent_ms} ms");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    /// A reconnect hands the camera a new stream (new SSRC, unrelated sequence numbers): its frames come out at once, not
+    /// after the sample builder has waited MAX_LATE_PACKETS for the old stream's next packet.
+    #[test]
+    fn a_reconnected_stream_records_right_away() {
+        let stream = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bframes_320x180_30fps.h264")).unwrap();
+        let mut units = Vec::new();
+        let mut unit = Vec::new();
+        for nal in openh264::nal_units(&stream) {
+            let header = nal.iter().position(|&b| b == 1).unwrap() + 1;
+            unit.extend_from_slice(nal);
+            if matches!(nal[header] & 0x1f, 1 | 5) {
+                units.push(std::mem::take(&mut unit));
+            }
+        }
+        let dir = std::env::temp_dir().join(format!("go2_camera_reconnect_{}", now_ns()));
+        let path = dir.join("c.mcap");
+        let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
+        let recorder = Arc::new(Recorder::start_with_options(&path, Default::default(), |_| Default::default(), options).unwrap());
+        let tap = start(recorder.clone(), Arc::new(|| {}));
+        let mut rtp = 1_000_000u32;
+        for ssrc in [0x1111_1111, 0x2222_2222] {
+            let mut packetizer = webrtc::rtp::packetizer::new_packetizer(
+                1200,
+                102,
+                ssrc,
+                Box::new(webrtc::rtp::codecs::h264::H264Payloader::default()),
+                Box::new(webrtc::rtp::sequence::new_random_sequencer()),
+                90_000,
+            );
+            for unit in units.iter().chain([&vec![0, 0, 0, 1, 9, 0xF0]]) {
+                rtp = rtp.wrapping_add(3000);
+                for mut packet in packetizer.packetize(&bytes::Bytes::from(unit.clone()), 90_000 / 30).unwrap() {
+                    packet.header.timestamp = rtp;
+                    assert!(tap.push(packet));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        drop(tap);
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        recorder.finish().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let images = mcap::MessageStream::new(&bytes).unwrap().map(|m| m.unwrap()).filter(|m| m.channel.topic == "color_image").count();
+        // both streams' 60 frames, but the few the decoder still holds at each stream's end
+        assert!(images >= 110, "{images} of 120 frames recorded");
         std::fs::remove_dir_all(&dir).unwrap();
     }
     /// 720p keyframes can span several hundred RTP packets. A sample builder that gives up on a frame after 64 late

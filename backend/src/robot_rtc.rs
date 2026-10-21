@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 use webrtc::api::interceptor_registry::{configure_nack, configure_rtcp_reports};
 use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use webrtc::data_channel::RTCDataChannel;
@@ -285,6 +286,10 @@ async fn send(channel: &RTCDataChannel, kind: &str, topic: &str, data: Option<Va
     }
 }
 
+/// Wi-Fi blips of several seconds are common (~4 an hour on the decks): ICE's own 5 s "disconnected" is only logged,
+/// and the link counts as lost after this much silence (aiortc's consent expiry is about the same)
+const LINK_LOST_AFTER: Duration = Duration::from_secs(30);
+
 fn robot_api() -> Result<webrtc::api::API, String> {
     let mut media = MediaEngine::default();
     media.register_default_codecs().map_err(|e| e.to_string())?;
@@ -292,7 +297,13 @@ fn robot_api() -> Result<webrtc::api::API, String> {
     let mut registry = Registry::new();
     registry = configure_nack(registry, &mut media);
     registry = configure_rtcp_reports(registry);
-    Ok(APIBuilder::new().with_media_engine(media).with_interceptor_registry(registry).build())
+    let mut settings = SettingEngine::default();
+    settings.set_ice_timeouts(None, Some(LINK_LOST_AFTER), None);
+    Ok(APIBuilder::new()
+        .with_setting_engine(settings)
+        .with_media_engine(media)
+        .with_interceptor_registry(registry)
+        .build())
 }
 
 impl RobotConn {
@@ -423,7 +434,7 @@ impl RobotConn {
             let closed = closed.clone();
             pc.on_peer_connection_state_change(Box::new(move |state| {
                 crate::dlog!("peer state: {state}");
-                if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Disconnected)
+                if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed)
                     && !closed.swap(true, Ordering::Relaxed)
                 {
                     on_event(ConnEvent::Lost);
