@@ -1,3 +1,7 @@
+/* a box (a robot row, a menu, a log): rounds like a card, never a pill skin's 999px control --radius */
+:root {
+    --box-radius: min(var(--radius), var(--radius-lg));
+}
 html, body {
     height: 100%;
     margin: 0;
@@ -493,7 +497,7 @@ body.science.dark .nav-focus {
 
 .dog {
     position: relative;
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     margin: 3px 2px;
     padding: 9px 10px;
     transition: background 0.14s;
@@ -646,7 +650,7 @@ body.science.dark .nav-focus {
 .details {
     margin: 8px 2px 2px;
     padding: 8px 10px;
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     background: var(--bg);
     border: 1px solid var(--border);
 }
@@ -721,7 +725,7 @@ body.science.dark .nav-focus {
     min-width: 152px;
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     box-shadow: var(--shadow-lg);
     padding: 4px;
     display: none;
@@ -1022,7 +1026,7 @@ body.science.dark .nav-focus {
     color: var(--fg);
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     padding: 6px 8px;
     margin: 5px 0;
     overflow-x: auto;
@@ -1243,7 +1247,7 @@ body.science.dark .nav-focus {
     color: var(--muted-fg);
     background: var(--muted);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
 }
 .su-ip {
     display: flex;
@@ -1522,7 +1526,7 @@ body.science.dark .nav-focus {
     flex-wrap: wrap;
     gap: 8px 10px;
     padding: 9px 10px;
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
 }
 .rec-row:hover {
     background: var(--accent);
@@ -1706,7 +1710,7 @@ body.science.dark .nav-focus {
     width: 100%;
     height: 260px;
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     background: var(--bg);
 }
 @media (max-width: 600px) {
@@ -1872,7 +1876,7 @@ body.science.dark .nav-focus {
     min-height: 40px;
     margin: 0;
     padding: 0 6px;
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     user-select: none;
 }
 .big-check.big-check:hover {
@@ -2067,7 +2071,7 @@ body.science.dark .big-check input:checked + .box.box::after {
     flex-direction: column;
     gap: 1px;
     padding: 4px 10px;
-    border-radius: var(--radius);
+    border-radius: var(--box-radius);
     background: color-mix(in srgb, var(--muted-fg) 40%, transparent);
 }
 .ctl-id .ctl-ip {
