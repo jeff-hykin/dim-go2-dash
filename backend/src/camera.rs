@@ -29,6 +29,8 @@ const KEYFRAME_RETRY: std::time::Duration = std::time::Duration::from_secs(1);
 pub struct CameraTap {
     sender: Option<SyncSender<(Packet, u64)>>,
     dropped: Arc<AtomicBool>,
+    /// set (and logged) the first time a push finds the camera thread gone
+    dead: AtomicBool,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -36,20 +38,31 @@ impl Drop for CameraTap {
     fn drop(&mut self) {
         drop(self.sender.take());
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            if thread.join().is_err() {
+                crate::log::line("warn: the camera thread panicked; /color_image stopped where it did");
+            }
         }
     }
 }
 
 impl CameraTap {
-    /// Returns false when the queue is full (the packet was dropped; the camera thread then resyncs on a keyframe).
+    /// Returns false when the packet was dropped: the queue was full (the camera thread then resyncs on a keyframe),
+    /// or the camera thread has ended (it panicked).
     pub fn push(&self, packet: Packet) -> bool {
         let Some(sender) = &self.sender else { return false };
-        let full = matches!(sender.try_send((packet, now_ns())), Err(TrySendError::Full(_)));
-        if full {
-            self.dropped.store(true, Ordering::Relaxed);
+        match sender.try_send((packet, now_ns())) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.dropped.store(true, Ordering::Relaxed);
+                false
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                if !self.dead.swap(true, Ordering::Relaxed) {
+                    crate::log::line("warn: the camera thread has ended; the recording gets no more /color_image");
+                }
+                false
+            }
         }
-        !full
     }
 }
 
@@ -142,7 +155,7 @@ pub fn start(recorder: Arc<Recorder>, want_keyframe: Arc<dyn Fn() + Send + Sync>
         .name("go2-camera".into())
         .spawn(move || run(receiver, thread_dropped, recorder, want_keyframe))
         .expect("spawn the camera thread");
-    CameraTap { sender: Some(sender), dropped, thread: Some(thread) }
+    CameraTap { sender: Some(sender), dropped, dead: AtomicBool::new(false), thread: Some(thread) }
 }
 
 /// dimos/robot/unitree/go2/front_camera_720.yaml
