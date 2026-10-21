@@ -221,12 +221,7 @@ impl App {
         let recorder =
             Arc::new(Recorder::start_with_options(&path, metadata, channel_metadata, options).map_err(HttpError::bad)?);
         let file = path.file_name().unwrap().to_string_lossy().into_owned();
-        let weak_drive = Arc::downgrade(&drive);
-        let want_keyframe: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-            if let Some(drive) = weak_drive.upgrade() {
-                tokio::runtime::Handle::try_current().ok().map(|rt| rt.spawn(async move { drive.keyframe().await }));
-            }
-        });
+        let want_keyframe = keyframe_requester(Arc::downgrade(&drive), |drive| async move { drive.keyframe().await });
         let active = Arc::new(Active {
             recorder: recorder.clone(),
             file: file.clone(),
@@ -382,9 +377,48 @@ fn spawn_mock_robot(app: Arc<App>, active: Arc<Active>) {
     });
 }
 
+/// The camera thread's "send a keyframe" callback: runs `request` on this runtime (captured here: that plain std
+/// thread has none of its own), warning at most every 10 s when the drive session is gone.
+fn keyframe_requester<D, F, Fut>(drive: std::sync::Weak<D>, request: F) -> Arc<dyn Fn() + Send + Sync>
+where
+    D: Send + Sync + 'static,
+    F: Fn(Arc<D>) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let runtime = tokio::runtime::Handle::current();
+    let last_warn_ms = AtomicU64::new(0);
+    Arc::new(move || match drive.upgrade() {
+        Some(drive) => drop(runtime.spawn(request(drive))),
+        None => {
+            let now = now_ms();
+            if now.saturating_sub(last_warn_ms.load(Ordering::Relaxed)) >= 10_000 {
+                last_warn_ms.store(now, Ordering::Relaxed);
+                crate::log::line("warn: the camera wants a keyframe but the drive session is gone: not requested");
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn keyframe_requester_works_from_a_plain_thread() {
+        let drive = Arc::new(AtomicU64::new(0));
+        let want_keyframe = keyframe_requester(Arc::downgrade(&drive), |drive| async move {
+            drive.fetch_add(1, Ordering::Relaxed);
+        });
+        let camera_thread = want_keyframe.clone();
+        std::thread::spawn(move || camera_thread()).join().unwrap();
+        for _ in 0..100 {
+            if drive.load(Ordering::Relaxed) == 1 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the camera thread's keyframe request never ran");
+    }
 
     #[test]
     fn lidar_silence_counts_only_a_standing_dog_past_20_s() {
