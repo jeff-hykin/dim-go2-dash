@@ -147,8 +147,44 @@ pub fn valid_ipv4(text: &str) -> bool {
     text.parse::<std::net::Ipv4Addr>().is_ok()
 }
 
+/// A saved file, or the default when there's none. One that can't be read or parsed is copied to `<file>.corrupt`
+/// and logged, so the next save (which starts from the default) doesn't lose what was in it without a word.
 fn load<T: serde::de::DeserializeOwned + Default>(dir: &std::path::Path, file: &str) -> T {
-    std::fs::read_to_string(dir.join(file)).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+    let path = dir.join(file);
+    let failure = match std::fs::read_to_string(&path) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return T::default(),
+        Err(err) => err.to_string(),
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(value) => return value,
+            Err(err) => err.to_string(),
+        },
+    };
+    let aside = dir.join(format!("{file}.corrupt"));
+    let kept = std::fs::copy(&path, &aside).map(|_| format!("kept as {}", aside.display())).unwrap_or_else(|err| format!("couldn't keep a copy: {err}"));
+    crate::log::line(&format!("warn: {} doesn't load ({failure}), starting it empty; {kept}", path.display()));
+    T::default()
+}
+
+/// Writes `data` to `<dir>/<file>` whole or not at all: a temp file, synced, renamed over the old one (0600 first when `private`).
+fn write_json(dir: &std::path::Path, file: &str, data: &Value, private: bool) {
+    let path = dir.join(file);
+    let temp = dir.join(format!(".{file}.tmp"));
+    let result = (|| -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        let mut out = std::fs::File::create(&temp)?;
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::PermissionsExt;
+            out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::io::Write::write_all(&mut out, serde_json::to_string_pretty(data).unwrap_or_default().as_bytes())?;
+        out.sync_all()?;
+        std::fs::rename(&temp, &path)
+    })();
+    if let Err(err) = result {
+        let _ = std::fs::remove_file(&temp);
+        crate::log::line(&format!("warn: could not save {} — {err}", path.display()));
+    }
 }
 
 impl App {
@@ -249,16 +285,7 @@ impl App {
     }
 
     fn save(&self, file: &str, data: Value, private: bool) {
-        let path = self.data_dir.join(file);
-        let _ = std::fs::create_dir_all(&self.data_dir);
-        if let Err(err) = std::fs::write(&path, serde_json::to_string_pretty(&data).unwrap_or_default()) {
-            eprintln!("go2_dash: could not save {} — {err}", path.display());
-        }
-        #[cfg(unix)]
-        if private {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
+        write_json(&self.data_dir, file, &data, private)
     }
 
     // ── robots ──
@@ -1171,4 +1198,41 @@ pub fn fleet_keys(text: &str) -> Vec<crate::robot_rtc::AesKey> {
             Some((format!("go2-keys {serial} {alias}").trim_end().to_string(), key.to_lowercase()))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_saved_file_that_does_not_parse_is_kept_aside_not_read_as_empty() {
+        let dir = std::env::temp_dir().join(format!("go2_dash_load_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let truncated = "{\n  \"dog-a\": \"key-a\",\n  \"dog-b\": \"ke";
+        std::fs::write(dir.join(AES_KEYS_FILE), truncated).unwrap();
+        let keys: BTreeMap<String, String> = load(&dir, AES_KEYS_FILE);
+        assert!(keys.is_empty());
+        let kept = std::fs::read_to_string(dir.join(format!("{AES_KEYS_FILE}.corrupt"))).expect("the unreadable file was kept");
+        assert_eq!(kept, truncated);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_replaces_the_file_whole_and_private_files_are_0600() {
+        let dir = std::env::temp_dir().join(format!("go2_dash_save_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_json(&dir, AES_KEYS_FILE, &json!({ "dog-a": "key-a" }), true);
+        write_json(&dir, AES_KEYS_FILE, &json!({ "dog-a": "key-a", "dog-b": "key-b" }), true);
+        let keys: BTreeMap<String, String> = load(&dir, AES_KEYS_FILE);
+        assert_eq!(keys.len(), 2);
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        assert_eq!(names, vec![AES_KEYS_FILE.to_string()], "no temp file left behind");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(dir.join(AES_KEYS_FILE)).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
