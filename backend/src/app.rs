@@ -75,7 +75,8 @@ pub struct App {
     events: broadcast::Sender<String>,
     state: Mutex<State>,
     registry: Registry,
-    adapter: tokio::sync::OnceCell<watch::Receiver<AdapterState>>,
+    /// the BLE adapter probe; one that failed is probed again at the next scan
+    adapter: Mutex<Option<watch::Receiver<AdapterState>>>,
     scan_done: watch::Sender<u64>,
     wifi_task: tokio::sync::Mutex<Option<tokio::task::AbortHandle>>,
     pub drive: tokio::sync::Mutex<Option<Arc<Drive>>>,
@@ -238,7 +239,7 @@ impl App {
             events,
             state: Mutex::new(state),
             registry: Default::default(),
-            adapter: tokio::sync::OnceCell::new(),
+            adapter: Mutex::new(None),
             scan_done: watch::channel(0).0,
             wifi_task: tokio::sync::Mutex::new(None),
             drive: tokio::sync::Mutex::new(None),
@@ -537,23 +538,27 @@ impl App {
         }
     }
 
-    /// The BLE adapter, probed once in the background. On macOS the first CoreBluetooth call blocks until the user
-    /// answers the Bluetooth permission prompt, so a scan waits only briefly and otherwise goes ahead over LAN/ARP.
+    /// The BLE adapter, probed in the background (again at the next scan if it failed: Bluetooth was off, bluetoothd
+    /// not up yet). On macOS the first CoreBluetooth call blocks until the user answers the Bluetooth permission
+    /// prompt, so a scan waits only briefly and otherwise goes ahead over LAN/ARP.
     async fn adapter_for_scan(self: &Arc<Self>) -> Option<Adapter> {
-        let mut rx = self
-            .adapter
-            .get_or_init(|| async {
-                let (tx, rx) = watch::channel(AdapterState::Pending);
-                tokio::spawn(async move {
-                    let _ = tx.send(match ble::first_adapter().await {
-                        Ok(adapter) => AdapterState::Ready(adapter),
-                        Err(err) => AdapterState::Failed(err),
+        let mut rx = {
+            let mut slot = self.adapter.lock().unwrap();
+            match slot.as_ref() {
+                Some(rx) if !matches!(*rx.borrow(), AdapterState::Failed(_)) => rx.clone(),
+                _ => {
+                    let (tx, rx) = watch::channel(AdapterState::Pending);
+                    tokio::spawn(async move {
+                        let _ = tx.send(match ble::first_adapter().await {
+                            Ok(adapter) => AdapterState::Ready(adapter),
+                            Err(err) => AdapterState::Failed(err),
+                        });
                     });
-                });
-                rx
-            })
-            .await
-            .clone();
+                    *slot = Some(rx.clone());
+                    rx
+                }
+            }
+        };
         if matches!(*rx.borrow(), AdapterState::Pending) {
             let _ = tokio::time::timeout(Duration::from_millis(1500), rx.changed()).await;
         }
