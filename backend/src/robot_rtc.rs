@@ -93,10 +93,18 @@ pub fn parse_binary(buf: &[u8]) -> Option<DataMessage> {
 
 pub type OnEvent = Arc<dyn Fn(ConnEvent) + Send + Sync>;
 
+async fn write_pli(pc: &RTCPeerConnection, ssrc: u32) {
+    if let Err(err) = pc.write_rtcp(&[Box::new(PictureLossIndication { sender_ssrc: 0, media_ssrc: ssrc })]).await {
+        crate::dlog!("keyframe request (PLI) not sent: {err}");
+    }
+}
+
 pub struct RobotConn {
     pc: Arc<RTCPeerConnection>,
     channel: Arc<RTCDataChannel>,
     video_ssrc: Arc<Mutex<Option<u32>>>,
+    /// a keyframe asked for before the video track arrived: sent once it does
+    keyframe_pending: Arc<AtomicBool>,
     closed: Arc<AtomicBool>,
     /// the AES key the robot accepted (None for firmware that needs none)
     pub key_used: Option<String>,
@@ -308,6 +316,7 @@ impl RobotConn {
         let channel = pc.create_data_channel("data", None).await.map_err(|e| e.to_string())?;
         let closed = Arc::new(AtomicBool::new(false));
         let video_ssrc = Arc::new(Mutex::new(None));
+        let keyframe_pending = Arc::new(AtomicBool::new(false));
 
         // validation: the robot sends a key, we answer md5("UnitreeGo2_" + key); "Validation Ok." means ready
         let (validated_tx, validated_rx) = oneshot::channel::<()>();
@@ -370,7 +379,11 @@ impl RobotConn {
             let on_event = on_event.clone();
             let closed = closed.clone();
             let video_ssrc = video_ssrc.clone();
+            let keyframe_pending = keyframe_pending.clone();
+            let weak_pc = Arc::downgrade(&pc);
             pc.on_track(Box::new(move |track, _receiver, _transceiver| {
+                let keyframe_pending = keyframe_pending.clone();
+                let weak_pc = weak_pc.clone();
                 let on_event = on_event.clone();
                 let closed = closed.clone();
                 let video_ssrc = video_ssrc.clone();
@@ -380,6 +393,11 @@ impl RobotConn {
                     }
                     crate::dlog!("video track from the robot: {} ssrc {}", track.codec().capability.mime_type, track.ssrc());
                     *video_ssrc.lock().await = Some(track.ssrc());
+                    if keyframe_pending.swap(false, Ordering::Relaxed) {
+                        if let Some(pc) = weak_pc.upgrade() {
+                            write_pli(&pc, track.ssrc()).await;
+                        }
+                    }
                     let local = Arc::new(TrackLocalStaticRTP::new(track.codec().capability.clone(), "video".into(), "go2".into()));
                     on_event(ConnEvent::Video(local.clone()));
                     let on_event = on_event.clone();
@@ -450,7 +468,7 @@ impl RobotConn {
                 return Err("the robot never validated the data channel".into());
             }
         }
-        let conn = Arc::new(RobotConn { pc, channel, video_ssrc, closed, key_used });
+        let conn = Arc::new(RobotConn { pc, channel, video_ssrc, keyframe_pending, closed, key_used });
         conn.start_heartbeat();
         send(&conn.channel, "vid", "", Some(json!("on"))).await;
         Ok(conn)
@@ -528,9 +546,11 @@ impl RobotConn {
     }
 
     /// Ask the robot for a fresh keyframe, so a page that just subscribed doesn't wait for the next one.
+    /// Before the video track has arrived, it's sent when the track does.
     pub async fn request_keyframe(&self) {
-        if let Some(ssrc) = *self.video_ssrc.lock().await {
-            let _ = self.pc.write_rtcp(&[Box::new(PictureLossIndication { sender_ssrc: 0, media_ssrc: ssrc })]).await;
+        match *self.video_ssrc.lock().await {
+            Some(ssrc) => write_pli(&self.pc, ssrc).await,
+            None => self.keyframe_pending.store(true, Ordering::Relaxed),
         }
     }
 

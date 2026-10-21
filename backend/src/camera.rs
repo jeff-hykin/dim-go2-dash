@@ -22,6 +22,8 @@ const QUEUE: usize = 2048;
 /// packets; at webrtc's default of 64 the builder emits such a frame truncated and the frames after it fail to
 /// decode. Latency is unaffected: a frame is still released as soon as the next one's first packet arrives.
 pub(crate) const MAX_LATE_PACKETS: u16 = 4096;
+/// how often to ask again while waiting for a keyframe (a request can be lost: RTCP is UDP)
+const KEYFRAME_RETRY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Feeds the camera thread; dropping it ends the thread once it has written every frame already queued.
 pub struct CameraTap {
@@ -186,6 +188,7 @@ fn run(
     let mut written = Written::default();
     let mut rgb = Vec::new();
     want_keyframe();
+    let mut asked_at = std::time::Instant::now();
     while let Ok((packet, arrived_ns)) = receiver.recv() {
         if first_arrival.back().is_none_or(|&(rtp, _)| rtp != packet.header.timestamp) {
             first_arrival.push_back((packet.header.timestamp, arrived_ns));
@@ -200,10 +203,15 @@ fn run(
                 if synced {
                     synced = false;
                     want_keyframe();
+                    asked_at = std::time::Instant::now();
                 }
             }
             if !synced {
                 if !has_keyframe(&sample.data) {
+                    if asked_at.elapsed() >= KEYFRAME_RETRY {
+                        want_keyframe();
+                        asked_at = std::time::Instant::now();
+                    }
                     continue;
                 }
                 synced = true;
@@ -218,6 +226,7 @@ fn run(
                     eprintln!("camera: decode failed ({error}); waiting for a keyframe");
                     synced = false;
                     want_keyframe();
+                    asked_at = std::time::Instant::now();
                     continue;
                 }
             };
@@ -345,6 +354,33 @@ impl MockCamera {
 mod tests {
     use super::*;
     use webrtc::rtp::packetizer::Packetizer;
+
+    #[test]
+    fn keeps_asking_for_a_keyframe_until_one_comes() {
+        let dir = std::env::temp_dir().join(format!("go2_camera_retry_test_{}", now_ns()));
+        let options = crate::record::RecordOptions { format: "mcap".into(), ..Default::default() };
+        let recorder =
+            Arc::new(Recorder::start_with_options(&dir.join("c.mcap"), Default::default(), |_| Default::default(), options).unwrap());
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let tap = start(recorder.clone(), {
+            let asked = asked.clone();
+            Arc::new(move || {
+                asked.fetch_add(1, Ordering::Relaxed);
+            })
+        });
+        let mut camera = MockCamera::new().unwrap();
+        camera.next_packets("the keyframe, lost");
+        for _ in 0..25 {
+            for packet in camera.next_packets("test") {
+                tap.push(packet);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        drop(tap);
+        recorder.finish().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(asked.load(Ordering::Relaxed) >= 2, "asked {} time(s) in 2.5 s without a keyframe", asked.load(Ordering::Relaxed));
+    }
 
     #[test]
     fn mock_camera_round_trips_to_jpeg() {
