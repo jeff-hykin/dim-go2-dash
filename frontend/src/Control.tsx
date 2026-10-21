@@ -899,6 +899,9 @@ export function Control(props: {
                                 ? "Avoidance on"
                                 : "Avoidance off"}
                         </button>
+                        <button type="button" className="act dim-btn sm" data-ui="control.g2g-open-actions" title="Glass-to-glass latency test" onClick={() => setGlass(true)}>
+                            Glass-to-glass
+                        </button>
                     </div>
                 </div>
                 {/* on a touchscreen the on-screen arrows are easy to hit by accident: hidden until asked for */}
