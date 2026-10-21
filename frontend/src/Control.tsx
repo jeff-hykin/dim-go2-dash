@@ -752,7 +752,13 @@ export function Control(props: {
                     </div>
                     <div className="ctl-top-center">{props.topSlot}</div>
                     <div className="ctl-top-side end">
-                        <button type="button" data-ui="control.g2g-open" className="dim-btn sm" title="Glass-to-glass latency test" onClick={() => setGlass(true)}>
+                        <button
+                            type="button"
+                            data-ui="control.g2g-open"
+                            className="dim-btn sm"
+                            title="Glass-to-glass latency test"
+                            onClick={() => setGlass(true)}
+                        >
                             Glass-to-glass
                         </button>
                         <RecordButton record={record} settings={settings} onToast={onToast} />
@@ -899,7 +905,13 @@ export function Control(props: {
                                 ? "Avoidance on"
                                 : "Avoidance off"}
                         </button>
-                        <button type="button" className="act dim-btn sm" data-ui="control.g2g-open-actions" title="Glass-to-glass latency test" onClick={() => setGlass(true)}>
+                        <button
+                            type="button"
+                            className="act dim-btn sm"
+                            data-ui="control.g2g-open-actions"
+                            title="Glass-to-glass latency test"
+                            onClick={() => setGlass(true)}
+                        >
                             Glass-to-glass
                         </button>
                     </div>

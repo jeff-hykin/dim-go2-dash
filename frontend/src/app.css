@@ -2529,11 +2529,47 @@ body .overheat-back .overheat.dim-modal > header {
     }
 }
 /* the glass-to-glass test (GlassToGlass.tsx) */
-.g2g-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 55%, transparent); padding: 16px; }
-.g2g { display: grid; justify-items: center; gap: 10px; padding: 16px; max-width: 360px; text-align: center; }
-.g2g p { margin: 0; }
-.g2g a { color: var(--primary); }
-.g2g-code { image-rendering: pixelated; background: #fff; }
-.g2g-note, .g2g-status { font-size: 11px; color: var(--muted-fg); }
-.g2g-stats { white-space: pre; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: 12px; }
-.g2g-unreadable { font-size: 12px; color: var(--warn); }
+.g2g-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--bg) 55%, transparent);
+    padding: 16px;
+}
+.g2g {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 16px;
+    max-width: 360px;
+    text-align: center;
+}
+.g2g p {
+    margin: 0;
+}
+.g2g a {
+    color: var(--primary);
+}
+.g2g-code {
+    image-rendering: pixelated;
+    background: #fff;
+}
+.g2g-note, .g2g-status {
+    font-size: 11px;
+    color: var(--muted-fg);
+}
+.g2g-stats {
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 12px;
+    font-size: 12px;
+}
+.g2g-unreadable {
+    font-size: 12px;
+    color: var(--warn);
+}

@@ -75,7 +75,9 @@ export function showCode(canvas: HTMLCanvasElement, gatewayNow: () => number): (
         context.fillStyle = "#fff"
         context.fillRect(0, 0, canvas.width, canvas.height)
         context.fillStyle = "#000"
-        modules.forEach((row, y) => row.forEach((dark, x) => dark && context.fillRect(offset + x * cell, offset + y * cell, cell, cell)))
+        modules.forEach((row, y) =>
+            row.forEach((dark, x) => dark && context.fillRect(offset + x * cell, offset + y * cell, cell, cell))
+        )
         frame = requestAnimationFrame(draw)
     }
     frame = requestAnimationFrame(draw)
@@ -105,7 +107,11 @@ export interface Picture {
     element: HTMLVideoElement | HTMLCanvasElement
 }
 
-export function watchCameras(onChange: (results: CameraResult[]) => void, toGateway: (performanceMs: number) => number, pictures: () => Picture[]): () => void {
+export function watchCameras(
+    onChange: (results: CameraResult[]) => void,
+    toGateway: (performanceMs: number) => number,
+    pictures: () => Picture[],
+): () => void {
     const worker = new Worker(new URL("./glassToGlassWorker.ts", import.meta.url), { type: "module" })
     const results = new Map<string, CameraResult>()
     const busy = new Set<string>()
