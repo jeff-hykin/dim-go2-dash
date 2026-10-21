@@ -124,6 +124,29 @@ enum Signal {
     SerialReady,
 }
 
+/// The next response within `wait`, past a serial that arrives late (after "read serial" stopped waiting for it).
+async fn next_response(sig_rx: &mut mpsc::UnboundedReceiver<Signal>, inst: u8, wait: Duration) -> Result<Vec<u8>, String> {
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        match tokio::time::timeout_at(deadline, sig_rx.recv()).await {
+            Ok(Some(Signal::Response(packet))) => return Ok(packet),
+            Ok(Some(Signal::SerialReady)) => continue,
+            Ok(None) => return Err("BLE reader closed".to_string()),
+            Err(_) => return Err(format!("timeout awaiting instruction {inst}")),
+        }
+    }
+}
+
+/// Wait for the next validated response and check it, mirroring write_validated.
+async fn expect_valid(sig_rx: &mut mpsc::UnboundedReceiver<Signal>, inst: u8, wait: Duration) -> Result<(), String> {
+    let packet = next_response(sig_rx, inst, wait).await?;
+    if validate_response(&packet, inst) {
+        Ok(())
+    } else {
+        Err(format!("BLE response invalid for instruction {inst}"))
+    }
+}
+
 fn find_char(peripheral: &Peripheral, uuid: &str) -> Option<Characteristic> {
     peripheral.characteristics().into_iter().find(|c| c.uuid.to_string() == uuid)
 }
@@ -220,17 +243,6 @@ async fn provision_inner(
         async move { peripheral.write(&write_char, &packet, WriteType::WithResponse).await.map_err(|e| e.to_string()) }
     };
 
-    // Wait for the next validated response and check it, mirroring write_validated.
-    async fn expect_valid(sig_rx: &mut mpsc::UnboundedReceiver<Signal>, inst: u8, wait: Duration) -> Result<(), String> {
-        match timeout(wait, sig_rx.recv()).await {
-            Ok(Some(Signal::Response(packet))) if validate_response(&packet, inst) => Ok(()),
-            Ok(Some(Signal::Response(_))) => Err(format!("BLE response invalid for instruction {inst}")),
-            Ok(Some(Signal::SerialReady)) => Err(format!("unexpected serial while awaiting instruction {inst}")),
-            Ok(None) => Err("BLE reader closed".to_string()),
-            Err(_) => Err(format!("timeout awaiting instruction {inst}")),
-        }
-    }
-
     let default_wait = Duration::from_secs(10);
 
     progress("handshake".to_string());
@@ -285,10 +297,25 @@ where
         write(build_packet(instruction, &payload)).await?;
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    match timeout(response_wait, sig_rx.recv()).await {
-        Ok(Some(Signal::Response(packet))) if validate_response(&packet, instruction) => Ok(()),
-        Ok(Some(_)) => Err(format!("BLE response invalid for chunked instruction {instruction}")),
-        Ok(None) => Err("BLE reader closed".to_string()),
-        Err(_) => Err(format!("timeout awaiting chunked instruction {instruction}")),
+    let packet = next_response(sig_rx, instruction, response_wait).await?;
+    if validate_response(&packet, instruction) {
+        Ok(())
+    } else {
+        Err(format!("BLE response invalid for chunked instruction {instruction}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_late_serial_doesnt_fail_the_next_instruction() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut ok = vec![0x51u8, 0x05, INST_INIT_STA, 0x01];
+        ok.push(crate::protocol::checksum(&ok));
+        tx.send(Signal::SerialReady).unwrap();
+        tx.send(Signal::Response(ok)).unwrap();
+        assert_eq!(expect_valid(&mut rx, INST_INIT_STA, Duration::from_secs(1)).await, Ok(()));
     }
 }

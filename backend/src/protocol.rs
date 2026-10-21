@@ -44,7 +44,7 @@ pub fn decrypt(data: &[u8]) -> Vec<u8> {
     buf
 }
 
-fn checksum(bytes: &[u8]) -> u8 {
+pub(crate) fn checksum(bytes: &[u8]) -> u8 {
     let sum: u32 = bytes.iter().map(|&b| b as u32).sum();
     (sum.wrapping_neg() & 0xFF) as u8
 }
