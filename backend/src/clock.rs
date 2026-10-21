@@ -2,8 +2,7 @@
 // or a tick/RTP counter); this computer's clock is the one every stream must share. The offset between them is the
 // smallest (arrival − robot time) seen lately: the message that crossed the network fastest, so a wrong robot clock
 // doesn't matter and the network's queueing doesn't either. "Lately" is two 10 s windows, so if one clock runs faster
-// than the other the offset follows it, both ways. A robot time that doesn't advance (Unitree firmware sometimes
-// freezes or rewinds a stamp) or is missing falls back to the arrival time.
+// than the other the offset follows it, both ways. A message without a robot time is placed at its arrival.
 
 const WINDOW_NS: u64 = 10_000_000_000;
 
@@ -13,7 +12,6 @@ pub struct RobotClock {
     current: Option<i64>,
     previous: Option<i64>,
     window_started_ns: u64,
-    last_robot_ns: Option<i64>,
 }
 
 impl RobotClock {
@@ -21,10 +19,6 @@ impl RobotClock {
     /// arrived at `arrived_ns`.
     pub fn place(&mut self, robot_ns: Option<i64>, arrived_ns: u64) -> u64 {
         let Some(robot_ns) = robot_ns else { return arrived_ns };
-        if self.last_robot_ns.is_some_and(|last| robot_ns <= last) {
-            return arrived_ns;
-        }
-        self.last_robot_ns = Some(robot_ns);
         self.observe(robot_ns, arrived_ns);
         self.local(robot_ns).map_or(arrived_ns, |at| at.min(arrived_ns))
     }
@@ -71,15 +65,6 @@ mod tests {
         clock.place(Some(robot(1)), ours + 100 * MS + 2 * MS);
         // later messages are placed by the 2 ms one: capture + 2 ms
         assert_eq!(clock.place(Some(robot(2)), ours + 200 * MS + 9 * MS), ours + 200 * MS + 2 * MS);
-    }
-
-    #[test]
-    fn a_stamp_that_freezes_or_rewinds_falls_back_to_arrival() {
-        let mut clock = RobotClock::default();
-        clock.place(Some(1_000), 10 * MS);
-        assert_eq!(clock.place(Some(1_000), 20 * MS), 20 * MS);
-        assert_eq!(clock.place(Some(500), 30 * MS), 30 * MS);
-        assert_eq!(clock.place(None, 40 * MS), 40 * MS);
     }
 
     #[test]
