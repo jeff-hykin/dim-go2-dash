@@ -183,16 +183,25 @@ impl App {
                 json!({ "ip": ip, "port": port, "reachable": reachable, "ms": if reachable { json!(4) } else { Value::Null }, "error": if reachable { Value::Null } else { json!("no answer (mock)") }, "mock": true }),
             );
         }
-        let started = std::time::Instant::now();
-        let attempt = tokio::time::timeout(Duration::from_millis(2500), tokio::net::TcpStream::connect((ip, port))).await;
-        let (reachable, error) = match attempt {
-            Ok(Ok(_)) => (true, None),
-            Ok(Err(err)) => (false, Some(err.to_string())),
-            Err(_) => (false, Some("no answer in 2.5 s".to_string())),
-        };
-        Ok(
-            json!({ "ip": ip, "port": port, "reachable": reachable, "ms": reachable.then(|| started.elapsed().as_millis() as u64), "error": error }),
-        )
+        // firmware before 1.1.11 signals on the legacy port instead
+        let mut answer = Value::Null;
+        for port in [port, crate::robot_rtc::LEGACY_SIGNALING_PORT] {
+            let started = std::time::Instant::now();
+            let attempt = tokio::time::timeout(Duration::from_millis(2500), tokio::net::TcpStream::connect((ip, port))).await;
+            let (reachable, error) = match attempt {
+                Ok(Ok(_)) => (true, None),
+                Ok(Err(err)) => (false, Some(err.to_string())),
+                Err(_) => (false, Some("no answer in 2.5 s".to_string())),
+            };
+            let this = json!({ "ip": ip, "port": port, "reachable": reachable, "ms": reachable.then(|| started.elapsed().as_millis() as u64), "error": error });
+            if reachable {
+                return Ok(this);
+            }
+            if answer.is_null() {
+                answer = this;
+            }
+        }
+        Ok(answer)
     }
 
     // ── launching dimos through Desktop ──

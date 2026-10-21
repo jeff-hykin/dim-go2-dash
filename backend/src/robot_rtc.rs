@@ -36,6 +36,8 @@ use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::TrackLocalWriter;
 
 pub const SIGNALING_PORT: u16 = 9991;
+/// Firmware before 1.1.11 takes a plaintext offer here instead.
+pub const LEGACY_SIGNALING_PORT: u16 = 8081;
 /// the dog's address on its own hotspot
 const AP_MODE_IP: &str = "192.168.12.1";
 const SIGNALING_TIMEOUT: Duration = Duration::from_secs(4);
@@ -216,12 +218,16 @@ pub fn validation_reply(key: &str) -> String {
 }
 
 async fn signal(ip: &str, path: &str, body: Option<String>) -> Result<String, String> {
+    signal_on(ip, SIGNALING_PORT, path, body).await
+}
+
+async fn signal_on(ip: &str, port: u16, path: &str, body: Option<String>) -> Result<String, String> {
     let client = reqwest::Client::builder().timeout(SIGNALING_TIMEOUT).build().map_err(|e| e.to_string())?;
-    let mut request = client.post(format!("http://{ip}:{SIGNALING_PORT}{path}")).header("content-type", "application/json");
+    let mut request = client.post(format!("http://{ip}:{port}{path}")).header("content-type", "application/json");
     if let Some(body) = body {
         request = request.body(body);
     }
-    crate::dlog!("signal → POST http://{ip}:{SIGNALING_PORT}{path}");
+    crate::dlog!("signal → POST http://{ip}:{port}{path}");
     let response = request.send().await.map_err(|e| {
         crate::dlog!("signal ✗ {path}: {e}");
         format!("robot {ip} unreachable: {e}")
@@ -237,7 +243,17 @@ async fn signal(ip: &str, path: &str, body: Option<String>) -> Result<String, St
 
 /// Hands the robot our SDP offer and returns its answer (JSON `{sdp, type}`).
 async fn exchange_sdp(ip: &str, aes_keys: &[AesKey], offer_json: &str) -> Result<(Value, Option<String>), String> {
-    let notify_b64 = signal(ip, "/con_notify", None).await?;
+    let notify_b64 = match signal(ip, "/con_notify", None).await {
+        Ok(notify) => notify,
+        // firmware before 1.1.11: the offer goes in plaintext, and so does the answer
+        Err(err) => {
+            let answer = signal_on(ip, LEGACY_SIGNALING_PORT, "/offer", Some(offer_json.to_string()))
+                .await
+                .map_err(|legacy| format!("{err}; {legacy}"))?;
+            crate::dlog!("answer (legacy): {answer}");
+            return Ok((serde_json::from_str(&answer).map_err(|e| format!("answer isn't JSON: {e}"))?, None));
+        }
+    };
     let notify_raw = B64.decode(notify_b64.trim()).map_err(|e| format!("con_notify isn't base64: {e}"))?;
     let notify: Value = serde_json::from_slice(&notify_raw).map_err(|e| format!("con_notify isn't JSON: {e}"))?;
     let data1 = notify["data1"].as_str().ok_or("con_notify has no data1")?;
@@ -247,7 +263,7 @@ async fn exchange_sdp(ip: &str, aes_keys: &[AesKey], offer_json: &str) -> Result
     if data1.len() < 20 {
         return Err("con_notify data1 is too short".into());
     }
-    let public_key = &data1[10..data1.len() - 10];
+    let public_key = data1.get(10..data1.len() - 10).ok_or("con_notify data1 isn't text")?;
     let session_key: String = (0..16).map(|_| format!("{:02x}", rand::thread_rng().gen::<u8>())).collect();
     let body = json!({ "data1": aes_ecb_encrypt(offer_json, &session_key), "data2": rsa_encrypt(&session_key, public_key)? });
     let answer = signal(ip, &format!("/con_ing_{}", path_ending(&data1)), Some(body.to_string())).await?;
