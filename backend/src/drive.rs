@@ -481,7 +481,17 @@ impl Drive {
                 tokio::spawn(async move {
                     let mut tick = tokio::time::interval(Duration::from_millis(66));
                     while let Some(drive) = weak.upgrade().filter(|d| !d.is_closed()) {
-                        for packet in camera.next_packets("dry run") {
+                        // encoding a frame takes a few ms: off the async workers
+                        let Ok((back, packets)) = tokio::task::spawn_blocking(move || {
+                            let packets = camera.next_packets("dry run");
+                            (camera, packets)
+                        })
+                        .await
+                        else {
+                            break;
+                        };
+                        camera = back;
+                        for packet in packets {
                             drive.stream.push(packet);
                         }
                         drop(drive);

@@ -345,11 +345,18 @@ fn spawn_mock_robot(app: Arc<App>, active: Arc<Active>) {
                 y += (vx * yaw.sin() + vy * yaw.cos()) * dt;
                 yaw += wz * dt;
             }
-            if let Some(cam) = camera.as_mut() {
-                // encoding a frame takes a few ms: off the async workers' hot path
-                let packets = cam.next_packets("mock");
-                for packet in packets {
-                    active.on_rtp(packet);
+            if let Some(mut cam) = camera.take() {
+                // encoding a frame takes a few ms: off the async workers
+                if let Ok((cam, packets)) = tokio::task::spawn_blocking(move || {
+                    let packets = cam.next_packets("mock");
+                    (cam, packets)
+                })
+                .await
+                {
+                    for packet in packets {
+                        active.on_rtp(packet);
+                    }
+                    camera = Some(cam);
                 }
             }
             let (qz, qw) = ((yaw / 2.0).sin(), (yaw / 2.0).cos());
