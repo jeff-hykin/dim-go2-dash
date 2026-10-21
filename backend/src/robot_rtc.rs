@@ -310,14 +310,23 @@ impl RobotConn {
     /// Opens the session and returns once the robot has validated the data channel (it's then ready for commands).
     pub async fn connect(ip: &str, aes_keys: &[AesKey], on_event: OnEvent) -> Result<Arc<RobotConn>, String> {
         let pc = Arc::new(robot_api()?.new_peer_connection(RTCConfiguration::default()).await.map_err(|e| e.to_string())?);
-        let result = Self::negotiate(pc.clone(), ip, aes_keys, on_event).await;
+        let closed = Arc::new(AtomicBool::new(false));
+        let result = Self::negotiate(pc.clone(), ip, aes_keys, on_event, closed.clone()).await;
         if result.is_err() {
+            // closing a link that never came up isn't a lost link (it would start a reconnect beside this retry)
+            closed.store(true, Ordering::Relaxed);
             let _ = pc.close().await;
         }
         result
     }
 
-    async fn negotiate(pc: Arc<RTCPeerConnection>, ip: &str, aes_keys: &[AesKey], on_event: OnEvent) -> Result<Arc<RobotConn>, String> {
+    async fn negotiate(
+        pc: Arc<RTCPeerConnection>,
+        ip: &str,
+        aes_keys: &[AesKey],
+        on_event: OnEvent,
+        closed: Arc<AtomicBool>,
+    ) -> Result<Arc<RobotConn>, String> {
         pc.add_transceiver_from_kind(
             RTPCodecType::Video,
             Some(RTCRtpTransceiverInit { direction: RTCRtpTransceiverDirection::Recvonly, send_encodings: vec![] }),
@@ -325,7 +334,6 @@ impl RobotConn {
         .await
         .map_err(|e| e.to_string())?;
         let channel = pc.create_data_channel("data", None).await.map_err(|e| e.to_string())?;
-        let closed = Arc::new(AtomicBool::new(false));
         let video_ssrc = Arc::new(Mutex::new(None));
         let keyframe_pending = Arc::new(AtomicBool::new(false));
 
