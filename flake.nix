@@ -125,7 +125,7 @@
                     version = "0.2.0";
                     src = ./frontend;
                     # `nix build .#frontend` prints the right hash when package-lock.json changes
-                    npmDepsHash = "sha256-fo99/1JEdfI8m4R2keoAe0ccA/xjoRZZsKWJ9RsXFFs=";
+                    npmDepsHash = "sha256-3YnM/QvTmFOZbeYV7Q6wJyMYI9VYRAuzgSIJJBcoJGE=";
                     installPhase = "cp -r dist $out";
                 };
                 # Rust, not Deno: Bluetooth (CoreBluetooth / BlueZ) for discovery + Wi-Fi provisioning, and WebRTC to the robot
