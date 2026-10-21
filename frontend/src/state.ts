@@ -162,6 +162,8 @@ export type RecordState =
         skipped?: number
         /** seconds without a point cloud while the dog stands connected, once past 20 s (the lidar isn't recording) */
         lidarSilentS?: number | null
+        /** why the file writer stopped (disk full, …): nothing after it is being recorded */
+        error?: string | null
         streams?: { topic: string; bytesPerSecond: number }[]
         dropped: number
         topics: Record<string, number>

@@ -269,16 +269,22 @@ impl App {
         drop(active.gps.lock().unwrap().take());
         tokio::time::sleep(Duration::from_millis(200)).await;
         let recorder = active.recorder.clone();
-        let status = tokio::task::spawn_blocking(move || recorder.finish()).await.map_err(|e| HttpError::new(500, e.to_string()))?;
-        let status = status.map_err(|e| HttpError::new(500, e))?;
+        let finished = tokio::task::spawn_blocking(move || recorder.finish()).await.unwrap_or_else(|e| Err(e.to_string()));
+        // a failed finish still ends the recording here (the file is recovered at the next start)
+        let status = finished.as_ref().cloned().unwrap_or_else(|_| active.recorder.status());
         self.index_update(&active.file, |entry| {
             entry["endedAt"] = json!(now_ms());
             entry["messages"] = status["messages"].clone();
             entry["topics"] = status["topics"].clone();
             entry["dropped"] = status["dropped"].clone();
+            entry["error"] = json!(finished.as_ref().err());
         });
         self.publish_record();
         self.publish_recordings();
+        if let Err(err) = finished {
+            crate::log::line(&format!("warn: recording {} did not finish: {err}", active.file));
+            return Err(HttpError::new(500, err));
+        }
         self.clone().auto_upload(active.file.clone());
         Ok(json!({ "file": active.file, "path": active.recorder.path.display().to_string(), "status": status }))
     }

@@ -71,7 +71,9 @@ async fn main() {
                 _ = tokio::signal::ctrl_c() => {}
             }
             if app.recording().is_some() {
-                let _ = app.record_stop().await;
+                if let Err(err) = app.record_stop().await {
+                    go2_dash::log::line(&format!("warn: ending the recording on quit: {}", err.message));
+                }
             }
             std::process::exit(0);
         }

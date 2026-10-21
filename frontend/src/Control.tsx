@@ -474,6 +474,18 @@ export function Control(props: {
             lidarWarned.current = false
         }
     }, [lidarSilent != null])
+    // the file writer failed (recording.rs status "error"): a badge and one notification
+    const writerError = record.active ? record.error ?? null : null
+    useEffect(() => {
+        if (writerError != null) {
+            notify({
+                title: `Recording stopped saving (${drive.name})`,
+                body: `${writerError}. Nothing more is being saved; Stop to end the file.`,
+                kind: "warn",
+                app: "dim-go2-dash",
+            }).catch(() => {})
+        }
+    }, [writerError])
     const video = useRef<HTMLVideoElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
     const [showControls, setShowControls] = useState<boolean>(() => stored(SHOW_CONTROLS_KEY, false))
@@ -717,6 +729,11 @@ export function Control(props: {
                                 title="No lidar point clouds are reaching the recording while the dog stands connected. Power-cycle the dog; if it keeps happening on this dog, its lidar may be failing."
                             >
                                 Lidar not recording · {lidarSilent} s
+                            </span>
+                        )}
+                        {writerError != null && (
+                            <span className="dim-badge danger" title={writerError}>
+                                Recording not saving
                             </span>
                         )}
                         <PadChip pad={pad} linked={ready} />

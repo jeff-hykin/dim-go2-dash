@@ -487,6 +487,9 @@ pub fn spawn(app: Arc<App>) {
 
             // the lidar watch: a recording standing dog that's sent no point clouds for LIDAR_SILENT_MS
             if let Some(active) = app.recording() {
+                if active.recorder.failure_is_new() {
+                    app.publish_record();
+                }
                 let standing = match app.drive.lock().await.as_ref().map(|d| d.snapshot()) {
                     Some(d) => d["status"] == "ready" && d["mode"] != "resting",
                     None => false,

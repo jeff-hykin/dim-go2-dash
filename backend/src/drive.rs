@@ -1002,7 +1002,9 @@ impl Drive {
 pub async fn close(app: &Arc<App>) -> Option<Value> {
     // a recording ends with its session (finished, so the file is complete)
     if app.recording().is_some() {
-        let _ = app.record_stop().await;
+        if let Err(err) = app.record_stop().await {
+            crate::log::line(&format!("warn: ending the recording with the session: {}", err.message));
+        }
     }
     let drive = app.drive.lock().await.take()?;
     let last = drive.snapshot();

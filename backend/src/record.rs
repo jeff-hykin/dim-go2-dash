@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -125,6 +125,9 @@ pub struct Counters {
     per_topic: Mutex<BTreeMap<&'static str, u64>>,
     per_topic_bytes: Mutex<BTreeMap<&'static str, u64>>,
     skipped: AtomicU64,
+    /// why the writer thread stopped, if it failed (every message after it is dropped)
+    error: Mutex<Option<String>>,
+    error_reported: AtomicBool,
 }
 
 pub struct Recorder {
@@ -199,7 +202,14 @@ impl Recorder {
             let counters = counters.clone();
             std::thread::Builder::new()
                 .name("recording-writer".into())
-                .spawn(move || drain(sink, streams, receiver, counters, db.then_some(file)))
+                .spawn(move || {
+                    let result = drain(sink, streams, receiver, counters.clone(), db.then_some(file));
+                    if let Err(err) = &result {
+                        crate::log::line(&format!("warn: the recording writer stopped: {err}"));
+                        *counters.error.lock().unwrap() = Some(err.clone());
+                    }
+                    result
+                })
                 .map_err(|e| e.to_string())?
         };
         Ok(Recorder {
@@ -274,8 +284,14 @@ impl Recorder {
             "dropped": self.counters.dropped.load(Ordering::Relaxed),
             "topics": *self.counters.per_topic.lock().unwrap(),
             "skipped": self.counters.skipped.load(Ordering::Relaxed),
+            "error": self.counters.error.lock().unwrap().clone(),
             "streams": self.counters.per_topic_bytes.lock().unwrap().iter().map(|(topic, bytes)| serde_json::json!({ "topic": topic, "bytesPerSecond": *bytes as f64 / self.started.elapsed().as_secs_f64().max(1.0) })).collect::<Vec<_>>(),
         })
+    }
+
+    /// True once, the first time it's asked after the writer thread failed.
+    pub fn failure_is_new(&self) -> bool {
+        self.counters.error.lock().unwrap().is_some() && !self.counters.error_reported.swap(true, Ordering::Relaxed)
     }
 
     /// Writes what's queued, the summary and the footer, and closes the file.
