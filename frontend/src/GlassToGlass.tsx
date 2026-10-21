@@ -50,8 +50,7 @@ export function GlassToGlass({ pictures, onClose }: { pictures: () => Picture[];
                     )}
                 <p className="g2g-note">
                     From this page drawing the code to the camera's frame showing it reaching this screen (typical is the median, spike
-                    the p95). Each code stays up for two of the camera's frames ({Math.round(holdMs())} ms), so a reading runs up to one
-                    camera frame high; best is the closest.
+                    the p95). Typical is what you see: it includes waiting for the camera's next frame (a change in front of the robot waits the same), so a slow camera reads high; best is the luckiest frame. Each code stays up two camera frames ({Math.round(holdMs())} ms).
                 </p>
                 <button type="button" className="dim-btn sm" onClick={onClose}>Stop</button>
             </section>
