@@ -2535,5 +2535,5 @@ body .overheat-back .overheat.dim-modal > header {
 .g2g a { color: var(--primary); }
 .g2g-code { image-rendering: pixelated; background: #fff; }
 .g2g-note, .g2g-status { font-size: 11px; color: var(--muted-fg); }
-.g2g-stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: 12px; }
+.g2g-stats { white-space: pre; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: 12px; }
 .g2g-unreadable { font-size: 12px; color: var(--warn); }

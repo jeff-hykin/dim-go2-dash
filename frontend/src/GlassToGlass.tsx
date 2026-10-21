@@ -5,6 +5,9 @@ import { type CameraResult, holdMs, type Picture, quantile, showCode, watchCamer
 
 const CODE_PX = 260
 
+/** a reading as 4 digit-wide places (figure spaces before it), so the numbers keep one width as they change */
+const ms4 = (value: number) => String(Math.min(9999, Math.round(value))).padStart(4, "\u2007")
+
 export function GlassToGlass({ pictures, onClose }: { pictures: () => Picture[]; onClose: () => void }) {
     const canvas = useRef<HTMLCanvasElement>(null)
     const [results, setResults] = useState<CameraResult[]>([])
@@ -42,9 +45,9 @@ export function GlassToGlass({ pictures, onClose }: { pictures: () => Picture[];
                     )
                     : (
                         <div className="g2g-stats dim-mono">
-                            <span>typical <b>{Math.round(quantile(result.samples, 0.5))} ms</b></span>
-                            <span>spike <b>{Math.round(quantile(result.samples, 0.95))} ms</b></span>
-                            <span>best <b>{Math.round(Math.min(...result.samples))} ms</b></span>
+                            <span>typical <b>{ms4(quantile(result.samples, 0.5))} ms</b></span>
+                            <span>spike <b>{ms4(quantile(result.samples, 0.95))} ms</b></span>
+                            <span>best <b>{ms4(Math.min(...result.samples))} ms</b></span>
                             <span>{result.samples.length} frames</span>
                         </div>
                     )}
