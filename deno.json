@@ -1,7 +1,8 @@
 {
     "lock": false,
     "tasks": {
-        "check-endpoints": "deno run -A scripts/check_endpoints.ts"
+        "check-endpoints": "deno run -A scripts/check_endpoints.ts",
+        "update-hashes": "deno run -A scripts/update_hashes.ts"
     },
     "fmt": {
         "indentWidth": 4,

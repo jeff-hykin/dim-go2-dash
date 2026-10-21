@@ -32,11 +32,11 @@ The backend is Rust (`backend/`) and the frontend is React (`frontend/`). `GO2_D
 Bluetooth and cloud, so you don't need a dog to work on it:
 
 ```sh
-cd frontend && npm run build
+cd frontend && deno task build
 cd backend && GO2_DASH_MOCK=1 cargo run -- --port 8787 --frontend ../frontend/dist
 ```
 
 Every button is also an HTTP endpoint (listed under `provides:` in `dimos.yaml` and served at `openapi.json`), so Desktop's agent can do anything
-you can. Checks: `cargo test`, `npm run typecheck`, `deno test frontend/test`, `deno task check-endpoints`.
+you can. Checks: `cargo test`, `deno task typecheck` and `deno task test` (in `frontend/`), `deno task check-endpoints`.
 
 Apache-2.0

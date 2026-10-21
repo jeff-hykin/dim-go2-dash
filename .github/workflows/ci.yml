@@ -18,7 +18,7 @@ jobs:
               with:
                   name: dimos-desktop
                   authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-            # builds the frontend (tsc + vite) and the Rust backend, running its route tests (mock app, no hardware)
+            # builds the frontend (vite; CI typechecks it below) and the Rust backend, running its route tests (mock app, no hardware)
             - run: nix build .#dimosApp -L
             # the Linux cross builds dimos.yaml's `nix:` points robots at (built on the Mac runner: the attribute is under aarch64-darwin)
             - if: runner.os == 'macOS'
@@ -29,4 +29,9 @@ jobs:
             # dimos.yaml's agent: == the endpoints the built server serves
             - run: deno task check-endpoints
             - run: deno fmt --check && deno lint
-            - run: deno test frontend/test
+            # the frontend's deno: the version the flake builds it with (nixos-25.11's), whose deno.lock this is
+            - uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.6.10
+            - run: deno install --frozen && deno task typecheck && deno task test
+              working-directory: frontend

@@ -1,6 +1,8 @@
 {
     description = "dim-go2-dash, a dimOS Desktop app: `nix build .#dimosApp` → bin/dimos-app-server (Rust backend + built React frontend); `nix build .#dimosApp-aarch64-linux` cross-builds for arm Linux from any machine";
     inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    # the frontend's deno: nixos-25.11's 2.6.10, the version dimos pins (newer deno refuses packages younger than a day)
+    inputs.nixpkgs-deno.url = "github:NixOS/nixpkgs/nixos-25.11";
     inputs.rust-overlay = {
         url = "github:oxalica/rust-overlay";
         inputs.nixpkgs.follows = "nixpkgs";
@@ -12,7 +14,7 @@
         extra-substituters = [ "https://dimos-desktop.cachix.org" ];
         extra-trusted-public-keys = [ "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ=" ];
     };
-    outputs = { self, nixpkgs, rust-overlay, crane }:
+    outputs = { self, nixpkgs, nixpkgs-deno, rust-overlay, crane }:
         let
             systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
             forAll = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
@@ -120,13 +122,46 @@
                             text = "#!${linux.runtimeShell}\nexec ${crossBackend}/bin/dimos-app-server --frontend ${frontend} \"$@\"\n";
                         };
                 in rec {
-                frontend = pkgs.buildNpmPackage {
-                    pname = "go2-dash-frontend";
-                    version = "0.2.0";
-                    src = ./frontend;
-                    # `nix build .#frontend` prints the right hash when package-lock.json changes
-                    npmDepsHash = "sha256-3YnM/QvTmFOZbeYV7Q6wJyMYI9VYRAuzgSIJJBcoJGE=";
-                    installPhase = "cp -r dist $out";
+                deno = nixpkgs-deno.legacyPackages.${system}.deno;
+                denoEnv = "export HOME=$TMPDIR DENO_DIR=$TMPDIR/deno DENO_NO_UPDATE_CHECK=1 DENO_NO_PROMPT=1";
+                frontendFiles = paths: pkgs.lib.fileset.toSource { root = ./frontend; fileset = pkgs.lib.fileset.unions paths; };
+                # `deno install --frozen` (deno.lock pins every package) with network, so fixed-output. Its hash is per
+                # build machine (vite's native rollup and esbuild differ by OS and CPU): `deno task update-hashes` refreshes
+                # this machine's after frontend/deno.json or deno.lock change.
+                frontendModules = pkgs.stdenvNoCC.mkDerivation {
+                    name = "go2-dash-frontend-modules";
+                    src = frontendFiles [ ./frontend/deno.json ./frontend/deno.lock ];
+                    nativeBuildInputs = [ deno ];
+                    buildPhase = ''
+                        ${denoEnv}
+                        export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+                        deno install --frozen
+                        # deno's own record of the install: not needed, and not byte-identical between installs
+                        rm -f node_modules/.deno/.setup-cache.bin
+                    '';
+                    installPhase = "cp -R node_modules $out";
+                    dontFixup = true;
+                    outputHashMode = "recursive";
+                    outputHashAlgo = "sha256";
+                    outputHash = {
+                        aarch64-darwin = "sha256-ujwfB0uQ17HeD2t2aMXWD81JLgE8ydF4b+NlzZOMWtA=";
+                        x86_64-darwin = "";
+                        x86_64-linux = "";
+                        aarch64-linux = "";
+                    }.${system};
+                };
+                # the page: React + Vite against those modules, offline
+                frontend = pkgs.stdenvNoCC.mkDerivation {
+                    name = "go2-dash-frontend";
+                    src = frontendFiles [ ./frontend/deno.json ./frontend/deno.lock ./frontend/index.html ./frontend/vite.config.ts ./frontend/src ];
+                    nativeBuildInputs = [ deno ];
+                    buildPhase = ''
+                        ${denoEnv}
+                        cp -R ${frontendModules} node_modules
+                        chmod -R u+w node_modules
+                        deno run -A --cached-only --node-modules-dir=manual npm:vite build
+                    '';
+                    installPhase = "cp -R dist $out";
                 };
                 # Rust, not Deno: Bluetooth (CoreBluetooth / BlueZ) for discovery + Wi-Fi provisioning, and WebRTC to the robot
                 backend = rustBuild {

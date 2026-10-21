@@ -1,6 +1,18 @@
 // Scans a camera frame for the glass-to-glass code off the main thread (jsQR takes tens of ms a frame; on the main
 // thread it would hold up the code's own redraw, and a code left on screen longer reads as latency).
-import jsQR from "jsqr"
+import jsQRModule from "jsqr"
+
+type ScanFn = (
+    data: Uint8ClampedArray,
+    width: number,
+    height: number,
+    options?: { inversionAttempts?: "dontInvert" },
+) => {
+    data: string
+} | null
+// jsqr is CommonJS: a bundler hands over its function, deno its exports object (whose default is the function)
+const loaded = jsQRModule as unknown as ScanFn | { default: ScanFn }
+const jsQR: ScanFn = typeof loaded === "function" ? loaded : loaded.default
 
 const canvas = new OffscreenCanvas(1, 1)
 const context = canvas.getContext("2d", { willReadFrequently: true })!
@@ -28,6 +40,8 @@ self.onmessage = (event: MessageEvent<{ id: number; frame: ImageBitmap }>) => {
         self.postMessage({ id, text: null, blank })
         return
     }
-    const found = jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" })
+    const found = jsQR(image.data, image.width, image.height, {
+        inversionAttempts: "dontInvert",
+    })
     self.postMessage({ id, text: found?.data ?? null, blank: null })
 }
