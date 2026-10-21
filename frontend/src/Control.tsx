@@ -18,6 +18,8 @@ import {
     type PadLike,
 } from "./gamepad.ts"
 import { RecordOptions } from "./RecordOptions.tsx"
+import { GlassToGlass } from "./GlassToGlass.tsx"
+import type { Picture } from "./glassToGlass.ts"
 import { Sticks } from "./Sticks.tsx"
 import { Icon } from "./icons.tsx"
 import { store, stored } from "./util.ts"
@@ -128,6 +130,8 @@ function useWsVideo(want: boolean, webrtcLive: boolean, canvas: React.RefObject<
                             target.height = frame.displayHeight
                         }
                         target.getContext("2d")?.drawImage(frame, 0, 0)
+                        // the glass-to-glass test times and reads each painted frame
+                        target.dispatchEvent(new Event("framepainted"))
                         setDrawing(true)
                     }
                     frame.close()
@@ -498,6 +502,14 @@ export function Control(props: {
     const [stickAxes, setStickAxes] = useState<Axes>(ZERO_AXES)
     const [stickFast, setStickFast] = useState(false)
     const { live, status: cameraStatus, ws } = useCamera(drive, video, canvas)
+    const [glass, setGlass] = useState(false)
+    /** what the glass-to-glass test reads: the canvas in WebSocket mode, else the WebRTC <video> */
+    const wsNow = useRef(ws)
+    wsNow.current = ws
+    const pictures = (): Picture[] => {
+        const element = wsNow.current ? canvas.current : video.current
+        return element ? [{ id: "camera", element }] : []
+    }
     const [pressed, setPressed] = useState<Set<string>>(new Set())
     const [boost, setBoost] = useState(0)
     const [searching, setSearching] = useState(false)
@@ -740,6 +752,9 @@ export function Control(props: {
                     </div>
                     <div className="ctl-top-center">{props.topSlot}</div>
                     <div className="ctl-top-side end">
+                        <button type="button" data-ui="control.g2g-open" className="dim-btn sm" title="Glass-to-glass latency test" onClick={() => setGlass(true)}>
+                            Glass-to-glass
+                        </button>
                         <RecordButton record={record} settings={settings} onToast={onToast} />
                         <button
                             type="button"
@@ -754,6 +769,12 @@ export function Control(props: {
                     </div>
                 </div>
                 <ErrorNotice message={drive.status === "error" ? drive.error : null} />
+                {glass && (
+                    <GlassToGlass
+                        onClose={() => setGlass(false)}
+                        pictures={pictures}
+                    />
+                )}
                 {drive.overheat && <OverheatWarning onToast={onToast} />}
                 {settings && <FormatToggle settings={settings} onToast={onToast} />}
                 <div className={`vel dim-panel glass dim-mono${anyAxis || drive.moving ? " on" : ""}`}>
