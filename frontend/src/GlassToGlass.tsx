@@ -1,7 +1,7 @@
 // Glass-to-glass latency test (glassToGlass.ts): a moving QR code to hold up to the robot's camera, and how long from
 // the code going up here to the camera's frame showing it being on this screen.
 import { useEffect, useRef, useState } from "react"
-import { type CameraResult, holdMs, type Picture, quantile, showCode, watchCameras } from "./glassToGlass.ts"
+import { type CameraResult, holdMs, type Picture, pixelsBlocked, quantile, showCode, watchCameras } from "./glassToGlass.ts"
 
 const CODE_PX = 260
 
@@ -32,13 +32,20 @@ export function GlassToGlass({ pictures, onClose }: { pictures: () => Picture[];
                     <a href="https://bloggeek.me/webrtcglossary/glass-to-glass/" target="_blank" rel="noreferrer">glass-to-glass</a>{" "}
                     latency test.
                 </p>
+                {pixelsBlocked() && (
+                    <p className="g2g-unreadable" data-ui="control.g2g-firefox-warning">
+                        Firefox on Android won't let the page read its WebRTC video (
+                        <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1479947" target="_blank" rel="noreferrer">bug 1479947</a>), so it can't
+                        measure here: open this page in Chrome.
+                    </p>
+                )}
                 <canvas ref={canvas} className="g2g-code" style={{ width: CODE_PX, height: CODE_PX }} aria-label="Glass-to-glass test code" />
                 {!result
                     ? <p className="g2g-status">Looking for the code in the camera picture…</p>
                     : result.unreadable && !result.samples.length
                     ? (
                         <p className="g2g-unreadable">
-                            This browser won't let the page read its video (Firefox on Android:{" "}
+                            Its frames come back {result.unreadable}: this browser won't let the page read its video (Firefox on Android:{" "}
                             <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1479947" target="_blank" rel="noreferrer">bug 1479947</a>): use
                             Chrome, or the WebSocket video format.
                         </p>
