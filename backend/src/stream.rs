@@ -25,7 +25,7 @@ impl VideoStream {
         let (frames, _) = broadcast::channel(FANOUT);
         let out = frames.clone();
         tokio::spawn(async move {
-            let mut builder = SampleBuilder::new(64, H264Packet::default(), 90_000);
+            let mut builder = SampleBuilder::new(crate::camera::MAX_LATE_PACKETS, H264Packet::default(), 90_000);
             let started = Instant::now();
             let mut sent = 0u64;
             while let Some(packet) = receiver.recv().await {
@@ -79,5 +79,48 @@ mod tests {
         };
         assert_eq!(frame[0], 1, "the first frame is a keyframe");
         assert_eq!(&frame[9..13], &[0, 0, 0, 1], "Annex B start code after the 9-byte header");
+    }
+
+    #[tokio::test]
+    async fn a_720p_keyframe_of_hundreds_of_packets_comes_out_whole() {
+        use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, QpRange, RateControlMode};
+        use webrtc::rtp::packetizer::Packetizer;
+        let (width, height) = (1280usize, 720usize);
+        let config = EncoderConfig::new()
+            .max_frame_rate(FrameRate::from_hz(15.0))
+            .intra_frame_period(IntraFramePeriod::from_num_frames(30))
+            .rate_control_mode(RateControlMode::Off)
+            .qp(QpRange::new(12, 16))
+            .bitrate(BitRate::from_bps(20_000_000));
+        let mut encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), config).unwrap();
+        let mut packetizer = webrtc::rtp::packetizer::new_packetizer(
+            1200,
+            102,
+            0x1234_5678,
+            Box::new(webrtc::rtp::codecs::h264::H264Payloader::default()),
+            Box::new(webrtc::rtp::sequence::new_random_sequencer()),
+            90_000,
+        );
+        // noise: incompressible, so the keyframe runs to hundreds of packets like a real 720p one
+        let noise: Vec<u8> = (0..width * height * 3).map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+        let stream = VideoStream::start();
+        let mut frames = stream.subscribe();
+        let mut keyframe = (0, 0);
+        for n in 0..3 {
+            let yuv = openh264::formats::YUVBuffer::from_rgb8_source(openh264::formats::RgbSliceU8::new(&noise, (width, height)));
+            let annex_b = encoder.encode(&yuv).unwrap().to_vec();
+            let packets = packetizer.packetize(&bytes::Bytes::from(annex_b.clone()), 90_000 / 15).unwrap();
+            if n == 0 {
+                keyframe = (annex_b.len(), packets.len());
+            }
+            for packet in packets {
+                stream.push(packet);
+                tokio::task::yield_now().await;
+            }
+        }
+        assert!(keyframe.1 > 64, "the keyframe is only {} packets", keyframe.1);
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(3), frames.recv()).await.expect("no frame came out").unwrap();
+        assert_eq!(frame[0], 1, "the first frame is the keyframe");
+        assert_eq!(frame.len() - 9, keyframe.0, "the keyframe came out truncated");
     }
 }

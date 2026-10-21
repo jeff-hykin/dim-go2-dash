@@ -21,7 +21,7 @@ const QUEUE: usize = 2048;
 /// RTP packets the sample builder waits for before giving up on a frame. 720p keyframes can run to a few hundred
 /// packets; at webrtc's default of 64 the builder emits such a frame truncated and the frames after it fail to
 /// decode. Latency is unaffected: a frame is still released as soon as the next one's first packet arrives.
-const MAX_LATE_PACKETS: u16 = 4096;
+pub(crate) const MAX_LATE_PACKETS: u16 = 4096;
 
 /// Feeds the camera thread; dropping it ends the thread once it has written every frame already queued.
 pub struct CameraTap {
