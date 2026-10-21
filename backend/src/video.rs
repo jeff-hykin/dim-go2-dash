@@ -3,7 +3,7 @@
 // allows one WebRTC client, so the backend holds that one and fans the video out.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
@@ -17,8 +17,16 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc::track::track_local::TrackLocal;
 
+/// the most often a page's picture-loss reports ask the robot for a keyframe
+const KEYFRAME_EVERY: Duration = Duration::from_millis(500);
+
 /// Answers a page's offer with a peer that sends `track`. Returns the answer SDP and the peer (closed with the session).
-pub async fn answer_viewer(track: Arc<TrackLocalStaticRTP>, offer_sdp: String) -> Result<(String, Arc<RTCPeerConnection>), String> {
+/// `want_keyframe` runs when the page reports a lost picture (PLI / FIR), at most every KEYFRAME_EVERY.
+pub async fn answer_viewer(
+    track: Arc<TrackLocalStaticRTP>,
+    offer_sdp: String,
+    want_keyframe: Arc<dyn Fn() + Send + Sync>,
+) -> Result<(String, Arc<RTCPeerConnection>), String> {
     let mut media = MediaEngine::default();
     media.register_default_codecs().map_err(|e| e.to_string())?;
     let registry = register_default_interceptors(Registry::new(), &mut media).map_err(|e| e.to_string())?;
@@ -27,7 +35,7 @@ pub async fn answer_viewer(track: Arc<TrackLocalStaticRTP>, offer_sdp: String) -
     settings.set_include_loopback_candidate(true);
     let api = APIBuilder::new().with_media_engine(media).with_interceptor_registry(registry).with_setting_engine(settings).build();
     let pc = Arc::new(api.new_peer_connection(RTCConfiguration::default()).await.map_err(|e| e.to_string())?);
-    let result = negotiate(&pc, track, offer_sdp).await;
+    let result = negotiate(&pc, track, offer_sdp, want_keyframe).await;
     match result {
         Ok(sdp) => Ok((sdp, pc)),
         Err(err) => {
@@ -37,12 +45,22 @@ pub async fn answer_viewer(track: Arc<TrackLocalStaticRTP>, offer_sdp: String) -
     }
 }
 
-async fn negotiate(pc: &Arc<RTCPeerConnection>, track: Arc<TrackLocalStaticRTP>, offer_sdp: String) -> Result<String, String> {
+async fn negotiate(
+    pc: &Arc<RTCPeerConnection>,
+    track: Arc<TrackLocalStaticRTP>,
+    offer_sdp: String,
+    want_keyframe: Arc<dyn Fn() + Send + Sync>,
+) -> Result<String, String> {
     let sender = pc.add_track(track as Arc<dyn TrackLocal + Send + Sync>).await.map_err(|e| e.to_string())?;
-    // drain RTCP so the interceptors (NACK, reports) keep working
+    // read RTCP so the interceptors (NACK, reports) keep working, and pass the page's picture-loss reports on
     tokio::spawn(async move {
-        let mut buffer = vec![0u8; 1500];
-        while sender.read(&mut buffer).await.is_ok() {}
+        let mut last_request: Option<Instant> = None;
+        while let Ok((packets, _)) = sender.read_rtcp().await {
+            if asks_for_keyframe(&packets) && last_request.is_none_or(|at| at.elapsed() >= KEYFRAME_EVERY) {
+                last_request = Some(Instant::now());
+                want_keyframe();
+            }
+        }
     });
     {
         let weak = Arc::downgrade(pc);
@@ -67,6 +85,13 @@ async fn negotiate(pc: &Arc<RTCPeerConnection>, track: Arc<TrackLocalStaticRTP>,
     Ok(pc.local_description().await.ok_or("no local description")?.sdp)
 }
 
+/// Whether a page's RTCP reports a lost picture (it can't decode until the next keyframe).
+fn asks_for_keyframe(packets: &[Box<dyn webrtc::rtcp::packet::Packet + Send + Sync>]) -> bool {
+    use webrtc::rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
+    use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+    packets.iter().any(|packet| packet.as_any().is::<PictureLossIndication>() || packet.as_any().is::<FullIntraRequest>())
+}
+
 /// A stand-in camera track for dry-run and mock sessions: negotiates like the real one but carries no frames.
 pub fn placeholder_track() -> Arc<TrackLocalStaticRTP> {
     use webrtc::api::media_engine::MIME_TYPE_H264;
@@ -82,4 +107,22 @@ pub fn placeholder_track() -> Arc<TrackLocalStaticRTP> {
         "video".into(),
         "go2".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use webrtc::rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
+    use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+    use webrtc::rtcp::receiver_report::ReceiverReport;
+
+    #[test]
+    fn a_pages_picture_loss_asks_for_a_keyframe_its_reports_do_not() {
+        let pli: Box<dyn webrtc::rtcp::packet::Packet + Send + Sync> = Box::new(PictureLossIndication { sender_ssrc: 1, media_ssrc: 2 });
+        let fir: Box<dyn webrtc::rtcp::packet::Packet + Send + Sync> = Box::new(FullIntraRequest::default());
+        let report: Box<dyn webrtc::rtcp::packet::Packet + Send + Sync> = Box::new(ReceiverReport::default());
+        assert!(asks_for_keyframe(&[pli]));
+        assert!(asks_for_keyframe(&[fir]));
+        assert!(!asks_for_keyframe(&[report]));
+    }
 }

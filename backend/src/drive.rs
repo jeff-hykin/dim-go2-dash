@@ -952,7 +952,7 @@ impl Drive {
     }
 
     /// A page's WebRTC offer for the camera → the answer that streams it.
-    pub async fn video(&self, offer_sdp: String) -> Result<Value, HttpError> {
+    pub async fn video(self: &Arc<Self>, offer_sdp: String) -> Result<Value, HttpError> {
         let candidates: Vec<&str> = offer_sdp.lines().filter(|l| l.starts_with("a=candidate")).collect();
         let h264 = offer_sdp.contains("H264");
         crate::dlog!("viewer offer: H264 {h264}, candidates {candidates:?}");
@@ -960,7 +960,13 @@ impl Drive {
             crate::dlog!("viewer refused: no video from the robot yet");
             HttpError::conflict("no video from the robot yet — try again in a second")
         })?;
-        let (sdp, pc) = crate::video::answer_viewer(track, offer_sdp).await.map_err(|err| {
+        let weak = Arc::downgrade(self);
+        let want_keyframe: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            if let Some(drive) = weak.upgrade() {
+                tokio::spawn(async move { drive.keyframe().await });
+            }
+        });
+        let (sdp, pc) = crate::video::answer_viewer(track, offer_sdp, want_keyframe).await.map_err(|err| {
             crate::dlog!("viewer answer failed: {err}");
             HttpError::bad(err)
         })?;
