@@ -264,9 +264,11 @@ impl App {
         if let Some(drive) = self.drive.lock().await.clone() {
             drive.stop_streams().await;
         }
-        // the camera thread holds the recorder: end it first so its last frames are in
-        drop(active.camera.lock().unwrap().take());
-        drop(active.gps.lock().unwrap().take());
+        // the camera thread holds the recorder: end it first so its last frames are in. Ending them joins their
+        // threads (the camera's queue can take seconds to decode): off the async workers
+        let camera = active.camera.lock().unwrap().take();
+        let gps = active.gps.lock().unwrap().take();
+        let _ = tokio::task::spawn_blocking(move || drop((camera, gps))).await;
         tokio::time::sleep(Duration::from_millis(200)).await;
         let recorder = active.recorder.clone();
         let finished = tokio::task::spawn_blocking(move || recorder.finish()).await.unwrap_or_else(|e| Err(e.to_string()));

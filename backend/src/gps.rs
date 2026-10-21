@@ -135,7 +135,7 @@ fn open_receiver(candidates: Vec<PathBuf>, running: &AtomicBool) -> Result<(Path
         }
         match open_serial(path) {
             Ok(mut port) => {
-                if speaks_nmea(&mut port) {
+                if speaks_nmea(&mut port, running) {
                     return Ok((path.clone(), port));
                 }
                 failures.push(format!("{}: no NMEA at 4800 baud", path.display()));
@@ -146,11 +146,12 @@ fn open_receiver(candidates: Vec<PathBuf>, running: &AtomicBool) -> Result<(Path
     Err(failures.join("; "))
 }
 
-fn speaks_nmea(port: &mut File) -> bool {
+/// Whether NMEA arrives within PROBE_WINDOW (giving up early once `running` is cleared).
+fn speaks_nmea(port: &mut File, running: &AtomicBool) -> bool {
     let started = Instant::now();
     let mut lines = LineSplitter::default();
     let mut buffer = [0u8; 256];
-    while started.elapsed() < PROBE_WINDOW {
+    while started.elapsed() < PROBE_WINDOW && running.load(Ordering::Relaxed) {
         let Ok(count) = port.read(&mut buffer) else { return false };
         if lines.push(&buffer[..count]).iter().any(|line| parse(line).is_some()) {
             return true;
