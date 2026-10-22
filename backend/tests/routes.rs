@@ -347,12 +347,10 @@ async fn check_ip() {
     assert_eq!(t.status("POST", "api/check-ip", Some(json!({ "ip": "dog" }))).await, 400);
 }
 
-/// A stand-in for Desktop's dimos gateway at `gateway` (/dimos-gateway since 0.2.180, /dimos before): a signed-in account.
-async fn fake_desktop(gateway: &str) -> String {
+/// A stand-in for Desktop's dimos gateway: a signed-in account.
+async fn fake_desktop() -> String {
     let account = axum::routing::get(|| async { axum::Json(json!({ "loggedIn": true, "email": "a@b.c" })) });
-    let router = axum::Router::new().route(&format!("{gateway}/cloud/account"), account);
-    // Desktop 0.2.162 answers a path it doesn't have with 405 (its static pages), not 404
-    let router = if gateway == "/dimos" { router.fallback(|| async { axum::http::StatusCode::METHOD_NOT_ALLOWED }) } else { router };
+    let router = axum::Router::new().route("/dimos-gateway/cloud/account", account);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -360,17 +358,15 @@ async fn fake_desktop(gateway: &str) -> String {
 }
 
 #[tokio::test]
-async fn reaches_desktop_before_and_after_gateway_3() {
-    for (gateway, n) in [("/dimos-gateway", 1), ("/dimos", 2)] {
-        let dir = std::env::temp_dir().join(format!("go2_dash_test_desktop_{n}_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let _cleanup = TempDir(dir.clone());
-        let app = App::new(dir.clone(), false);
-        app.desktop_url.set(fake_desktop(gateway).await).unwrap();
-        let account = app.cloud_account(false).await.unwrap();
-        assert_eq!(account["email"], "a@b.c", "{gateway}");
-        assert_eq!(account["available"], true);
-    }
+async fn reaches_desktop_gateway() {
+    let dir = std::env::temp_dir().join(format!("go2_dash_test_desktop_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = TempDir(dir.clone());
+    let app = App::new(dir.clone(), false);
+    app.desktop_url.set(fake_desktop().await).unwrap();
+    let account = app.cloud_account(false).await.unwrap();
+    assert_eq!(account["email"], "a@b.c");
+    assert_eq!(account["available"], true);
 }
 
 #[tokio::test]

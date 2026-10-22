@@ -1,5 +1,6 @@
 title: Go2 Ctrl
-spec-version: v1.0
+version: "0.5.36"
+spec-version: v1.3
 uses:
     "@dimos-gateway":
         - GET /cloud/uploads
@@ -17,6 +18,15 @@ uses:
         - "GET /api/desktop/shell/{id}"
         - "POST /api/desktop/shell/{id}/cancel"
     "@zenoh-gateway": ">=0.5 <0.6"
+# what the page may do on zenoh (zenoh's ACL config): it only hears its own server's events, which Desktop's relay puts
+# on <namespace>/apps/dim-go2-dash/frontend/events
+zenoh:
+    default_permission: deny
+    read:
+        - id: own-events
+          messages: [declare_subscriber, put] # open the subscription, and receive its samples
+          key_exprs: ["**/apps/dim-go2-dash/frontend/events"]
+          permission: allow
 caches:
     - url: "https://dimos-desktop.cachix.org"
       key: "dimos-desktop.cachix.org-1:A4P35aGJGmCan92LWyamtSFXMqaVE+VRFYnrJ8QMTeQ="
