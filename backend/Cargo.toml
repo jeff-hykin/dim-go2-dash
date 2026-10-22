@@ -46,6 +46,8 @@ openh264 = { version = "=0.9.3", features = ["source"] }
 jpeg-encoder = "0.6"
 bytes = "1"
 async-trait = "0.1"
+# the Go2's WebRTC link (signaling, data channel, H.264, lidar voxels), shared with dimos' GO2Connection
+dimos-go2-webrtc = { git = "https://github.com/dimensionalOS/dimos.git", rev = "87c2c0b8ad0c1193723623f64b0da4993ff7d5ec" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

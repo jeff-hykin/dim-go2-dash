@@ -1041,6 +1041,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "dimos-go2-webrtc"
+version = "0.1.0"
+source = "git+https://github.com/dimensionalOS/dimos.git?rev=87c2c0b8ad0c1193723623f64b0da4993ff7d5ec#87c2c0b8ad0c1193723623f64b0da4993ff7d5ec"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "base64 0.22.1",
+ "dimos-module 0.1.0 (git+https://github.com/dimensionalOS/dimos?rev=6663bcb6e5e18f43a6cb9cf77ccbec613e310443)",
+ "ecb",
+ "lcm-msgs",
+ "lz4_flex 0.14.0",
+ "md5",
+ "openh264",
+ "rand 0.8.8",
+ "reqwest",
+ "rsa",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "validator",
+ "webrtc",
+]
+
+[[package]]
 name = "dimos-lcm"
 version = "0.1.0"
 source = "git+https://github.com/dimensionalOS/dimos-lcm.git?branch=rust-codegen#04d78e8622500244123ba9cefa4c51b4cb454549"
@@ -1058,7 +1083,7 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "crossbeam-utils",
- "dimos-module",
+ "dimos-module 0.1.0 (git+https://github.com/dimensionalOS/dimos.git?rev=1e7b4918bc626de4fa6592fb023d4b3aee932754)",
  "lcm-msgs",
  "lz4_flex 0.14.0",
  "mcap",
@@ -1078,7 +1103,27 @@ version = "0.1.0"
 source = "git+https://github.com/dimensionalOS/dimos.git?rev=1e7b4918bc626de4fa6592fb023d4b3aee932754#1e7b4918bc626de4fa6592fb023d4b3aee932754"
 dependencies = [
  "dimos-lcm",
- "dimos-module-macros",
+ "dimos-module-macros 0.1.0 (git+https://github.com/dimensionalOS/dimos.git?rev=1e7b4918bc626de4fa6592fb023d4b3aee932754)",
+ "lcm-msgs",
+ "nalgebra",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "validator",
+ "zenoh",
+]
+
+[[package]]
+name = "dimos-module"
+version = "0.1.0"
+source = "git+https://github.com/dimensionalOS/dimos?rev=6663bcb6e5e18f43a6cb9cf77ccbec613e310443#6663bcb6e5e18f43a6cb9cf77ccbec613e310443"
+dependencies = [
+ "dimos-lcm",
+ "dimos-module-macros 0.1.0 (git+https://github.com/dimensionalOS/dimos?rev=6663bcb6e5e18f43a6cb9cf77ccbec613e310443)",
  "lcm-msgs",
  "nalgebra",
  "rayon",
@@ -1096,6 +1141,17 @@ dependencies = [
 name = "dimos-module-macros"
 version = "0.1.0"
 source = "git+https://github.com/dimensionalOS/dimos.git?rev=1e7b4918bc626de4fa6592fb023d4b3aee932754#1e7b4918bc626de4fa6592fb023d4b3aee932754"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+ "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "dimos-module-macros"
+version = "0.1.0"
+source = "git+https://github.com/dimensionalOS/dimos?rev=6663bcb6e5e18f43a6cb9cf77ccbec613e310443#6663bcb6e5e18f43a6cb9cf77ccbec613e310443"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1573,6 +1629,7 @@ dependencies = [
  "bytes",
  "cfb-mode",
  "dbus",
+ "dimos-go2-webrtc",
  "dimos-memory-recorder",
  "ecb",
  "futures",
