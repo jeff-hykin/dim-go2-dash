@@ -1,5 +1,5 @@
 title: Go2 Ctrl
-version: "0.5.37"
+version: "0.6.0"
 spec-version: v1.4
 uses:
     "@dimos-gateway":
