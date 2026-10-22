@@ -1,6 +1,6 @@
 title: Go2 Ctrl
 version: "0.5.37"
-spec-version: v1.3
+spec-version: v1.4
 uses:
     "@dimos-gateway":
         - GET /cloud/uploads
@@ -10,13 +10,14 @@ uses:
         - GET /cloud/login/page
         - DELETE /cloud/login
     "@desktop-gateway":
-        - GET /api/apps
-        - "GET /api/apps/{app}/icon"
-        - GET /api/desktop/zenoh
-        - POST /api/notifications
-        - POST /api/desktop/shell
-        - "GET /api/desktop/shell/{id}"
-        - "POST /api/desktop/shell/{id}/cancel"
+        - GET /info/apps
+        - "GET /info/apps/{pkg}/icon"
+        - GET /management/gateways/zenoh
+        - POST /ui/notifications
+        - "POST /ui/apps/{pkg}/frontend/{topic}"
+        - POST /ui/shell
+        - "GET /ui/shell/{id}"
+        - "POST /ui/shell/{id}/cancel"
     "@zenoh-gateway": ">=0.5 <0.6"
 caches:
     - url: "https://dimos-desktop.cachix.org"

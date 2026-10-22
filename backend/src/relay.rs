@@ -1,5 +1,5 @@
 // Backend → page (Desktop's docs/events.md): every event the app publishes goes to Desktop's relay,
-// `POST <desktopUrl>/desktop/frontend/<name>/events`, which puts it on `<ns>/apps/<name>/frontend/events` for the page's
+// `POST <desktopUrl>/gateways/desktop/ui/apps/<name>/frontend/events`, which puts it on `<ns>/apps/<name>/frontend/events` for the page's
 // zenoh-gateway connection (dim-app's appEvents). One task sends them one at a time, so they arrive in order.
 
 use std::sync::Arc;
@@ -8,9 +8,9 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::App;
 
-/// `<desktopUrl>/desktop/frontend/<name>/<topic>`
+/// `<desktopUrl>/gateways/desktop/ui/apps/<name>/frontend/<topic>`
 pub fn relay_url(desktop_url: &str, name: &str, topic: &str) -> String {
-    format!("{}/desktop/frontend/{}/{topic}", desktop_url.trim_end_matches('/'), encode(name))
+    format!("{}/gateways/desktop/ui/apps/{}/frontend/{topic}", desktop_url.trim_end_matches('/'), encode(name))
 }
 
 fn encode(chunk: &str) -> String {
@@ -61,6 +61,6 @@ mod tests {
 
     #[test]
     fn url() {
-        assert_eq!(relay_url("http://127.0.0.1:7341/", "dim go2", "events"), "http://127.0.0.1:7341/desktop/frontend/dim%20go2/events");
+        assert_eq!(relay_url("http://127.0.0.1:7341/", "dim go2", "events"), "http://127.0.0.1:7341/gateways/desktop/ui/apps/dim%20go2/frontend/events");
     }
 }

@@ -1,5 +1,5 @@
 // This app's recordings list (the files in recordingsDir/go2, newest first) and their uploads. Uploads go through
-// Desktop's upload queue (the dimos gateway: POST /dimos-gateway/cloud/uploads, DELETE /dimos-gateway/cloud/uploads?id=,
+// Desktop's upload queue (the dimos gateway: POST /gateways/dimos/cloud/uploads, DELETE /gateways/dimos/cloud/uploads?id=,
 // …), which sends them to the Dimensional cloud; this keeps, per recording, the upload id and what Desktop says about it
 // (polled while one runs). Auto-upload (Settings): each finished recording is queued (one a quit or crash ended, at the
 // next start). Every upload, auto or by hand, retries a failure (with a growing wait), and waits instead of failing while
@@ -242,7 +242,7 @@ impl App {
             self.clone().watch_uploads();
             return Ok(json!({ "upload": self.index()[file]["upload"] }));
         }
-        let upload = self.desktop_call(reqwest::Method::POST, "/dimos-gateway/cloud/uploads", Some(json!({ "path": path.display().to_string() }))).await;
+        let upload = self.desktop_call(reqwest::Method::POST, "/gateways/dimos/cloud/uploads", Some(json!({ "path": path.display().to_string() }))).await;
         match upload {
             Ok(upload) => {
                 self.set_upload(file, from_desktop(&upload, auto));
@@ -260,7 +260,7 @@ impl App {
     pub async fn cancel_upload(self: &Arc<Self>, file: &str) -> Result<Value, HttpError> {
         let upload = self.index().get(file).map(|e| e["upload"].clone()).unwrap_or(Value::Null);
         if let Some(id) = upload["id"].as_str().filter(|id| *id != "mock") {
-            self.desktop_call(reqwest::Method::DELETE, &format!("/dimos-gateway/cloud/uploads?id={id}"), None).await?;
+            self.desktop_call(reqwest::Method::DELETE, &format!("/gateways/dimos/cloud/uploads?id={id}"), None).await?;
         }
         self.set_upload(file, json!({ "state": "cancelled", "at": now_ms() }));
         Ok(json!({ "cancelled": file }))
@@ -324,7 +324,7 @@ impl App {
                 if open.is_empty() {
                     break;
                 }
-                let queue = match self.desktop_call(reqwest::Method::GET, "/dimos-gateway/cloud/uploads", None).await {
+                let queue = match self.desktop_call(reqwest::Method::GET, "/gateways/dimos/cloud/uploads", None).await {
                     Ok(queue) => queue,
                     Err(_) => continue, // Desktop restarting: ask again
                 };
@@ -382,12 +382,12 @@ impl App {
             let retried = if id.is_empty() || id == "mock" {
                 self.desktop_call(
                     reqwest::Method::POST,
-                    "/dimos-gateway/cloud/uploads",
+                    "/gateways/dimos/cloud/uploads",
                     Some(json!({ "path": recordings_dir(self).join(file).display().to_string() })),
                 )
                 .await
             } else {
-                self.desktop_call(reqwest::Method::POST, "/dimos-gateway/cloud/uploads", Some(json!({ "retry": id }))).await
+                self.desktop_call(reqwest::Method::POST, "/gateways/dimos/cloud/uploads", Some(json!({ "retry": id }))).await
             };
             return match retried {
                 Ok(upload) => {
@@ -410,13 +410,13 @@ impl App {
 }
 
 impl App {
-    /// Who this computer is signed in to the Dimensional cloud as (Desktop's dimos gateway: GET /dimos-gateway/cloud/account).
+    /// Who this computer is signed in to the Dimensional cloud as (Desktop's dimos gateway: GET /gateways/dimos/cloud/account).
     pub async fn cloud_account(&self, fresh: bool) -> Result<Value, HttpError> {
         if self.desktop_url.get().is_none() {
             return Ok(json!({ "loggedIn": false, "email": null, "available": false,
                 "error": "Go2 Ctrl isn't running inside dimOS Desktop: uploads and sign-in go through Desktop" }));
         }
-        let path = if fresh { "/dimos-gateway/cloud/account?fresh=1" } else { "/dimos-gateway/cloud/account" };
+        let path = if fresh { "/gateways/dimos/cloud/account?fresh=1" } else { "/gateways/dimos/cloud/account" };
         let mut account = self.desktop_call(reqwest::Method::GET, path, None).await?;
         account["available"] = json!(true);
         Ok(account)
@@ -424,7 +424,7 @@ impl App {
 
     /// Signs out (DELETE cloud/login: with no device login in progress, that logs out).
     pub async fn cloud_logout(&self) -> Result<Value, HttpError> {
-        let mut account = self.desktop_call(reqwest::Method::DELETE, "/dimos-gateway/cloud/login", None).await?;
+        let mut account = self.desktop_call(reqwest::Method::DELETE, "/gateways/dimos/cloud/login", None).await?;
         account["available"] = json!(true);
         self.publish(json!({ "type": "cloud", "cloud": account }));
         Ok(account)

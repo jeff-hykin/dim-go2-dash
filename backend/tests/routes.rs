@@ -350,7 +350,7 @@ async fn check_ip() {
 /// A stand-in for Desktop's dimos gateway: a signed-in account.
 async fn fake_desktop() -> String {
     let account = axum::routing::get(|| async { axum::Json(json!({ "loggedIn": true, "email": "a@b.c" })) });
-    let router = axum::Router::new().route("/dimos-gateway/cloud/account", account);
+    let router = axum::Router::new().route("/gateways/dimos/cloud/account", account);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });

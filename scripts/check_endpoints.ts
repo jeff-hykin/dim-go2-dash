@@ -1,6 +1,6 @@
 // dimos.yaml's `provides:` (an OpenAPI 3.1 document) must list exactly the backend's routes (method + path), so Desktop sees every endpoint even
 // before the app runs; and its `uses:` must declare every Desktop endpoint the code calls (a path in the source, backend
-// or pages, under /dimos-gateway/ (or the older /dimos/) or Desktop's /api/). The backend prints them with
+// or pages, under /gateways/dimos/ or /gateways/desktop/); an old Desktop path (/api/..., /dimos-gateway/...) fails. The backend prints them with
 // `--openapi-json` (the same document it serves as openapi.json).
 // `deno task check-endpoints` (CI runs it after `nix build`); `--write` adds the missing operations to its provides:
 // and drops the gone ones, keeping the rest as written.
@@ -119,6 +119,7 @@ const gateways: Record<string, Set<string>> = {
     "@desktop-gateway": declared("@desktop-gateway"),
 }
 const found: [string, string, string][] = [] // gateway, path, where
+const oldPaths: string[] = [] // Desktop paths from before /gateways/
 async function scan(dir: URL, extensions: RegExp) {
     for await (const entry of Deno.readDir(dir)) {
         const url = new URL(entry.name + (entry.isDirectory ? "/" : ""), dir)
@@ -134,16 +135,23 @@ async function scan(dir: URL, extensions: RegExp) {
             if (/^\s*(\/\/|\*|\/\*)/.test(line)) {
                 return // a comment
             }
-            for (const [, quoted] of line.matchAll(/["'`]((?:\.\.\/)*\/?(?:dimos-gateway|dimos|api)\/[^"'`]*)["'`]/g)) {
+            for (
+                const [, quoted] of line.matchAll(
+                    /["'`]((?:\.\.\/)*\/?(?:gateways\/(?:dimos|desktop)|dimos-gateway|api)\/[^"'`]*)["'`]/g,
+                )
+            ) {
                 const path = quoted.replace(/^(\.\.\/)+/, "/").replace(/^(?!\/)/, "/")
-                const gateway = /^\/(dimos-gateway|dimos)\//.test(path) ? "@dimos-gateway" : "@desktop-gateway"
-                // the app's own api/ (relative, no leading slash or ../; and the backend's own routes), except Desktop's api/desktop/
-                const own = url.pathname.endsWith(".rs") ||
-                    (!/^(\.\.\/|\/)/.test(quoted) && !quoted.startsWith("api/desktop/"))
-                if (gateway === "@desktop-gateway" && own) {
+                if (/^\/gateways\/(dimos|desktop)\//.test(path) === false) {
+                    // the app's own api/ (relative, no leading slash or ../; and the backend's own routes)
+                    const ownApi = url.pathname.endsWith(".rs") || !/^(\.\.\/|\/)/.test(quoted)
+                    if (!quoted.includes("dimos-gateway/") && ownApi) {
+                        continue
+                    }
+                    oldPaths.push(`${quoted}  (${url.pathname.split("/frontend/")[1] ?? url.pathname})`)
                     continue
                 }
-                const route = shape(path.replace(/^\/(dimos-gateway|dimos)\//, "/"))
+                const gateway = path.startsWith("/gateways/dimos/") ? "@dimos-gateway" : "@desktop-gateway"
+                const route = shape(path.replace(/^\/gateways\/(dimos|desktop)\//, "/"))
                 if (route === "" || route === "/{}") {
                     continue // a prefix (the gateway fallback), not an endpoint
                 }
@@ -154,6 +162,10 @@ async function scan(dir: URL, extensions: RegExp) {
 }
 await scan(new URL("../backend/src/", import.meta.url), /\.rs$/)
 await scan(new URL("../frontend/src/", import.meta.url), /\.(ts|tsx|js)$/)
+if (oldPaths.length) {
+    console.error(`old Desktop paths (use /gateways/desktop/... or /gateways/dimos/...):\n  ${oldPaths.join("\n  ")}`)
+    Deno.exit(1)
+}
 const undeclared = found.filter(([gateway, route]) => !gateways[gateway].has(route))
 if (undeclared.length) {
     console.error(
