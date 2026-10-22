@@ -121,11 +121,10 @@ export type Network = {
     battery?: HostBattery | null
 }
 
-export type SetupStep = "welcome" | "find" | "wifi" | "address" | "launch" | "done"
+export type SetupStep = "welcome" | "find" | "wifi" | "address" | "done"
 
 export type SetupState = {
     step: SetupStep
-    mode: "robot" | "replay" | null
     robot: {
         key: string
         name: string
@@ -134,18 +133,6 @@ export type SetupState = {
         bleId: string | null
         hasAesKey: boolean
     } | null
-}
-
-/** Desktop's launch (docs/api.md `Launch`), as api/launch passes it on */
-export type Launch = {
-    blueprint: string
-    phase: "starting" | "running" | "stopped" | "failed"
-    error: string | null
-    overrides: Record<string, unknown>
-    steps?: { label: string; state: "done" | "now" | "todo" | "failed"; detail: string | null }[]
-    problems?: { level: string; text: string; fix: string | null }[]
-    output?: string
-    mock?: boolean
 }
 
 /** The recording in progress (GET api/record) */

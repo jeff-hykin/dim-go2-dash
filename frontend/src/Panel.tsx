@@ -242,7 +242,7 @@ function MatchBadge({ robot }: { robot: Robot }) {
     return <span className={`match-tag dim-badge ${m.tone}`} title={m.title}>{m.label}</span>
 }
 
-/** Pick this dog and its IP as the one the app uses (the guide's robot: launches and Desktop's robot_ip follow it). */
+/** Pick this dog and its IP as the guide's robot (its IP saved for it). */
 function UseIp({ robot, using }: { robot: Robot; using: boolean }) {
     if (!robot.ip) {
         return null

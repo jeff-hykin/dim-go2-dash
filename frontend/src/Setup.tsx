@@ -1,20 +1,17 @@
 import { ErrorNotice } from "./errors.tsx"
 // The first-run guide, on the stage until it's done: welcome → find the Go2 (Bluetooth + this network) → put it on
-// Wi-Fi → confirm its IP → launch dimos for it (through Desktop) → open Controller. Or, without a robot, a replay. The
-// step and the robot picked are the backend's (api/setup), so a reload or another viewer resumes where it was.
+// Wi-Fi → confirm its IP → done, connecting to it here to drive. The step and the robot picked are the backend's
+// (api/setup), so a reload or another viewer resumes where it was.
 import { useEffect, useRef, useState } from "react"
 import { call } from "./api.ts"
-import { openApp } from "./dim-app/source/desktop.js"
-import { useAppInstalled } from "./dim-app/source/react.js"
 import { Icon } from "./icons.tsx"
-import type { Launch, Network, Robot, Scan, SetupState, SetupStep, Wifi } from "./state.ts"
+import type { Network, Robot, Scan, SetupState, SetupStep, Wifi } from "./state.ts"
 import { store, stored, validIp } from "./util.ts"
 
 const WIFI_LS = "go2dash.wifi" // shared with the panel's Wi-Fi form: the last network that worked
 /** a real Go2 joins the network about 30 s after taking the credentials; give it a while */
 const JOIN_TIMEOUT_MS = 90_000
 const RESCAN_EVERY_MS = 9_000
-export const BLUEPRINT = { name: "unitree-go2-basic", title: "Go2 basic" }
 
 type Props = {
     setup: SetupState
@@ -26,18 +23,17 @@ type Props = {
     onShowHelp: () => void
 }
 
-const put = (body: Partial<{ step: SetupStep; robot: string; ip: string; mode: string }>) =>
+const put = (body: Partial<{ step: SetupStep; robot: string; ip: string }>) =>
     call<SetupState>("PUT", "api/setup", body)
 
 const ROBOT_STEPS: { step: SetupStep; label: string }[] = [
     { step: "find", label: "Find" },
     { step: "wifi", label: "Wi-Fi" },
     { step: "address", label: "Address" },
-    { step: "launch", label: "Launch" },
 ]
 
 function Progress({ setup }: { setup: SetupState }) {
-    if (setup.step === "welcome" || setup.mode === "replay") {
+    if (setup.step === "welcome") {
         return null
     }
     const at = ROBOT_STEPS.findIndex((s) => s.step === setup.step)
@@ -69,16 +65,13 @@ export function Setup(props: Props) {
     return (
         <div className="setup dim-empty" data-testid={`setup-${step}`} data-step={step}>
             <div className="su-top">
-                <span className="dim-empty-label">
-                    {setup.mode === "replay" ? "Try it on a recording" : "Set up your Go2"}
-                </span>
+                <span className="dim-empty-label">Set up your Go2</span>
                 <Progress setup={setup} />
             </div>
-            {step === "welcome" && <Welcome go={go} robot={setup.robot} />}
+            {step === "welcome" && <Welcome go={go} robot={setup.robot} robots={props.robots} />}
             {step === "find" && <Find {...props} go={go} />}
             {step === "wifi" && <WifiStep {...props} go={go} />}
             {step === "address" && <Address {...props} go={go} />}
-            {step === "launch" && <LaunchStep {...props} go={go} />}
             <ErrorNotice message={error} />
             {step !== "welcome" && (
                 <button
@@ -96,21 +89,30 @@ export function Setup(props: Props) {
 
 type Go = (body: Parameters<typeof put>[0]) => Promise<unknown>
 
-function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
+/** Finishes the guide on `ip` and connects to the robot there to drive it: the scanned robot (for its saved AES key), else just the IP. */
+function driveHere(go: Go, robot: SetupState["robot"], robots: Robot[], ip: string) {
+    const key = robot && robots.some((r) => r.key === robot.key) ? robot.key : null
+    return go({ ip, step: "done" }).then((saved) =>
+        saved && call("POST", "api/drive/connect", key ? { robot: key, ip } : { ip }).catch(() => {})
+    )
+}
+
+function Welcome({ go, robot, robots }: { go: Go; robot: SetupState["robot"]; robots: Robot[] }) {
     return (
         <>
             <div className="dim-empty-title">Let's get your Go2 running</div>
             <div className="dim-empty-body">
-                Go2 Ctrl finds your robot dog, puts it on your Wi-Fi and starts dimos for it, in about five minutes.
-                You'll need the Go2 charged and switched on, this computer near it, and your Wi-Fi's name and password.
+                Go2 Ctrl finds your robot dog, puts it on your Wi-Fi and connects to it so you can drive it, in about
+                five minutes. You'll need the Go2 charged and switched on, this computer near it, and your Wi-Fi's name
+                and password.
             </div>
             <div className="su-choices">
                 <button
                     type="button"
-                    className="su-choice"
+                    className={`su-choice${robot?.ip ? "" : " wide"}`}
                     data-ui="setup.have_robot"
                     data-testid="setup-have-robot"
-                    onClick={() => go({ step: "find", mode: "robot" })}
+                    onClick={() => go({ step: "find" })}
                 >
                     <Icon name="robot" size={22} />
                     <span>
@@ -118,32 +120,19 @@ function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
                         <small>Find it over Bluetooth and this network</small>
                     </span>
                 </button>
-                <button
-                    type="button"
-                    className="su-choice"
-                    data-ui="setup.try_replay"
-                    data-testid="setup-no-robot"
-                    onClick={() => go({ step: "launch", mode: "replay" })}
-                >
-                    <Icon name="play" size={22} />
-                    <span>
-                        <b>No robot: try a replay</b>
-                        <small>Play a recorded Go2 walk as if it were live</small>
-                    </span>
-                </button>
                 {robot?.ip && (
                     <button
                         type="button"
-                        className="su-choice wide"
+                        className="su-choice"
                         data-ui="setup.continue_saved"
                         data-testid="setup-continue"
-                        onClick={() => go({ step: "launch", mode: "robot" })}
+                        onClick={() => robot.ip && driveHere(go, robot, robots, robot.ip)}
                     >
                         <Icon name="arrow-right" size={22} />
                         <span>
                             <b>Continue with {robot.name}</b>
                             <small>
-                                Saved at <span className="dim-mono">{robot.ip}</span>: launch dimos for it
+                                Saved at <span className="dim-mono">{robot.ip}</span>: drive it here
                             </small>
                         </span>
                     </button>
@@ -154,7 +143,7 @@ function Welcome({ go, robot }: { go: Go; robot: SetupState["robot"] }) {
                     type="button"
                     data-ui="setup.know_ip"
                     className="dim-link"
-                    onClick={() => go({ step: "address", mode: "robot" })}
+                    onClick={() => go({ step: "address" })}
                 >
                     I already know its IP address
                 </button>
@@ -556,14 +545,14 @@ function Address(props: Props & { go: Go }) {
         }
     }, [])
     const current = check && check.ip === ip.trim() ? check : null
-    const save = () => ok && go({ ip: ip.trim(), step: "launch" })
+    const save = () => ok && driveHere(go, robot, robots, ip.trim())
     return (
         <>
             <div className="dim-empty-title">{robot ? `Confirm ${robot.name}'s address` : "Your Go2's address"}</div>
             <div className="dim-empty-body">
                 {scanned?.ip
-                    ? "Found on this network. dimos connects to the Go2 at this IP address; change it only if you know better."
-                    : "dimos connects to the Go2 at its IP address on your network. The Unitree Go app, or your router's list of devices, shows it."}
+                    ? "Found on this network. Go2 Ctrl connects to the Go2 at this IP address; change it only if you know better."
+                    : "Go2 Ctrl connects to the Go2 at its IP address on your network. The Unitree Go app, or your router's list of devices, shows it."}
             </div>
             <div className="su-ip">
                 <div className="dim-field">
@@ -644,241 +633,9 @@ function Address(props: Props & { go: Go }) {
                     disabled={!ok}
                     onClick={save}
                 >
-                    Save and continue
+                    Done: drive it here
                 </button>
             </div>
-        </>
-    )
-}
-
-function stepIcon(state: string) {
-    return state === "done" ? "✓" : state === "failed" ? "✗" : state === "now" ? "" : "○"
-}
-
-function LaunchStep(props: Props & { go: Go }) {
-    const { setup, go } = props
-    const replay = setup.mode === "replay"
-    const robot = setup.robot
-    const [launch, setLaunch] = useState<Launch | null | undefined>(undefined)
-    const [launchError, setLaunchError] = useState<string | null>(null)
-    const [busy, setBusy] = useState(false)
-    const [asDefault, setAsDefault] = useState(true)
-    const controller = useAppInstalled("dim-controller")
-    const refresh = () =>
-        call<{ launch: Launch | null }>("GET", "api/launch").then(
-            (r) => setLaunch(r.launch),
-            (e) => {
-                setLaunch(null)
-                setLaunchError(e.message)
-            },
-        )
-    useEffect(() => {
-        refresh()
-    }, [])
-    useEffect(() => {
-        if (launch?.phase !== "starting") {
-            return
-        }
-        const timer = setInterval(refresh, 1000)
-        return () => clearInterval(timer)
-    }, [launch?.phase])
-    const start = (stopFirst = false) => {
-        setBusy(true)
-        setLaunchError(null)
-        const body = replay
-            ? { replay: true, blueprint: BLUEPRINT.name }
-            : { blueprint: BLUEPRINT.name, default: asDefault }
-        ;(stopFirst ? call("POST", "api/launch/stop") : Promise.resolve())
-            .then(() => call<Launch>("POST", "api/launch", body))
-            .then((l) => setLaunch(l), (e) => setLaunchError(e.message))
-            .finally(() => setBusy(false))
-    }
-    const stop = () => call("POST", "api/launch/stop").then(refresh, (e) => setLaunchError(e.message))
-    const ours = launch && launch.blueprint === BLUEPRINT.name &&
-        (replay ? launch.overrides?.replay === true : launch.overrides?.robot_ip === robot?.ip)
-    const other = launch && !ours && (launch.phase === "starting" || launch.phase === "running") ? launch : null
-    const shown = ours ? launch : null
-    const busyElsewhere = launchError?.includes("stop it first")
-    return (
-        <>
-            <div className="dim-empty-title">
-                {replay ? "No robot? Play a recording" : `Start dimos for ${robot?.name ?? "your Go2"}`}
-            </div>
-            <div className="dim-empty-body">
-                {replay
-                    ? "dimos plays back a recorded Go2 walk (go2_short) as if it were live: camera, lidar and pose. Open it in Controller to look around; nothing reaches a real robot."
-                    : `${BLUEPRINT.title} (${BLUEPRINT.name}) connects to the Go2 and streams its camera, lidar and pose. Drive it from Controller.`}
-            </div>
-            {!replay && robot && (
-                <div className="su-summary">
-                    <div className="dim-kv">
-                        <span>Robot</span>
-                        <span>{robot.name}</span>
-                    </div>
-                    <div className="dim-kv">
-                        <span>IP address</span>
-                        <span>{robot.ip ?? "—"}</span>
-                    </div>
-                    <div className="dim-kv">
-                        <span>AES key</span>
-                        <span>{robot.hasAesKey ? "saved" : "none"}</span>
-                    </div>
-                </div>
-            )}
-            {!replay && !robot?.ip && (
-                <div className="dim-alert warn su-note">
-                    There's no IP address for this robot yet: go back a step and add it.
-                </div>
-            )}
-            {!replay && !shown && (
-                <label className="dim-check su-default">
-                    <input
-                        type="checkbox"
-                        data-ui="setup.launch_as_default"
-                        checked={asDefault}
-                        onChange={(e) => setAsDefault(e.target.checked)}
-                    />
-                    <span className="box" />
-                    Also use {robot?.ip ?? "this IP"} for Go2 launches from the Launcher
-                </label>
-            )}
-            {other && (
-                <div className="dim-alert warn su-note" data-testid="setup-other-running">
-                    Desktop is already running {other.blueprint}{" "}
-                    ({other.phase}). One launch at a time: stop it to start this one.
-                </div>
-            )}
-            {shown && (
-                <div className="su-launch" data-testid={`setup-launch-${shown.phase}`}>
-                    <ol className="su-launch-steps">
-                        {(shown.steps ?? []).map((s) => (
-                            <li key={s.label} className={s.state}>
-                                <span className="st">{stepIcon(s.state)}</span>
-                                {s.label}
-                                {s.detail ? <small>· {s.detail}</small> : null}
-                            </li>
-                        ))}
-                    </ol>
-                    {shown.phase === "running" && (
-                        <div className="dim-alert ok su-note">
-                            dimos is running {BLUEPRINT.title}
-                            {replay
-                                ? " on the recording. Open Controller to look around."
-                                : ` for ${robot?.name}. Open Controller to see it and drive.`}
-                        </div>
-                    )}
-                    {shown.phase === "failed" && (
-                        <div className="dim-alert danger su-note">
-                            <span>
-                                dimos stopped while starting: {shown.error}
-                                {(shown.problems ?? []).map((p, i) => (
-                                    <span key={i} className="su-problem">
-                                        <br />
-                                        {p.text}
-                                        {p.fix ? ` Fix: ${p.fix}` : ""}
-                                    </span>
-                                ))}
-                            </span>
-                        </div>
-                    )}
-                    {shown.phase === "stopped" && (
-                        <div className="su-hint">It stopped. Launch it again whenever you like.</div>
-                    )}
-                    {shown.mock && (
-                        <div className="su-hint">Mock mode: this launch is simulated, nothing was started.</div>
-                    )}
-                </div>
-            )}
-            {launchError && !busyElsewhere && <div className="dim-alert danger su-note">{launchError}</div>}
-            {busyElsewhere && <div className="dim-alert warn su-note">{launchError}</div>}
-            <div className="dim-empty-actions">
-                <button
-                    type="button"
-                    data-ui="setup.launch_back"
-                    className="dim-btn ghost sm"
-                    onClick={() => go(replay ? { step: "welcome", mode: "" } : { step: "address" })}
-                >
-                    Back
-                </button>
-                <span className="spacer" />
-                {!replay && !shown && (
-                    <button
-                        type="button"
-                        data-ui="setup.other_blueprint"
-                        className="dim-link"
-                        onClick={() => openApp("launcher", { robot: "go2" })}
-                    >
-                        Pick another blueprint
-                    </button>
-                )}
-                {shown && (shown.phase === "starting" || shown.phase === "running") && (
-                    <button type="button" data-ui="setup.launch_stop" className="dim-btn sm" onClick={stop}>
-                        <Icon name="stop" size={13} />
-                        Stop
-                    </button>
-                )}
-                {shown?.phase === "running"
-                    ? (
-                        <button
-                            type="button"
-                            className="dim-btn primary sm"
-                            data-ui="setup.open_controller"
-                            data-testid="setup-open-controller"
-                            onClick={() => {
-                                openApp(controller === false ? "appstore" : "dim-controller")
-                                go({ step: "done" })
-                            }}
-                        >
-                            {controller === false ? "Get Controller from the App Store" : "Open Controller"}
-                        </button>
-                    )
-                    : shown?.phase === "starting"
-                    ? (
-                        <button type="button" data-ui="setup.launch_starting" className="dim-btn primary sm" disabled>
-                            Starting…
-                        </button>
-                    )
-                    : (
-                        <button
-                            type="button"
-                            className="dim-btn primary sm"
-                            data-ui="setup.launch"
-                            data-testid="setup-launch-go"
-                            disabled={busy || launch === undefined || (!replay && !robot?.ip)}
-                            onClick={() => start(!!other || !!busyElsewhere)}
-                        >
-                            <Icon name="play" size={13} />
-                            {other || busyElsewhere
-                                ? "Stop it and launch"
-                                : replay
-                                ? "Launch the replay"
-                                : `Launch ${BLUEPRINT.title}`}
-                        </button>
-                    )}
-            </div>
-            {!replay && robot?.ip && !shown && (
-                <div className="su-hint su-alt">
-                    Or skip dimos and{" "}
-                    <button
-                        type="button"
-                        data-ui="setup.drive_here"
-                        className="dim-link"
-                        onClick={() => {
-                            // the scanned robot (for its saved AES key), else just its IP
-                            const scanned = props.robots.some((r) => r.key === robot.key)
-                            call(
-                                "POST",
-                                "api/drive/connect",
-                                scanned ? { robot: robot.key, ip: robot.ip } : { ip: robot.ip },
-                            ).catch(() => {})
-                            go({ step: "done" })
-                        }}
-                    >
-                        drive it right here
-                    </button>{" "}
-                    (camera and controls over WebRTC; a Go2 takes one connection at a time).
-                </div>
-            )}
         </>
     )
 }

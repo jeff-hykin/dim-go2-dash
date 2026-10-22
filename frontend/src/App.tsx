@@ -538,7 +538,7 @@ export function App() {
                         type="button"
                         data-ui="app.setup_guide"
                         className="dim-btn ghost sm guide-btn"
-                        title="Walk through finding a Go2, putting it on Wi-Fi and launching dimos for it"
+                        title="Walk through finding a Go2, putting it on Wi-Fi and connecting to it"
                         disabled={!state}
                         onClick={() =>
                             call("PUT", "api/setup", { step: "welcome" }).catch(

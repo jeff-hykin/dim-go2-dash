@@ -294,9 +294,8 @@ async fn first_run_guide_walks_and_resumes() {
     assert_eq!(setup["step"], "welcome", "nothing saved yet: a first run opens the guide");
     assert_eq!(t.ok("GET", "api/state", None).await["setup"]["step"], "welcome");
     assert_eq!(t.status("PUT", "api/setup", Some(json!({ "step": "nowhere" }))).await, 400);
-    assert_eq!(t.status("PUT", "api/setup", Some(json!({ "mode": "boat" }))).await, 400);
     assert_eq!(t.status("PUT", "api/setup", Some(json!({ "robot": "nobody" }))).await, 404);
-    t.ok("PUT", "api/setup", Some(json!({ "step": "find", "mode": "robot" }))).await;
+    t.ok("PUT", "api/setup", Some(json!({ "step": "find" }))).await;
     t.scanned().await;
     // the Bluetooth-only dog (a new Go2): picked, given Wi-Fi, then seen on the network
     let picked = t.ok("PUT", "api/setup", Some(json!({ "robot": BLE_ONLY, "step": "wifi" }))).await;
@@ -312,12 +311,12 @@ async fn first_run_guide_walks_and_resumes() {
     assert_eq!(joined["ip"], "192.0.2.11");
     // the IP confirmed (or edited) on the address step is saved with the robot
     assert_eq!(t.status("PUT", "api/setup", Some(json!({ "ip": "300.1.1.1" }))).await, 400);
-    let confirmed = t.ok("PUT", "api/setup", Some(json!({ "ip": "192.0.2.11", "step": "launch" }))).await;
+    let confirmed = t.ok("PUT", "api/setup", Some(json!({ "ip": "192.0.2.11", "step": "done" }))).await;
     assert_eq!(confirmed["robot"]["ip"], "192.0.2.11");
     assert_eq!(confirmed["robot"]["hasAesKey"], false);
     // a reload, or the app restarting, resumes where it was
     let again = App::new(t._dir.0.clone(), true);
-    assert_eq!(again.setup_state()["step"], "launch");
+    assert_eq!(again.setup_state()["step"], "done");
     assert_eq!(again.setup_state()["robot"]["key"], BLE_ONLY);
     assert_eq!(t.ok("DELETE", "api/setup", None).await["step"], "welcome");
 }
@@ -348,137 +347,30 @@ async fn check_ip() {
     assert_eq!(t.status("POST", "api/check-ip", Some(json!({ "ip": "dog" }))).await, 400);
 }
 
-#[tokio::test]
-async fn launch_in_mock_and_dry_run() {
-    let t = setup();
-    // nothing to launch for yet
-    assert_eq!(t.status("POST", "api/launch", Some(json!({ "dryRun": true }))).await, 400);
-    assert_eq!(t.status("POST", "api/launch", Some(json!({ "blueprint": "--help", "replay": true, "dryRun": true }))).await, 400);
-    t.scanned().await;
-    t.ok("PUT", &format!("api/robots/{DOG}/aes-key"), Some(json!({ "aesKey": "00112233445566778899aabbccddeeff" }))).await;
-    t.ok("PUT", "api/setup", Some(json!({ "robot": DOG }))).await;
-    let dry = t.ok("POST", "api/launch", Some(json!({ "dryRun": true }))).await;
-    assert_eq!(dry["sent"], false);
-    assert_eq!(dry["request"]["blueprint"], "unitree-go2-basic");
-    assert_eq!(dry["request"]["config"]["global"]["robot_ip"], "192.0.2.10");
-    assert_eq!(dry["request"]["config"]["global"]["unitree_aes_128_key"], "(saved key)", "the key is sent, never shown");
-    // what really goes to Desktop carries the key
-    let request = t.app.launch_request(false, None, None).unwrap();
-    assert_eq!(request["config"]["global"]["unitree_aes_128_key"], "00112233445566778899aabbccddeeff");
-    assert_eq!(
-        t.app.launch_request(true, None, None).unwrap(),
-        json!({ "blueprint": "unitree-go2-basic", "config": { "global": { "replay": true } } })
-    );
-    // mock: a robot launch is simulated, step by step
-    assert_eq!(t.ok("GET", "api/launch", None).await["launch"], Value::Null);
-    let launch = t.ok("POST", "api/launch", Some(json!({}))).await;
-    assert_eq!(launch["phase"], "starting");
-    assert_eq!(launch["mock"], true);
-    tokio::time::sleep(std::time::Duration::from_millis(3700)).await;
-    assert_eq!(t.ok("GET", "api/launch", None).await["launch"]["phase"], "running");
-    assert_eq!(t.ok("POST", "api/launch/stop", None).await["stopped"], true);
-    assert_eq!(t.ok("GET", "api/launch", None).await["launch"], Value::Null);
-    // a replay needs Desktop
-    assert_eq!(t.status("POST", "api/launch", Some(json!({ "replay": true }))).await, 409);
-}
-
-/// A stand-in for Desktop's /dimos-gateway endpoints: records what it's sent.
-/// A Desktop whose dimos gateway is at `gateway` (/dimos-gateway since 0.2.180, /dimos before)
-async fn fake_desktop(busy: bool, gateway: &str) -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
-    use axum::routing::{get, post};
-    let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> = Default::default();
-    let (s1, s2, s3) = (seen.clone(), seen.clone(), seen.clone());
-    let router = axum::Router::new()
-        .route(
-            &format!("{gateway}/runs"),
-            post(move |body: axum::Json<Value>| {
-                let seen = s1.clone();
-                async move {
-                    seen.lock().unwrap().push(("launch".into(), body.0.clone()));
-                    if busy {
-                        return (axum::http::StatusCode::BAD_REQUEST, axum::Json(json!({ "error": "unitree-go2 is still running; stop it first" })));
-                    }
-                    let flags = body.0["config"]["global"].as_object().unwrap().iter().map(|(k, v)| format!("--{} {}", k.replace('_', "-"), v.as_str().unwrap_or(""))).collect::<Vec<_>>().join(" ");
-                    (axum::http::StatusCode::OK, axum::Json(json!({ "blueprint": body.0["blueprint"], "phase": "starting", "overrides": body.0["config"]["global"], "output": format!("$ dimos {flags} run x"), "steps": [] })))
-                }
-            })
-            .get(|| async { axum::Json(json!({ "runs": [], "launch": { "runId": "run-1", "blueprint": "unitree-go2-basic", "phase": "running", "overrides": { "unitree_aes_128_key": "ff" }, "output": "ok" } })) }),
-        )
-        .route(
-            &format!("{gateway}/runs/stop"),
-            post(move |body: String| {
-                let seen = s2.clone();
-                async move {
-                    seen.lock().unwrap().push(("stop".into(), serde_json::from_str(&body).unwrap_or(Value::Null)));
-                    axum::Json(json!({ "output": "" }))
-                }
-            }),
-        )
-        .route(
-            &format!("{gateway}/config/global"),
-            get(|| async { axum::Json(json!({ "overrides": { "zenoh_mode": "peer" } })) }).put(move |body: axum::Json<Value>| {
-                let seen = s3.clone();
-                async move {
-                    seen.lock().unwrap().push(("config/global".into(), body.0));
-                    axum::Json(json!({}))
-                }
-            }),
-        );
-    // Desktop 0.2.162 answers a POST to a path it doesn't have with 405 (its static pages), not 404
+/// A stand-in for Desktop's dimos gateway at `gateway` (/dimos-gateway since 0.2.180, /dimos before): a signed-in account.
+async fn fake_desktop(gateway: &str) -> String {
+    let account = axum::routing::get(|| async { axum::Json(json!({ "loggedIn": true, "email": "a@b.c" })) });
+    let router = axum::Router::new().route(&format!("{gateway}/cloud/account"), account);
+    // Desktop 0.2.162 answers a path it doesn't have with 405 (its static pages), not 404
     let router = if gateway == "/dimos" { router.fallback(|| async { axum::http::StatusCode::METHOD_NOT_ALLOWED }) } else { router };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-    (url, seen)
+    url
 }
 
 #[tokio::test]
-async fn launch_through_desktop() {
-    let dir = std::env::temp_dir().join(format!("go2_dash_test_desktop_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let _cleanup = TempDir(dir.clone());
-    // a real (not mock) app: nothing here scans or reaches a robot, it only talks to the fake Desktop
-    let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused")) };
-    let (url, seen) = fake_desktop(false, "/dimos-gateway").await;
-    t.app.desktop_url.set(url).unwrap();
-    t.ok("PUT", "api/setup", Some(json!({ "ip": "10.0.0.7" }))).await;
-    let launch = t.ok("POST", "api/launch", Some(json!({ "default": true }))).await;
-    assert_eq!(launch["phase"], "starting");
-    {
-        let seen = seen.lock().unwrap();
-        assert_eq!(seen[0].0, "config/global");
-        assert_eq!(seen[0].1["overrides"], json!({ "zenoh_mode": "peer", "robot_ip": "10.0.0.7" }), "Desktop's other settings are kept");
-        assert_eq!(
-            seen[1],
-            ("launch".to_string(), json!({ "blueprint": "unitree-go2-basic", "config": { "global": { "robot_ip": "10.0.0.7" } } }))
-        );
+async fn reaches_desktop_before_and_after_gateway_3() {
+    for (gateway, n) in [("/dimos-gateway", 1), ("/dimos", 2)] {
+        let dir = std::env::temp_dir().join(format!("go2_dash_test_desktop_{n}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _cleanup = TempDir(dir.clone());
+        let app = App::new(dir.clone(), false);
+        app.desktop_url.set(fake_desktop(gateway).await).unwrap();
+        let account = app.cloud_account(false).await.unwrap();
+        assert_eq!(account["email"], "a@b.c", "{gateway}");
+        assert_eq!(account["available"], true);
     }
-    let state = t.ok("GET", "api/launch", None).await["launch"].clone();
-    assert_eq!(state["phase"], "running");
-    assert_eq!(state["overrides"]["unitree_aes_128_key"], "(saved key)");
-    t.ok("POST", "api/launch", Some(json!({ "replay": true, "blueprint": "unitree-go2" }))).await;
-    assert_eq!(seen.lock().unwrap()[2].1, json!({ "blueprint": "unitree-go2", "config": { "global": { "replay": true } } }));
-    t.ok("POST", "api/launch/stop", None).await;
-    assert!(seen.lock().unwrap().iter().any(|(name, body)| name == "stop" && *body == json!({ "runId": "run-1" })), "stops the launch by its runId");
-    // Desktop already running something: a 409 that says so
-    let (busy_url, _) = fake_desktop(true, "/dimos-gateway").await;
-    let busy = Test { app: App::new(dir.join("busy"), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused2")) };
-    busy.app.desktop_url.set(busy_url).unwrap();
-    let (status, body) = busy.call("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await;
-    assert_eq!(status, 409);
-    assert!(body["error"].as_str().unwrap().contains("stop it first"));
-}
-
-#[tokio::test]
-async fn launch_through_a_desktop_before_gateway_3() {
-    let dir = std::env::temp_dir().join(format!("go2_dash_test_old_desktop_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let _cleanup = TempDir(dir.clone());
-    let t = Test { app: App::new(dir.clone(), false), _dir: TempDir(std::env::temp_dir().join("go2_dash_unused3")) };
-    let (url, seen) = fake_desktop(false, "/dimos").await;
-    t.app.desktop_url.set(url).unwrap();
-    assert_eq!(t.ok("POST", "api/launch", Some(json!({ "ip": "10.0.0.7" }))).await["phase"], "starting", "/dimos-gateway 405s: /dimos/");
-    assert!(seen.lock().unwrap().iter().any(|(name, _)| name == "launch"));
 }
 
 #[tokio::test]

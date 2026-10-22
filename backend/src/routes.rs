@@ -11,11 +11,10 @@ use crate::drive::{self, commands_json, Command, COMMANDS};
 pub const TITLE: &str = "Go2 Ctrl";
 
 /// the endpoints' API version (openapi.json's info.version): major = breaking, minor = added
-pub const API_VERSION: &str = "1.0.0";
+pub const API_VERSION: &str = "2.0.0";
 
 pub const DESCRIPTION: &str = "Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, \
-drive one live (stand, sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with the \
-robot's IP and saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.";
+and drive one live (stand, sit, jump, dance, walk) over WebRTC. Robot-moving and Wi-Fi-changing endpoints take dryRun: true.";
 
 /// The endpoints as an OpenAPI 3.1 document: the served openapi.json, and dimos.yaml's `provides:`.
 pub fn openapi(routes: &[Route]) -> Value {
@@ -360,22 +359,21 @@ pub fn routes() -> Vec<Route> {
         route(
             "GET",
             "api/setup",
-            "The first-run guide: its step (welcome, find, wifi, address, launch, done), mode (robot or replay) and the robot picked (key, name, ip, whether its AES key is saved)",
+            "The first-run guide: its step (welcome, find, wifi, address, done) and the robot picked (key, name, ip, whether its AES key is saved)",
             None,
             handler(|app, _| async move { Ok(app.setup_state()) }),
         ),
         route(
             "PUT",
             "api/setup",
-            "Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it), ip (that robot's IP, saved for it; with no robot, the robot is that IP) and mode",
+            "Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it) and ip (that robot's IP, saved for it; with no robot, the robot is that IP)",
             Some(json!({
-                "step": { "type": "string", "description": "welcome, find, wifi, address, launch or done" },
+                "step": { "type": "string", "description": "welcome, find, wifi, address or done" },
                 "robot": { "type": "string", "description": "a key from GET api/robots; empty forgets the picked robot" },
                 "ip": { "type": "string", "description": "the picked robot's IPv4 address" },
-                "mode": { "type": "string", "description": "robot, or replay (no robot: try a recording)" },
             })),
             handler(|app, args| async move {
-                app.update_setup(text(&args, "step").as_deref(), text(&args, "robot").as_deref(), text(&args, "ip").as_deref(), text(&args, "mode").as_deref())
+                app.update_setup(text(&args, "step").as_deref(), text(&args, "robot").as_deref(), text(&args, "ip").as_deref())
             }),
         ),
         route("DELETE", "api/setup", "Start the first-run guide over (robots, names and keys stay)", None, handler(|app, _| async move { Ok(app.reset_setup()) })),
@@ -386,29 +384,6 @@ pub fn routes() -> Vec<Route> {
             Some(json!({ "ip": { "type": "string", "required": true } })),
             handler(|app, args| async move { app.check_ip(&text(&args, "ip").unwrap_or_default()).await }),
         ),
-        route(
-            "GET",
-            "api/launch",
-            "{launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems), or null",
-            None,
-            handler(|app, _| async move { Ok(json!({ "launch": app.launch_state().await? })) }),
-        ),
-        route(
-            "POST",
-            "api/launch",
-            "Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one launch at a time (a running one answers 409: POST api/launch/stop first). dryRun: true says what it would send",
-            Some(json!({
-                "blueprint": { "type": "string", "description": "default unitree-go2-basic" },
-                "replay": { "type": "boolean", "description": "play a recording instead of connecting to a robot" },
-                "ip": { "type": "string", "description": "the robot's IP (default: the guide's robot)" },
-                "default": { "type": "boolean", "description": "also save robot_ip in Desktop's global config, for the Launcher's launches" },
-                "dryRun": { "type": "boolean", "description": "true: say what would be launched, launch nothing" },
-            })),
-            handler(|app, args| async move {
-                app.launch(flag(&args, "replay")?, text(&args, "blueprint").as_deref(), text(&args, "ip").as_deref(), flag(&args, "dryRun")?, flag(&args, "default")?).await
-            }),
-        ),
-        route("POST", "api/launch/stop", "Stop Desktop's dimos launch", None, handler(|app, _| async move { app.stop_launch().await })),
         route(
             "POST",
             "api/drive/sit-down",

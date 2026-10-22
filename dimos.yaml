@@ -2,11 +2,6 @@ title: Go2 Ctrl
 spec-version: v1.0
 uses:
     "@dimos-gateway":
-        - GET /runs
-        - POST /runs
-        - POST /runs/stop
-        - GET /config/global
-        - PUT /config/global
         - GET /cloud/uploads
         - POST /cloud/uploads
         - DELETE /cloud/uploads
@@ -29,17 +24,15 @@ provides:
     openapi: 3.1.0
     info:
         title: Go2 Ctrl
-        version: 1.0.0
+        version: 2.0.0
         description: >-
-            Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, drive one live (stand,
-            sit, jump, dance, walk) over WebRTC, and run a dimos blueprint on one (through Desktop, with the robot's IP and
-            saved AES key). Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
+            Unitree Go2 robot dogs: find them (Bluetooth + LAN scan), put one on Wi-Fi over Bluetooth, and drive one live
+            (stand, sit, jump, dance, walk) over WebRTC. Robot-moving and Wi-Fi-changing endpoints take dryRun: true.
         x-when: >-
-            you need to find a Unitree Go2 dog (its IP, AES key), run a dimos blueprint on one, or connect and drive it
+            you need to find a Unitree Go2 dog (its IP, AES key), or connect and drive it
     x-private:
         - api/state/*
         - api/drive/*
-        - api/launch/*
         - api/setup/*
         - api/accounts/*
         - api/robots/*
@@ -434,13 +427,13 @@ provides:
         /api/setup:
             get:
                 description: >-
-                    The first-run guide: its step (welcome, find, wifi, address, launch, done), mode (robot or replay) and
-                    the robot picked (key, name, ip, whether its AES key is saved)
+                    The first-run guide: its step (welcome, find, wifi, address, done) and the robot picked (key, name, ip,
+                    whether its AES key is saved)
                 x-when: you need to know where the first-run guide is
             put:
                 description: >-
-                    Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it), ip (that robot's
-                    IP, saved for it; with no robot, the robot is that IP) and mode. Answers the guide (as GET api/setup)
+                    Move the first-run guide: any of step, robot (a key from GET api/robots; empty forgets it) and ip (that
+                    robot's IP, saved for it; with no robot, the robot is that IP). Answers the guide (as GET api/setup)
                 x-when: you need to advance the first-run guide or pick its robot
                 requestBody:
                     content:
@@ -451,14 +444,11 @@ provides:
                                     ip:
                                         description: the picked robot's IPv4 address
                                         type: string
-                                    mode:
-                                        description: "robot, or replay (no robot: try a recording)"
-                                        type: string
                                     robot:
                                         description: a key from GET api/robots; empty forgets the picked robot
                                         type: string
                                     step:
-                                        description: welcome, find, wifi, address, launch or done
+                                        description: welcome, find, wifi, address or done
                                         type: string
             delete:
                 summary: "Start the first-run guide over (robots, names and keys stay): answers the guide (as GET api/setup)"
@@ -480,44 +470,6 @@ provides:
                                         type: string
                                 required:
                                     - ip
-        /api/launch:
-            get:
-                description: >-
-                    {launch}: Desktop's dimos launch (blueprint, phase starting/running/stopped/failed, startup steps, problems),
-                    or null
-                x-when: you need the status of the dimos launch
-            post:
-                description: >-
-                    Launch dimos through Desktop for the guide's robot (robot_ip, plus its saved AES key) or a replay; one
-                    launch at a time (a running one answers 409: POST api/launch/stop first). Answers the launch (as GET api/launch's
-                    launch). dryRun: true says what it would send
-                x-when: >-
-                    the user wants a dimos blueprint running on a Go2 (through Desktop, with its IP and AES key), or a replay
-                requestBody:
-                    content:
-                        application/json:
-                            schema:
-                                type: object
-                                properties:
-                                    blueprint:
-                                        description: the dimos blueprint to run (default unitree-go2-basic)
-                                        type: string
-                                    default:
-                                        description: also save robot_ip in Desktop's global config, for the Launcher's launches
-                                        type: boolean
-                                    dryRun:
-                                        description: "true: say what would be launched, launch nothing"
-                                        type: boolean
-                                    ip:
-                                        description: 'the robot''s IP (default: the guide''s robot)'
-                                        type: string
-                                    replay:
-                                        description: play a recording instead of connecting to a robot
-                                        type: boolean
-        /api/launch/stop:
-            post:
-                summary: 'Stop Desktop''s dimos launch: answers {stopped, output}; stopped is false when nothing is running'
-                x-when: you need to stop the running dimos launch
         /api/drive/sit-down:
             post:
                 description: >-

@@ -1261,65 +1261,8 @@ body.science.dark .nav-focus {
     align-self: flex-end;
     height: 38px;
 }
-.su-summary {
-    display: flex;
-    flex-direction: column;
-}
-.su-default {
-    font-size: 13px;
-}
-.su-launch {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-.su-launch-steps {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted-fg);
-}
-.su-launch-steps li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-.su-launch-steps .st {
-    width: 16px;
-    text-align: center;
-    font-family: var(--mono);
-}
-.su-launch-steps li.done {
-    color: var(--fg);
-}
-.su-launch-steps li.done .st {
-    color: var(--ok);
-}
-.su-launch-steps li.failed .st {
-    color: var(--danger);
-}
-.su-launch-steps li.now {
-    color: var(--fg);
-    font-weight: 600;
-}
-.su-launch-steps li.now .st::before {
-    content: "";
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: var(--radius-round);
-    background: var(--primary);
-    animation: pulse 1.2s ease-in-out infinite;
-}
 .su-skip {
     align-self: flex-start;
-}
-.su-alt {
-    margin-top: -4px;
 }
 .p-scan .spacer {
     flex: 1;

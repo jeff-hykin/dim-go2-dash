@@ -82,8 +82,7 @@ pub struct App {
     pub drive: tokio::sync::Mutex<Option<Arc<Drive>>>,
     /// the first-run guide's step and robot (setup.rs)
     pub(crate) setup: Mutex<Value>,
-    pub(crate) mock_launch: crate::setup::MockLaunch,
-    /// Desktop's URL (DIMOS_APP's desktopUrl): where dimos is launched
+    /// Desktop's URL (DIMOS_APP's desktopUrl): its dimos gateway takes uploads and the cloud account
     pub desktop_url: std::sync::OnceLock<String>,
     /// mock only: when each robot given Wi-Fi shows up on the network (ms), as a real one does ~30 s later
     mock_joined: Mutex<BTreeMap<String, u64>>,
@@ -222,6 +221,7 @@ impl App {
             .ok()
             .and_then(|text| serde_json::from_str::<Value>(&text).ok())
             .filter(|setup| setup["step"].is_string())
+            .map(|setup| crate::setup::restore(&setup))
             .unwrap_or_else(|| crate::setup::initial(first_run));
         let (events, _) = broadcast::channel(256);
         let recordings_index: serde_json::Map<String, Value> = load(&data_dir, crate::uploads::INDEX_FILE);
@@ -244,7 +244,6 @@ impl App {
             wifi_task: tokio::sync::Mutex::new(None),
             drive: tokio::sync::Mutex::new(None),
             setup: Mutex::new(setup),
-            mock_launch: Default::default(),
             desktop_url: Default::default(),
             mock_joined: Default::default(),
             recording: Mutex::new(None),
