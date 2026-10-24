@@ -186,3 +186,19 @@ for (const [gateway, routes] of Object.entries(gateways)) {
     }
 }
 console.log(`dimos.yaml declares all ${new Set(found.map(([g, r]) => g + r)).size} Desktop endpoints the code calls`)
+
+// backend/Cargo.toml's version is the app's own version: `CARGO_PKG_VERSION` is what the server logs at startup and
+// what `app_version` in every recording's metadata is. The repo bumps dimos.yaml on release, so the crate has to move
+// with it — it sat at 0.5.37 from v0.5.37 through v0.6.2, stamping a version that hadn't shipped in months onto every
+// recording. Checked here rather than in the build, because the nix build copies only backend/ and so cannot read
+// dimos.yaml. `dimos-desktop app check .` reports the same drift from the outside (Desktop 0.2.227).
+const cargoToml = await Deno.readTextFile(new URL("../backend/Cargo.toml", import.meta.url))
+const crateVersion = cargoToml.match(/^\[package\][^[]*?^version\s*=\s*"([^"]+)"/ms)?.[1]
+if (crateVersion !== yaml.version) {
+    console.error(
+        `backend/Cargo.toml says version ${crateVersion}, dimos.yaml says ${yaml.version}: that version is what the ` +
+            `server reports of itself and writes into a recording's app_version, so a release bumps both`,
+    )
+    Deno.exit(1)
+}
+console.log(`backend/Cargo.toml and dimos.yaml agree on ${crateVersion}`)
