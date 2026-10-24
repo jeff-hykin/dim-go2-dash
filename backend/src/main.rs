@@ -37,6 +37,15 @@ async fn main() {
     if let Some(url) = dimos_app::get().and_then(|given| given.desktop_url.clone()) {
         let _ = app.desktop_url.set(url);
     }
+    // which computer this is, for a recording's name: Desktop 0.2.226+ hands it over at start, no round trip needed.
+    // An older one passes nothing and recording.rs asks its HUD instead (App::machine_id).
+    match dimos_app::get().map(|given| given.machine_id.clone().filter(|id| !id.is_empty())) {
+        Some(Some(id)) => {
+            let _ = app.machine_id_from_app.set(id);
+        }
+        Some(None) => go2_dash::log::line("DIMOS_APP named no machine id (Desktop before 0.2.226): asking its HUD instead when recording"),
+        None => {}
+    }
     if std::env::args().any(|arg| arg == "--openapi-json") {
         println!("{}", serde_json::to_string_pretty(&go2_dash::routes::openapi(&app.routes)).unwrap());
         return;

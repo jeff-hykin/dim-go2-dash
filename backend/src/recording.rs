@@ -81,6 +81,9 @@ pub struct Active {
     opened_ms: u64,
     /// the lidar watch (lidar_watch): how long no point clouds have come, once that's past LIDAR_SILENT_MS
     lidar_silent_ms: AtomicU64,
+    /// which computer this is (App::machine_id), in the file's name and metadata; empty means neither Desktop nor its
+    /// HUD had one, which the page shows as a badge
+    machine_id: String,
 }
 
 /// No point clouds this long, while the dog stands connected: the lidar isn't recording (a healthy one drops out for
@@ -152,6 +155,7 @@ impl Active {
         status["robot"] = json!(self.robot);
         status["dryRun"] = json!(self.dry);
         status["cameraDrops"] = json!(self.camera_drops.load(Ordering::Relaxed));
+        status["machineId"] = if self.machine_id.is_empty() { Value::Null } else { json!(self.machine_id) };
         status["gps"] = json!(self.gps.lock().unwrap().as_ref().map(|gps| gps.detail.lock().unwrap().clone()));
         let silent = self.lidar_silent_ms.load(Ordering::Relaxed);
         status["lidarSilentS"] = if silent > 0 { json!(silent / 1000) } else { Value::Null };
@@ -195,12 +199,22 @@ impl App {
         }
     }
 
-    /// Which computer this is, for a recording's name: Desktop's `machineId` (`GET /gateways/desktop/ui/hud`; Desktop
-    /// generates a random one and keeps it), remembered for the rest of the run. Empty when Desktop has none or doesn't
-    /// answer, and the name simply leaves that part out (record::file_name).
+    /// Which computer this is, for a recording's name and metadata, in the order it's worth having:
+    ///
+    /// 1. DIMOS_APP's `machineId` — what Desktop 0.2.226+ hands over at start (main.rs), so no round trip and it's
+    ///    there before the first recording;
+    /// 2. `GET /gateways/desktop/ui/hud` → `machineId` — the same value from a Desktop too old to pass it. From
+    ///    0.2.226 Desktop always answers one (the configured id, else 32 hex it generates and saves);
+    /// 3. empty, which record::file_name leaves out of the name.
+    ///
+    /// Only a real answer is remembered, so a Desktop updated (or given an id) mid-run is picked up at the next
+    /// recording rather than being written off for the whole run. Empty is never silent: record_start logs it and the
+    /// page badges it.
     pub async fn machine_id(&self) -> String {
-        if let Some(id) = self.machine_id_from_desktop.get() {
-            return id.clone();
+        for known in [&self.machine_id_from_app, &self.machine_id_from_desktop] {
+            if let Some(id) = known.get() {
+                return id.clone();
+            }
         }
         let id = match self.desktop_call(reqwest::Method::GET, "/gateways/desktop/ui/hud", None).await {
             Ok(hud) => hud["machineId"].as_str().unwrap_or_default().to_string(),
@@ -209,7 +223,9 @@ impl App {
                 return String::new();
             }
         };
-        let _ = self.machine_id_from_desktop.set(id.clone());
+        if !id.is_empty() {
+            let _ = self.machine_id_from_desktop.set(id.clone());
+        }
         id
     }
 
@@ -239,14 +255,23 @@ impl App {
         let started = now_ms();
         let options = self.record_options();
         let stamp = crate::record::local_stamp(started);
-        let name = crate::record::file_name(&stamp, &drive.name, &self.machine_id().await, &options.format);
+        let machine_id = self.machine_id().await;
+        // recording anyway beats not recording, but never quietly: losing which computer a file came from is the kind
+        // of gap nobody notices until the recordings matter. The page badges it too (Active::status, Control.tsx).
+        if machine_id.is_empty() {
+            crate::log::line(
+                "warn: no machine id — recording without one, so this file won't say which computer made it. Desktop \
+                 passed none in DIMOS_APP and its HUD gave none either; update dimOS Desktop (0.2.226+ always has one).",
+            );
+        }
+        let name = crate::record::file_name(&stamp, &drive.name, &machine_id, &options.format);
         let mut path = dir.join(&name);
         let mut n = 2;
         while path.exists() {
             path = dir.join(name.replace(&format!(".{}", options.format), &format!("-{n}.{}", options.format)));
             n += 1;
         }
-        let metadata = BTreeMap::from([
+        let mut metadata = BTreeMap::from([
             ("app".to_string(), "dim-go2-dash".to_string()),
             ("app_version".to_string(), env!("CARGO_PKG_VERSION").to_string()),
             ("robot_type".to_string(), "unitree_go2".to_string()),
@@ -257,6 +282,10 @@ impl App {
             ("mock".to_string(), self.mock.to_string()),
             ("started_ms".to_string(), started.to_string()),
         ]);
+        // in the file as well as the name: a rename loses the name's copy, and this is the field tools read
+        if !machine_id.is_empty() {
+            metadata.insert("machine_id".to_string(), machine_id.clone());
+        }
         let recorder =
             Arc::new(Recorder::start_with_options(&path, metadata, channel_metadata, options).map_err(HttpError::bad)?);
         let file = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -274,6 +303,7 @@ impl App {
             clocks: Default::default(),
             opened_ms: now_ms(),
             lidar_silent_ms: AtomicU64::new(0),
+            machine_id,
         });
         self.index_update(&file, |entry| {
             entry["robot"] = json!(drive.name);

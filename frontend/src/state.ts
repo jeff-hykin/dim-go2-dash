@@ -151,6 +151,8 @@ export type RecordState =
         lidarSilentS?: number | null
         /** why the file writer stopped (disk full, …): nothing after it is being recorded */
         error?: string | null
+        /** which computer this is, in the file's name and metadata; null when Desktop gave none (update Desktop) */
+        machineId?: string | null
         streams?: { topic: string; bytesPerSecond: number }[]
         dropped: number
         topics: Record<string, number>

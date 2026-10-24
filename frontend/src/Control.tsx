@@ -478,6 +478,24 @@ export function Control(props: {
             lidarWarned.current = false
         }
     }, [lidarSilent != null])
+    // no machine id (backend recording.rs): the file can't say which computer made it. Recording still runs — a file
+    // missing one name part beats no file — but it gets a badge and one Desktop notification, never silence.
+    const noMachineId = record.active && (record.machineId ?? null) === null
+    const machineWarned = useRef(false)
+    useEffect(() => {
+        if (noMachineId && !machineWarned.current) {
+            machineWarned.current = true
+            notify({
+                title: `Recording without a machine id (${drive.name})`,
+                body:
+                    "This file won't say which computer recorded it. Still recording; update dimOS Desktop (0.2.226+ always gives one), then start a new recording.",
+                kind: "warn",
+                app: "dim-go2-dash",
+            }).catch(() => {})
+        } else if (!noMachineId) {
+            machineWarned.current = false
+        }
+    }, [noMachineId])
     // the file writer failed (recording.rs status "error"): a badge and one notification
     const writerError = record.active ? record.error ?? null : null
     useEffect(() => {
@@ -746,6 +764,14 @@ export function Control(props: {
                         {writerError != null && (
                             <span className="dim-badge danger" title={writerError}>
                                 Recording not saving
+                            </span>
+                        )}
+                        {noMachineId && (
+                            <span
+                                className="dim-badge warn"
+                                title="Desktop gave this app no machine id, so the recording's name and metadata can't say which computer made it. Recording anyway. Update dimOS Desktop (0.2.226 and later always provide one), then start a new recording."
+                            >
+                                No machine id
                             </span>
                         )}
                         <PadChip pad={pad} linked={ready} />

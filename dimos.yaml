@@ -11,7 +11,7 @@ uses:
         - GET /cloud/login/page
         - DELETE /cloud/login
     "@desktop-gateway":
-        - GET /ui/hud # its "machineId" goes in a recording's name, so files say which computer recorded them
+        - GET /ui/hud # its "machineId", for a Desktop that passes none in DIMOS_APP; names a recording's computer
         - GET /info/apps
         - "GET /info/apps/{pkg}/icon"
         - GET /management/gateways/zenoh

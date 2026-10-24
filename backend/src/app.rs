@@ -93,7 +93,10 @@ pub struct App {
     pub(crate) recordings_from_gateway: std::sync::OnceLock<PathBuf>,
     /// the same folder offline: DIMOS_APP's recordingsDir, until (or unless) the gateway answers
     pub(crate) recordings_from_app: Option<PathBuf>,
-    /// which computer recorded a file, in its name: Desktop's machineId (recording.rs: machine_id); empty if it has none
+    /// which computer recorded a file, in its name and metadata: DIMOS_APP's machineId, set at start by main (what
+    /// Desktop 0.2.226+ passes; the one to prefer, it needs no round trip)
+    pub machine_id_from_app: std::sync::OnceLock<String>,
+    /// the same id asked of Desktop's HUD instead, for a Desktop too old to pass one (recording.rs: machine_id)
     pub(crate) machine_id_from_desktop: std::sync::OnceLock<String>,
     /// per recording: robot, times, upload (uploads.rs)
     pub(crate) recordings_index: Mutex<serde_json::Map<String, Value>>,
@@ -260,6 +263,7 @@ impl App {
             recording: Mutex::new(None),
             recordings_from_gateway: Default::default(),
             recordings_from_app: recordings_root,
+            machine_id_from_app: Default::default(),
             machine_id_from_desktop: Default::default(),
             recordings_index: Mutex::new(recordings_index),
             settings: Mutex::new(settings),

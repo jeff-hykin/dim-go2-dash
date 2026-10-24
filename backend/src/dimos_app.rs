@@ -18,6 +18,8 @@ pub struct DimosApp {
     pub dimos_dir: Option<String>,
     pub dimos_python: Option<String>,
     pub recordings_dir: Option<String>,
+    /// which computer this is, for a recording's name (Desktop 0.2.226+; older ones leave it out and the HUD answers instead)
+    pub machine_id: Option<String>,
     pub zenoh_namespace: Option<String>,
     pub zenoh_prefix: Option<String>,
 }
@@ -43,13 +45,21 @@ mod tests {
 
     #[test]
     fn reads_desktops_json() {
-        let app = parse(r#"{"version":2,"name":"b","socket":"/s/b.sock","url":"http://127.0.0.1:7341/apps/b/","path":"/apps/b/","dataDir":"/d/b","desktopUrl":"http://127.0.0.1:7341","zenohConnect":"","later":"ignored"}"#).unwrap();
+        let app = parse(r#"{"version":2,"name":"b","socket":"/s/b.sock","url":"http://127.0.0.1:7341/apps/b/","path":"/apps/b/","dataDir":"/d/b","desktopUrl":"http://127.0.0.1:7341","zenohConnect":"","machineId":"3f8a","later":"ignored"}"#).unwrap();
         assert_eq!(app.version, 2);
         assert_eq!(app.name.as_deref(), Some("b"));
         assert_eq!(app.socket.as_deref(), Some("/s/b.sock"));
         assert_eq!(app.data_dir.as_deref(), Some("/d/b"));
         assert_eq!(app.desktop_url.as_deref(), Some("http://127.0.0.1:7341"));
         assert_eq!(app.zenoh_connect.as_deref(), Some(""));
+        assert_eq!(app.machine_id.as_deref(), Some("3f8a"));
         assert_eq!(app.zenoh_gateway_url, None);
+    }
+
+    /// Desktop before 0.2.226 passes no machineId: None, and recording.rs falls back to the HUD
+    #[test]
+    fn an_older_desktop_passes_no_machine_id() {
+        let app = parse(r#"{"version":2,"name":"b","dataDir":"/d/b"}"#).unwrap();
+        assert_eq!(app.machine_id, None);
     }
 }
