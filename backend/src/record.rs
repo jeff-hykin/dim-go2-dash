@@ -478,24 +478,6 @@ pub fn file_name(local_time: &str, robot_name: &str, machine_id: &str, format: &
     format!("{name}.{format}")
 }
 
-/// This machine's `machine_id` from Desktop's config.yaml ($DIMOS_HOME, else ~/.dimos; the deck installer writes a
-/// random one); empty if there's none.
-pub fn machine_id() -> String {
-    let home = std::env::var_os("DIMOS_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".dimos")));
-    let text = home.and_then(|h| std::fs::read_to_string(h.join("config.yaml")).ok()).unwrap_or_default();
-    machine_id_in(&text)
-}
-
-/// The top-level `machine_id:` value in a config.yaml (quotes and a trailing comment dropped).
-fn machine_id_in(text: &str) -> String {
-    text.lines()
-        .find_map(|line| line.strip_prefix("machine_id:"))
-        .map(|value| value.split(" #").next().unwrap_or("").trim().trim_matches(|c| c == '"' || c == '\'').to_string())
-        .unwrap_or_default()
-}
-
 /// Keeps letters, digits, `-`, `_`, `.` and spaces-as-`_`; drops the rest (`/`, `:`, …), no leading dots.
 pub fn safe_name(text: &str) -> String {
     let mapped: String = text
@@ -739,8 +721,6 @@ mod tests {
         assert_eq!(file_name("2026-10-08_14-32-05", "../..", "", "db"), "2026-10-08_14-32-05.db");
         assert_eq!(file_name("2026-10-08_14-32-05", "Astro", "3f9a0c71b2d4", "db"), "2026-10-08_14-32-05_Astro_3f9a0c71b2d4.db");
         assert_eq!(file_name("2026-10-08_14-32-05", "", "3f9a0c71b2d4", "mcap"), "2026-10-08_14-32-05_3f9a0c71b2d4.mcap");
-        assert_eq!(machine_id_in("desktop:\n  port: 5555\nmachine_id: \"3f9a0c71b2d4\" # deck\n"), "3f9a0c71b2d4");
-        assert_eq!(machine_id_in("desktop:\n  machine_id: nested\n"), "");
         assert_eq!(local_stamp(0).len(), 19);
     }
 }

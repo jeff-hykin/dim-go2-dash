@@ -100,7 +100,7 @@ impl App {
     pub fn recordings_list(&self) -> Vec<Value> {
         let dir = recordings_dir(self);
         let index = self.index();
-        let root = self.recordings_root.clone();
+        let root = self.recordings_root();
         let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
         let mut list: Vec<Value> = entries
             .flatten()

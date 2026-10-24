@@ -88,8 +88,13 @@ pub struct App {
     mock_joined: Mutex<BTreeMap<String, u64>>,
     /// the recording in progress (recording.rs)
     pub(crate) recording: Mutex<Option<Arc<crate::recording::Active>>>,
-    /// Desktop's recordings folder (DIMOS_APP's recordingsDir); this app records into its `go2/`
-    pub recordings_root: Option<PathBuf>,
+    /// Desktop's recordings folder as its dimos gateway reports it (recording.rs: resolve_recordings_root); this app
+    /// records into its `go2/`
+    pub(crate) recordings_from_gateway: std::sync::OnceLock<PathBuf>,
+    /// the same folder offline: DIMOS_APP's recordingsDir, until (or unless) the gateway answers
+    pub(crate) recordings_from_app: Option<PathBuf>,
+    /// which computer recorded a file, in its name: Desktop's machineId (recording.rs: machine_id); empty if it has none
+    pub(crate) machine_id_from_desktop: std::sync::OnceLock<String>,
     /// per recording: robot, times, upload (uploads.rs)
     pub(crate) recordings_index: Mutex<serde_json::Map<String, Value>>,
     /// {autoUpload}
@@ -116,8 +121,8 @@ fn device_key(device: &Value) -> String {
 const SAVED_FILES: [&str; 5] = [NAMES_FILE, AES_KEYS_FILE, ACCOUNTS_FILE, IPS_FILE, crate::setup::SETUP_FILE];
 
 /// Where the app keeps what it saves: GO2_DASH_DATA_DIR, else the data folder Desktop gives it (DIMOS_APP's dataDir:
-/// each Desktop, and each DIMOS_HOME, its own), else ~/.local/share/dim. Mock mode keeps its own `mock/` beside it, so
-/// a simulation never writes into a real robot list.
+/// each Desktop its own), else ~/.local/share/dim. Mock mode keeps its own `mock/` beside it, so a simulation never
+/// writes into a real robot list.
 pub fn data_dir(explicit: Option<PathBuf>, desktop: Option<PathBuf>, home: PathBuf, mock: bool) -> PathBuf {
     let dir = explicit.or(desktop).unwrap_or_else(|| home.join(".local/share/dim"));
     if mock {
@@ -196,6 +201,12 @@ impl App {
         &self.data_dir
     }
 
+    /// Desktop's recordings folder: what its dimos gateway answered, else the one DIMOS_APP named; None when the app
+    /// runs outside Desktop (recordings then live under the data folder: recording.rs' recordings_dir).
+    pub fn recordings_root(&self) -> Option<PathBuf> {
+        self.recordings_from_gateway.get().or(self.recordings_from_app.as_ref()).cloned()
+    }
+
     pub fn with_recordings(data_dir: PathBuf, mock: bool, recordings_root: Option<PathBuf>) -> Arc<App> {
         let mut state = State { host_ssid_status: "unknown", wifi: json!({ "status": "idle" }), ..Default::default() };
         state.names = load(&data_dir, NAMES_FILE);
@@ -247,7 +258,9 @@ impl App {
             desktop_url: Default::default(),
             mock_joined: Default::default(),
             recording: Mutex::new(None),
-            recordings_root,
+            recordings_from_gateway: Default::default(),
+            recordings_from_app: recordings_root,
+            machine_id_from_desktop: Default::default(),
             recordings_index: Mutex::new(recordings_index),
             settings: Mutex::new(settings),
             upload_watcher: Default::default(),

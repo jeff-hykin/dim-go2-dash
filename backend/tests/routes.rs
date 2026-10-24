@@ -347,10 +347,15 @@ async fn check_ip() {
     assert_eq!(t.status("POST", "api/check-ip", Some(json!({ "ip": "dog" }))).await, 400);
 }
 
-/// A stand-in for Desktop's dimos gateway: a signed-in account.
+/// A stand-in for Desktop: a signed-in account, where recordings live, and this machine's id.
 async fn fake_desktop() -> String {
     let account = axum::routing::get(|| async { axum::Json(json!({ "loggedIn": true, "email": "a@b.c" })) });
-    let router = axum::Router::new().route("/gateways/dimos/cloud/account", account);
+    let recordings = axum::routing::get(|| async { axum::Json(json!({ "path": "/desk/recordings" })) });
+    let hud = axum::routing::get(|| async { axum::Json(json!({ "machineId": "3f9a0c71b2d4", "robot": Value::Null })) });
+    let router = axum::Router::new()
+        .route("/gateways/dimos/cloud/account", account)
+        .route("/gateways/dimos/history/recordings", recordings)
+        .route("/gateways/desktop/ui/hud", hud);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -362,11 +367,29 @@ async fn reaches_desktop_gateway() {
     let dir = std::env::temp_dir().join(format!("go2_dash_test_desktop_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let _cleanup = TempDir(dir.clone());
-    let app = App::new(dir.clone(), false);
+    let app = App::with_recordings(dir.clone(), false, Some("/from/dimos_app".into()));
+    // nothing asked yet: DIMOS_APP's recordingsDir, and no machine id
+    assert_eq!(app.recordings_root(), Some("/from/dimos_app".into()));
     app.desktop_url.set(fake_desktop().await).unwrap();
     let account = app.cloud_account(false).await.unwrap();
     assert_eq!(account["email"], "a@b.c");
     assert_eq!(account["available"], true);
+    // the gateway's answer wins over DIMOS_APP's, and the HUD names the machine
+    app.resolve_recordings_root().await;
+    assert_eq!(app.recordings_root(), Some("/desk/recordings".into()));
+    assert_eq!(go2_dash::recording::recordings_dir(&app), std::path::PathBuf::from("/desk/recordings/go2"));
+    assert_eq!(app.machine_id().await, "3f9a0c71b2d4");
+}
+
+#[tokio::test]
+async fn without_desktop_the_recordings_folder_is_dimos_apps() {
+    let dir = std::env::temp_dir().join(format!("go2_dash_test_no_desktop_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = TempDir(dir.clone());
+    let app = App::with_recordings(dir.clone(), false, Some("/from/dimos_app".into()));
+    app.resolve_recordings_root().await;
+    assert_eq!(go2_dash::recording::recordings_dir(&app), std::path::PathBuf::from("/from/dimos_app/go2"));
+    assert_eq!(app.machine_id().await, "", "no Desktop to ask: the name leaves the machine out");
 }
 
 #[tokio::test]

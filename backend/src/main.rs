@@ -50,6 +50,8 @@ async fn main() {
     tokio::spawn({
         let app = app.clone();
         async move {
+            // which folder those files are in is the dimos gateway's answer: ask before reading it
+            app.resolve_recordings_root().await;
             let recovering = app.clone();
             let _ = tokio::task::spawn_blocking(move || recovering.recover_recordings()).await;
             app.upload_leftovers().await;

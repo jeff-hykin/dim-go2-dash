@@ -159,7 +159,8 @@ impl Active {
     }
 }
 
-/// Where recordings go: DIMOS_APP's recordingsDir/go2 (GO2_DASH_RECORDINGS_DIR overrides), else <data dir>/recordings.
+/// Where recordings go: Desktop's recordings folder/go2 (App::recordings_root, the dimos gateway's answer or
+/// DIMOS_APP's recordingsDir; GO2_DASH_RECORDINGS_DIR overrides), else <data dir>/recordings.
 pub fn recordings_dir(app: &App) -> PathBuf {
     let options = app.record_options();
     if !options.directory.is_empty() {
@@ -168,13 +169,50 @@ pub fn recordings_dir(app: &App) -> PathBuf {
     if let Some(dir) = std::env::var_os("GO2_DASH_RECORDINGS_DIR") {
         return PathBuf::from(dir);
     }
-    match &app.recordings_root {
+    match app.recordings_root() {
         Some(root) => root.join(FOLDER),
         None => app.data_dir().join("recordings"),
     }
 }
 
 impl App {
+    /// Asks the dimos gateway where recordings live (`GET /gateways/dimos/history/recordings` → `{"path"}`) and keeps
+    /// the answer for the rest of the run: it, not Desktop's layout, is what decides the folder. Called at start and
+    /// again before each recording; until it answers — and if it never does — DIMOS_APP's recordingsDir stands in, so a
+    /// Desktop that's too old or too busy costs only the better answer.
+    pub async fn resolve_recordings_root(&self) {
+        if self.recordings_from_gateway.get().is_some() {
+            return;
+        }
+        match self.desktop_call(reqwest::Method::GET, "/gateways/dimos/history/recordings", None).await {
+            Ok(answer) => match answer["path"].as_str().filter(|path| !path.is_empty()) {
+                Some(path) => {
+                    let _ = self.recordings_from_gateway.set(PathBuf::from(path));
+                }
+                None => crate::dlog!("the dimos gateway's recordings folder came back without a path: {answer}"),
+            },
+            Err(err) => crate::dlog!("couldn't ask the dimos gateway for the recordings folder ({}): going by DIMOS_APP's", err.message),
+        }
+    }
+
+    /// Which computer this is, for a recording's name: Desktop's `machineId` (`GET /gateways/desktop/ui/hud`; Desktop
+    /// generates a random one and keeps it), remembered for the rest of the run. Empty when Desktop has none or doesn't
+    /// answer, and the name simply leaves that part out (record::file_name).
+    pub async fn machine_id(&self) -> String {
+        if let Some(id) = self.machine_id_from_desktop.get() {
+            return id.clone();
+        }
+        let id = match self.desktop_call(reqwest::Method::GET, "/gateways/desktop/ui/hud", None).await {
+            Ok(hud) => hud["machineId"].as_str().unwrap_or_default().to_string(),
+            Err(err) => {
+                crate::dlog!("couldn't ask Desktop which machine this is ({}): leaving it out of the name", err.message);
+                return String::new();
+            }
+        };
+        let _ = self.machine_id_from_desktop.set(id.clone());
+        id
+    }
+
     pub fn recording(&self) -> Option<Arc<Active>> {
         self.recording.lock().unwrap().clone()
     }
@@ -196,11 +234,12 @@ impl App {
         if let Some(active) = self.recording() {
             return Ok(active.status());
         }
+        self.resolve_recordings_root().await;
         let dir = recordings_dir(self);
         let started = now_ms();
         let options = self.record_options();
         let stamp = crate::record::local_stamp(started);
-        let name = crate::record::file_name(&stamp, &drive.name, &crate::record::machine_id(), &options.format);
+        let name = crate::record::file_name(&stamp, &drive.name, &self.machine_id().await, &options.format);
         let mut path = dir.join(&name);
         let mut n = 2;
         while path.exists() {

@@ -3,6 +3,7 @@ version: "0.6.0"
 spec-version: v1.4
 uses:
     "@dimos-gateway":
+        - GET /history/recordings # where recordings go (its "path"); DIMOS_APP's recordingsDir is the offline fallback
         - GET /cloud/uploads
         - POST /cloud/uploads
         - DELETE /cloud/uploads
@@ -10,6 +11,7 @@ uses:
         - GET /cloud/login/page
         - DELETE /cloud/login
     "@desktop-gateway":
+        - GET /ui/hud # its "machineId" goes in a recording's name, so files say which computer recorded them
         - GET /info/apps
         - "GET /info/apps/{pkg}/icon"
         - GET /management/gateways/zenoh
