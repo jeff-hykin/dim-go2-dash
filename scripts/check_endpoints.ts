@@ -111,9 +111,10 @@ console.log(`dimos.yaml lists all ${need.size} endpoints`)
 // ── uses: every Desktop endpoint in the source is declared ──
 /** `{id}`, `${encodeURIComponent(id)}` → `{}`; no query */
 const shape = (path: string) => path.split("?")[0].replace(/\$\{[^}]*\}|\{[^}]*\}/g, "{}").replace(/\/+$/, "")
-const uses = yaml.uses as Record<string, string[] | string>
-const declared = (gateway: string) =>
-    new Set((Array.isArray(uses[gateway]) ? uses[gateway] as string[] : []).map((route) => shape(route.split(" ")[1])))
+const uses = yaml.uses as Record<string, string[] | string | { endpoints?: string[] }>
+// a value is a list of routes, a version range, or (spec v1.5, beside env:) {version, endpoints, env}
+const routesOf = (value: unknown): string[] => Array.isArray(value) ? value : (value as { endpoints?: string[] })?.endpoints ?? []
+const declared = (gateway: string) => new Set(routesOf(uses[gateway]).map((route) => shape(route.split(" ")[1])))
 const gateways: Record<string, Set<string>> = {
     "@dimos-gateway": declared("@dimos-gateway"),
     "@desktop-gateway": declared("@desktop-gateway"),
