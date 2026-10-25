@@ -156,9 +156,10 @@ function tag(element, ui) {
  * Portal and Research). Wrap it in `.dim-empty-layer` to center it over a canvas, above the dock.
  *
  * An action is `{ label, onClick }` (something in this app), `{ label, href }` (a link), or `{ label, app, params,
- * appTitle }` (another app, `openApp(app, params)`); `ui` names the button for a press log (its data-ui). An app that isn't installed becomes "Install <appTitle> from the
- * App Store" (opens the App Store); outside Desktop app actions are left out. The first action is the primary one
- * unless one says `primary: false`.
+ * appTitle }` (another app, `openApp(app, params)`); `ui` names the button in a press log (its `data-ui`), and the
+ * "Install <app>" button that replaces a missing app's gets `<ui>_install`. An app that isn't installed becomes
+ * "Install <appTitle> from the App Store" (opens the App Store); outside Desktop app actions are left out. The first
+ * action is the primary one unless one says `primary: false`.
  * @param {{ title: string, body?: string | Node, label?: string, tone?: "info" | "warn" | "ok", busy?: boolean,
  *           actions?: Array<{ label: string, onClick?: () => void, href?: string, app?: string, params?: object,
  *                             appTitle?: string, primary?: boolean, ui?: string }>, testId?: string }} options

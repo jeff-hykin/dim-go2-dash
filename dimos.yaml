@@ -1,6 +1,6 @@
 title: Go2 Ctrl
-version: "0.6.4"
-spec-version: v1.4
+version: "0.7.0"
+spec-version: v1.5
 uses:
     "@dimos-gateway":
         - GET /history/recordings # where recordings go (its "path"); DIMOS_APP's recordingsDir is the offline fallback
@@ -11,15 +11,29 @@ uses:
         - GET /cloud/login/page
         - DELETE /cloud/login
     "@desktop-gateway":
-        - GET /ui/hud # its "machineId", for a Desktop that passes none in DIMOS_APP; names a recording's computer
-        - GET /info/apps
-        - "GET /info/apps/{pkg}/icon"
-        - GET /management/gateways/zenoh
-        - POST /ui/notifications
-        - "POST /ui/apps/{pkg}/frontend/{topic}"
-        - POST /ui/shell
-        - "GET /ui/shell/{id}"
-        - "POST /ui/shell/{id}/cancel"
+        # what this server reads of DIMOS_APP; `app check` says when Desktop doesn't set one, and a launch that
+        # can't resolve one says so in this app's own log
+        env:
+            DIMOS_APP.socket: the unix socket this server binds
+            DIMOS_APP.name: names this install in its links and notifications
+            DIMOS_APP.dataDir: its own folder, for the robots it has found and its settings
+            DIMOS_APP.desktopUrl: Desktop's loopback origin, which the gateway and the HUD are asked through
+            DIMOS_APP.machineId:
+                required: false
+                description: tags every recording's metadata; GET /ui/hud answers for a Desktop that passes none
+            DIMOS_APP.recordingsDir:
+                required: false
+                description: where recordings go when the gateway can't be reached
+        endpoints:
+            - GET /ui/hud # its "machineId", for a Desktop that passes none in DIMOS_APP; names a recording's computer
+            - GET /info/apps
+            - "GET /info/apps/{pkg}/icon"
+            - GET /management/gateways/zenoh
+            - POST /ui/notifications
+            - "POST /ui/apps/{pkg}/frontend/{topic}"
+            - POST /ui/shell
+            - "GET /ui/shell/{id}"
+            - "POST /ui/shell/{id}/cancel"
     "@zenoh-gateway": ">=0.5 <0.6"
 caches:
     - url: "https://dimos-desktop.cachix.org"
