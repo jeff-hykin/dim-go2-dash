@@ -475,10 +475,18 @@ impl RobotConn {
             crate::dlog!("data channel open");
             Box::pin(async {})
         }));
-        channel.on_close(Box::new(|| {
-            crate::dlog!("data channel closed");
-            Box::pin(async {})
-        }));
+        {
+            // the dog closing the channel ends the session (ICE would only say Failed LINK_LOST_AFTER later): reconnect now
+            let on_event = on_event.clone();
+            let closed = closed.clone();
+            channel.on_close(Box::new(move || {
+                crate::dlog!("data channel closed");
+                if !closed.swap(true, Ordering::Relaxed) {
+                    on_event(ConnEvent::Lost);
+                }
+                Box::pin(async {})
+            }));
+        }
         let offer = pc.create_offer(None).await.map_err(|e| e.to_string())?;
         let mut gathered = pc.gathering_complete_promise().await;
         pc.set_local_description(offer).await.map_err(|e| e.to_string())?;
