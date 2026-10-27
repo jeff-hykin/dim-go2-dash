@@ -231,6 +231,17 @@ export type State = {
     recordings: Recording[]
     settings: Settings
     hotspot: HotspotState
+    storage: Storage
+}
+
+/** the recordings' disk: low = under 20% free and nothing uploaded left to delete (storage.rs) */
+export type Storage = {
+    low: boolean
+    freeBytes?: number
+    totalBytes?: number
+    secondsLeft?: number | null
+    notUploaded?: number
+    autoUpload?: boolean
 }
 
 /** how often the page re-reads the state while the zenoh-gateway connection is down */
@@ -274,6 +285,7 @@ export function useBackend(onCommand: (command: CommandRecord) => void): [State 
                 recordings: "recordings",
                 settings: "settings",
                 hotspot: "hotspot",
+                storage: "storage",
             }[
                 event.type as string
             ] as keyof State | undefined

@@ -19,7 +19,7 @@ import {
 } from "./Hotspot.tsx"
 import { Recordings } from "./Recordings.tsx"
 import { Setup } from "./Setup.tsx"
-import { type CommandRecord, type Robot, useBackend } from "./state.ts"
+import { type CommandRecord, type Robot, type Storage, useBackend } from "./state.ts"
 
 type Open = { key: string; what: "menu" | "form" | "details" | "edit" } | null
 
@@ -361,6 +361,7 @@ export function App() {
     )
     return (
         <>
+            {state?.storage?.low && <StorageWarning storage={state.storage} />}
             <div
                 className={`stage${sent ? " connected" : ""}${guiding ? " guiding" : ""}${slid ? "" : " beside-panel"}`}
                 style={driving || !card || card === closedCard ? { display: "none" } : undefined}
@@ -687,6 +688,30 @@ export function App() {
 }
 
 /** Under Scan: how many AES keys a connect will try (shown only when there are some). */
+/** The recordings' disk is nearly full and nothing uploaded is left to delete: over the top of everything until there's room. */
+function StorageWarning({ storage }: { storage: Storage }) {
+    const gb = (bytes?: number) => ((bytes ?? 0) / 1e9).toFixed(1)
+    const left = storage.secondsLeft
+    return (
+        <div className="storage-warning" role="alert" data-ui="app.storage_warning">
+            <Icon name="warn" size={20} />
+            <span>
+                <b>Storage almost full:</b> {gb(storage.freeBytes)} GB free of {gb(storage.totalBytes)} GB
+                {left != null && (
+                    <>
+                        , about {left < 3600 ? `${Math.floor(left / 60)} min` : `${(left / 3600).toFixed(1)} h`}{" "}
+                        of recording left
+                    </>
+                )}. {storage.autoUpload
+                    ? `${
+                        storage.notUploaded ?? 0
+                    } recordings aren't uploaded yet, so none can be cleared: get online and signed in so they upload.`
+                    : "Auto-upload is off, so nothing is cleared automatically: turn it on or delete recordings."}
+            </span>
+        </div>
+    )
+}
+
 function KeysLine({ keys }: { keys: { saved: number; fleet: number } }) {
     const total = keys.saved + keys.fleet
     const parts = [keys.saved && `${keys.saved} saved here`, keys.fleet && `${keys.fleet} from the fleet key file`]

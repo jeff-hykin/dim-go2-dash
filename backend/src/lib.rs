@@ -24,6 +24,7 @@ mod lan;
 mod protocol;
 pub mod record;
 pub mod recording;
+pub mod storage;
 pub mod stream;
 pub mod relay;
 pub mod robot_rtc;
