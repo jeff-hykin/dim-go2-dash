@@ -503,6 +503,13 @@ impl Drive {
         }
         match drive.clone().connect_until(Instant::now() + CONNECT_WINDOW).await {
             Ok(()) => {
+                // config.yaml's apps.go2-ctrl.auto-record: record from the connect (otherwise only when Record is pressed)
+                if crate::fleet_config::go2_ctrl_flag("auto-record") == Some(true) {
+                    crate::dlog!("connected: recording (config.yaml apps.go2-ctrl.auto-record)");
+                    if let Err(err) = app.record_start().await {
+                        crate::dlog!("auto record failed: {}", err.message);
+                    }
+                }
                 // connected: stand up right away, ready to drive (the same Stand as the button: normal mode, StandUp,
                 // BalanceStand). In the background, so connecting answers now; not on reconnects
                 let standing = drive.clone();

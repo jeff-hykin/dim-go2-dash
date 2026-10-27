@@ -243,6 +243,10 @@ impl App {
         if !settings["autoUpload"].is_boolean() {
             settings["autoUpload"] = json!(true);
         }
+        // config.yaml's apps.go2-ctrl.auto-upload wins at each start (the fleet sets it per deck)
+        if let Some(on) = crate::fleet_config::go2_ctrl_flag("auto-upload") {
+            settings["autoUpload"] = json!(on);
+        }
         if !settings["recordOptions"].is_object() {
             settings["recordOptions"] = serde_json::to_value(crate::record::RecordOptions::default()).unwrap();
         }
