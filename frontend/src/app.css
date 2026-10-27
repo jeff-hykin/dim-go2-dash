@@ -2516,3 +2516,20 @@ body .overheat-back .overheat.dim-modal > header {
     font-size: 12px;
     color: var(--warn);
 }
+
+/* the recordings' disk is nearly full and nothing uploaded is left to delete (App.tsx StorageWarning) */
+.storage-warning {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #b4232a;
+    color: #fff;
+    font-size: 16px;
+    line-height: 1.35;
+}

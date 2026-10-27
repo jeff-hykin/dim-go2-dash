@@ -1,5 +1,5 @@
 title: Go2 Ctrl
-version: "0.6.5-beta.2"
+version: "0.6.5-beta.4"
 spec-version: v1.4
 uses:
     "@dimos-gateway":
@@ -51,7 +51,7 @@ provides:
                 description: >-
                     Everything at once, as one object: robots (the last scan's), scan (its status), wifi (Wi-Fi provisioning),
                     drive (the drive session), network (this computer's Wi-Fi), accounts (Unitree), commands (the robot commands),
-                    setup (the first-run guide), record, recordings, settings, hotspot
+                    setup (the first-run guide), record, recordings, settings, hotspot, storage (the recordings' disk: freeBytes, totalBytes, low (under 20% free with nothing uploaded left to delete), secondsLeft of recording, notUploaded, autoUpload)
                 x-when: you want everything about the robots and this app in one call
                 x-dimos-role: context
         /api/robots:

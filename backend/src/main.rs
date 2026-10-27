@@ -61,6 +61,8 @@ async fn main() {
     go2_dash::health::spawn(app.clone());
     // uploads still open (or failed) from the last run: follow them again
     app.clone().watch_uploads();
+    // below 20% free: delete the oldest uploaded recordings, else warn
+    app.clone().watch_storage();
     // Desktop stops apps with SIGTERM: finish a recording first, so its file is complete
     tokio::spawn({
         let app = app.clone();
