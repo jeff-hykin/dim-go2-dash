@@ -302,9 +302,9 @@ async fn send(channel: &RTCDataChannel, kind: &str, topic: &str, data: Option<Va
     }
 }
 
-/// Wi-Fi blips of several seconds are common (~4 an hour on the decks): ICE's own 5 s "disconnected" is only logged,
-/// and the link counts as lost after this much silence (aiortc's consent expiry is about the same)
-const LINK_LOST_AFTER: Duration = Duration::from_secs(30);
+/// ICE's own 5 s "disconnected" is only logged; the link counts as lost after this much more silence (~10 s in all).
+/// Was 30 s (0.5.32, to ride out Wi-Fi blips), which froze the dog ~37 s whenever the link really was gone
+const LINK_LOST_AFTER: Duration = Duration::from_secs(5);
 
 fn robot_api() -> Result<webrtc::api::API, String> {
     let mut media = MediaEngine::default();
