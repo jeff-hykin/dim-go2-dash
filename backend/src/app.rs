@@ -103,6 +103,8 @@ pub struct App {
     /// {autoUpload}
     pub(crate) settings: Mutex<Value>,
     pub(crate) upload_watcher: std::sync::atomic::AtomicBool,
+    /// the recordings' disk, as storage.rs last saw it
+    pub(crate) storage: Mutex<Value>,
     /// this computer's Wi-Fi (hotspot.rs: AP mode)
     pub(crate) wifi: Arc<dyn crate::hotspot::Switcher>,
     pub(crate) hotspot: Mutex<crate::hotspot::Link>,
@@ -272,6 +274,7 @@ impl App {
             recordings_index: Mutex::new(recordings_index),
             settings: Mutex::new(settings),
             upload_watcher: Default::default(),
+            storage: Mutex::new(json!({ "low": false })),
             wifi: crate::hotspot::switcher(mock),
             hotspot: Mutex::new(Default::default()),
         })
