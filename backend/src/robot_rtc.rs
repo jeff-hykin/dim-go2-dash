@@ -302,9 +302,10 @@ async fn send(channel: &RTCDataChannel, kind: &str, topic: &str, data: Option<Va
     }
 }
 
-/// ICE's own 5 s "disconnected" is only logged; the link counts as lost after this much more silence (~10 s in all).
-/// Was 30 s (0.5.32, to ride out Wi-Fi blips), which froze the dog ~37 s whenever the link really was gone
+/// The link counts as lost after this much silence in all (ICE "disconnected" at ICE_DISCONNECTED_AFTER, only logged,
+/// then "failed"). Was 35 s (0.5.32, to ride out Wi-Fi blips), which froze the dog ~37 s whenever the link really was gone
 const LINK_LOST_AFTER: Duration = Duration::from_secs(5);
+const ICE_DISCONNECTED_AFTER: Duration = Duration::from_secs(3);
 
 fn robot_api() -> Result<webrtc::api::API, String> {
     let mut media = MediaEngine::default();
@@ -314,7 +315,8 @@ fn robot_api() -> Result<webrtc::api::API, String> {
     registry = configure_nack(registry, &mut media);
     registry = configure_rtcp_reports(registry);
     let mut settings = SettingEngine::default();
-    settings.set_ice_timeouts(None, Some(LINK_LOST_AFTER), None);
+    // webrtc-ice fails a link after disconnected + failed timeouts of silence
+    settings.set_ice_timeouts(Some(ICE_DISCONNECTED_AFTER), Some(LINK_LOST_AFTER - ICE_DISCONNECTED_AFTER), None);
     Ok(APIBuilder::new()
         .with_setting_engine(settings)
         .with_media_engine(media)
