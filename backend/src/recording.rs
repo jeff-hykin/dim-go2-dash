@@ -210,6 +210,8 @@ impl App {
         let metadata = BTreeMap::from([
             ("app".to_string(), "dim-go2-dash".to_string()),
             ("app_version".to_string(), env!("CARGO_PKG_VERSION").to_string()),
+            ("desktop_version".to_string(), desktop_version(self).await.unwrap_or_default()),
+            ("machine_id".to_string(), crate::record::machine_id()),
             ("robot_type".to_string(), "unitree_go2".to_string()),
             ("robot_name".to_string(), drive.name.clone()),
             ("robot_serial".to_string(), drive.robot.clone().unwrap_or_default()),
@@ -442,4 +444,12 @@ mod tests {
         assert_eq!(lidar_silence(false, 40_000, 15_000), 0, "lying down: the Go2 stops its lidar");
         assert_eq!(lidar_silence(true, 10_000, 15_000), 0, "a point cloud after `now` is no silence");
     }
+}
+
+/// The Desktop version this app runs under (its `GET /api/info`), None without Desktop or when it doesn't answer in 2 s
+async fn desktop_version(app: &App) -> Option<String> {
+    let url = format!("{}/api/info", app.desktop_url.get()?.trim_end_matches('/'));
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(2)).build().ok()?;
+    let info: Value = client.get(url).send().await.ok()?.json().await.ok()?;
+    info["version"].as_str().map(str::to_string)
 }
