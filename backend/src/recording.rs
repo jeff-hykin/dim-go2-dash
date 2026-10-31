@@ -81,8 +81,8 @@ pub struct Active {
     opened_ms: u64,
     /// the lidar watch (lidar_watch): how long no point clouds have come, once that's past LIDAR_SILENT_MS
     lidar_silent_ms: AtomicU64,
-    /// which computer this is (App::machine_id), in the file's name and metadata; empty means neither Desktop nor its
-    /// HUD had one, which the page shows as a badge
+    /// which computer this is (App::machine_id), in the file's name and metadata; empty means DIMOS_APP had none, which
+    /// the page shows as a badge
     machine_id: String,
 }
 
@@ -199,34 +199,10 @@ impl App {
         }
     }
 
-    /// Which computer this is, for a recording's name and metadata, in the order it's worth having:
-    ///
-    /// 1. DIMOS_APP's `machineId` — what Desktop 0.2.226+ hands over at start (main.rs), so no round trip and it's
-    ///    there before the first recording;
-    /// 2. `GET /gateways/desktop/ui/hud` → `machineId` — the same value from a Desktop too old to pass it. From
-    ///    0.2.226 Desktop always answers one (the configured id, else 32 hex it generates and saves);
-    /// 3. empty, which record::file_name leaves out of the name.
-    ///
-    /// Only a real answer is remembered, so a Desktop updated (or given an id) mid-run is picked up at the next
-    /// recording rather than being written off for the whole run. Empty is never silent: record_start logs it and the
-    /// page badges it.
-    pub async fn machine_id(&self) -> String {
-        for known in [&self.machine_id_from_app, &self.machine_id_from_desktop] {
-            if let Some(id) = known.get() {
-                return id.clone();
-            }
-        }
-        let id = match self.desktop_call(reqwest::Method::GET, "/gateways/desktop/ui/hud", None).await {
-            Ok(hud) => hud["machineId"].as_str().unwrap_or_default().to_string(),
-            Err(err) => {
-                crate::dlog!("couldn't ask Desktop which machine this is ({}): leaving it out of the name", err.message);
-                return String::new();
-            }
-        };
-        if !id.is_empty() {
-            let _ = self.machine_id_from_desktop.set(id.clone());
-        }
-        id
+    /// Which computer this is, for a recording's name and metadata: DIMOS_APP's `machineId`, else empty, which
+    /// record::file_name leaves out of the name. Empty is never silent: record_start logs it and the page badges it.
+    pub fn machine_id(&self) -> String {
+        self.machine_id_from_app.get().cloned().unwrap_or_default()
     }
 
     pub fn recording(&self) -> Option<Arc<Active>> {
@@ -255,13 +231,13 @@ impl App {
         let started = now_ms();
         let options = self.record_options();
         let stamp = crate::record::local_stamp(started);
-        let machine_id = self.machine_id().await;
+        let machine_id = self.machine_id();
         // recording anyway beats not recording, but never quietly: losing which computer a file came from is the kind
         // of gap nobody notices until the recordings matter. The page badges it too (Active::status, Control.tsx).
         if machine_id.is_empty() {
             crate::log::line(
                 "warn: no machine id — recording without one, so this file won't say which computer made it. Desktop \
-                 passed none in DIMOS_APP and its HUD gave none either; update dimOS Desktop (0.2.226+ always has one).",
+                 passed none in DIMOS_APP; update dimOS Desktop (0.2.226+ always has one).",
             );
         }
         let name = crate::record::file_name(&stamp, &drive.name, &machine_id, &options.format);

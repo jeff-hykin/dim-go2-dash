@@ -1,5 +1,5 @@
 title: Go2 Ctrl
-version: "0.7.3"
+version: "0.7.4"
 spec-version: v1.5
 uses:
     "@dimos-gateway":
@@ -17,15 +17,14 @@ uses:
             DIMOS_APP.socket: the unix socket this server binds
             DIMOS_APP.name: names this install in its links and notifications
             DIMOS_APP.dataDir: its own folder, for the robots it has found and its settings
-            DIMOS_APP.desktopUrl: Desktop's loopback origin, which the gateway and the HUD are asked through
+            DIMOS_APP.desktopUrl: Desktop's loopback origin, which the gateway is asked through
             DIMOS_APP.machineId:
                 required: false
-                description: tags every recording's metadata; GET /ui/hud answers for a Desktop that passes none
+                description: tags every recording's metadata
             DIMOS_APP.recordingsDir:
                 required: false
                 description: where recordings go when the gateway can't be reached
         endpoints:
-            - GET /ui/hud # its "machineId", for a Desktop that passes none in DIMOS_APP; names a recording's computer
             - GET /info/apps
             - "GET /info/apps/{pkg}/icon"
             - GET /management/gateways/zenoh

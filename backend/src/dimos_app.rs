@@ -18,7 +18,7 @@ pub struct DimosApp {
     pub dimos_dir: Option<String>,
     pub dimos_python: Option<String>,
     pub recordings_dir: Option<String>,
-    /// which computer this is, for a recording's name (Desktop 0.2.226+; older ones leave it out and the HUD answers instead)
+    /// which computer this is, for a recording's name (Desktop 0.2.226+; older ones leave it out)
     pub machine_id: Option<String>,
     pub zenoh_namespace: Option<String>,
     pub zenoh_prefix: Option<String>,
@@ -73,7 +73,7 @@ mod tests {
         assert_eq!(app.zenoh_gateway_url, None);
     }
 
-    /// Desktop before 0.2.226 passes no machineId: None, and recording.rs falls back to the HUD
+    /// Desktop before 0.2.226 passes no machineId: None, and recordings go out without one
     #[test]
     fn an_older_desktop_passes_no_machine_id() {
         let app = parse(r#"{"version":2,"name":"b","dataDir":"/d/b"}"#).unwrap();

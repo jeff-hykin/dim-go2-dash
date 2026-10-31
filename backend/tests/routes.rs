@@ -347,15 +347,13 @@ async fn check_ip() {
     assert_eq!(t.status("POST", "api/check-ip", Some(json!({ "ip": "dog" }))).await, 400);
 }
 
-/// A stand-in for Desktop: a signed-in account, where recordings live, and this machine's id.
+/// A stand-in for Desktop: a signed-in account and where recordings live.
 async fn fake_desktop() -> String {
     let account = axum::routing::get(|| async { axum::Json(json!({ "loggedIn": true, "email": "a@b.c" })) });
     let recordings = axum::routing::get(|| async { axum::Json(json!({ "path": "/desk/recordings" })) });
-    let hud = axum::routing::get(|| async { axum::Json(json!({ "machineId": "3f9a0c71b2d4", "robot": Value::Null })) });
     let router = axum::Router::new()
         .route("/gateways/dimos/cloud/account", account)
-        .route("/gateways/dimos/history/recordings", recordings)
-        .route("/gateways/desktop/ui/hud", hud);
+        .route("/gateways/dimos/history/recordings", recordings);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -374,11 +372,10 @@ async fn reaches_desktop_gateway() {
     let account = app.cloud_account(false).await.unwrap();
     assert_eq!(account["email"], "a@b.c");
     assert_eq!(account["available"], true);
-    // the gateway's answer wins over DIMOS_APP's, and the HUD names the machine
+    // the gateway's answer wins over DIMOS_APP's
     app.resolve_recordings_root().await;
     assert_eq!(app.recordings_root(), Some("/desk/recordings".into()));
     assert_eq!(go2_dash::recording::recordings_dir(&app), std::path::PathBuf::from("/desk/recordings/go2"));
-    assert_eq!(app.machine_id().await, "3f9a0c71b2d4");
 }
 
 #[tokio::test]
@@ -389,49 +386,18 @@ async fn without_desktop_the_recordings_folder_is_dimos_apps() {
     let app = App::with_recordings(dir.clone(), false, Some("/from/dimos_app".into()));
     app.resolve_recordings_root().await;
     assert_eq!(go2_dash::recording::recordings_dir(&app), std::path::PathBuf::from("/from/dimos_app/go2"));
-    assert_eq!(app.machine_id().await, "", "no Desktop to ask: the name leaves the machine out");
+    assert_eq!(app.machine_id(), "", "no DIMOS_APP id: the name leaves the machine out");
 }
 
-/// Desktop 0.2.226+ passes the id in DIMOS_APP: that one is used and the HUD is never asked.
+/// Desktop 0.2.226+ passes the id in DIMOS_APP: that one names the machine.
 #[tokio::test]
-async fn dimos_apps_machine_id_wins_over_the_hud() {
+async fn dimos_apps_machine_id_names_the_machine() {
     let dir = std::env::temp_dir().join(format!("go2_dash_test_machine_app_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let _cleanup = TempDir(dir.clone());
     let app = App::with_recordings(dir.clone(), false, None);
     app.machine_id_from_app.set("a1b2c3d4".to_string()).unwrap();
-    app.desktop_url.set(fake_desktop().await).unwrap();
-    assert_eq!(app.machine_id().await, "a1b2c3d4", "DIMOS_APP's id, not the HUD's");
-}
-
-/// A HUD with no id yet isn't written off for the whole run: the next recording asks again, so a Desktop updated (or
-/// given an id) while the app runs stops the files going out unnamed.
-#[tokio::test]
-async fn an_empty_machine_id_is_asked_for_again() {
-    let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counter = asked.clone();
-    let hud = axum::routing::get(move || {
-        let counter = counter.clone();
-        async move {
-            // the first ask looks like today's Desktop (0.2.223: machineId null), the next like 0.2.226
-            let first = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0;
-            axum::Json(json!({ "machineId": if first { Value::Null } else { json!("77fe01") } }))
-        }
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let router = axum::Router::new().route("/gateways/desktop/ui/hud", hud);
-    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-
-    let dir = std::env::temp_dir().join(format!("go2_dash_test_machine_retry_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let _cleanup = TempDir(dir.clone());
-    let app = App::with_recordings(dir.clone(), false, None);
-    app.desktop_url.set(url).unwrap();
-    assert_eq!(app.machine_id().await, "", "nothing to go on yet");
-    assert_eq!(app.machine_id().await, "77fe01", "asked again, and Desktop now has one");
-    assert_eq!(app.machine_id().await, "77fe01", "and that one is kept");
-    assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 2, "only the empty answers cost a round trip");
+    assert_eq!(app.machine_id(), "a1b2c3d4");
 }
 
 #[tokio::test]
