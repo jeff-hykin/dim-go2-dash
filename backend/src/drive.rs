@@ -188,6 +188,8 @@ pub struct Drive {
     /// the camera over a WebSocket (api/drive/video.ws), for pages whose WebRTC video won't connect
     pub stream: crate::stream::VideoStream,
     closed: AtomicBool,
+    /// a race() is running
+    racing: AtomicBool,
     /// the warning sound repeats while this is set (see overheat_sound)
     alarm: Arc<AtomicBool>,
     app: Weak<App>,
@@ -468,6 +470,7 @@ impl Drive {
             viewers: tokio::sync::Mutex::new(Vec::new()),
             stream: crate::stream::VideoStream::start(),
             closed: AtomicBool::new(false),
+            racing: AtomicBool::new(false),
             alarm: Arc::new(AtomicBool::new(false)),
             app: Arc::downgrade(app),
         });
@@ -544,6 +547,9 @@ impl Drive {
                         ConnEvent::Lost => {
                             tokio::spawn(drive.reconnect());
                         }
+                        ConnEvent::Stalled => {
+                            tokio::spawn(drive.race());
+                        }
                         ConnEvent::Rtp(packet) => {
                             drive.stream.push(packet.clone());
                             if let Some(active) = drive.app.upgrade().and_then(|app| app.recording()) {
@@ -573,7 +579,11 @@ impl Drive {
                             conn.close().await;
                             return Err("the session was closed".into());
                         }
-                        *self.conn.lock().await = Some(conn);
+                        // a race() that won: the stalled link it replaces is dropped (closed first, so not a Lost)
+                        let old = self.conn.lock().await.replace(conn);
+                        if let Some(old) = old {
+                            old.close().await;
+                        }
                         self.set(|s| {
                             s.status = "ready";
                             s.error = None;
@@ -617,6 +627,8 @@ impl Drive {
             return;
         }
         crate::dlog!("connection to {} lost: reconnecting", self.ip);
+        let started = Instant::now();
+        self.reconnect_event("lost", started, None);
         self.set(|s| {
             s.status = "reconnecting";
             s.mode = "resting";
@@ -627,12 +639,55 @@ impl Drive {
         if let Some(conn) = self.conn.lock().await.take() {
             conn.close().await;
         }
-        while !self.is_closed() {
+        // a race() can win meanwhile: it sets ready
+        while !self.is_closed() && self.state.lock().unwrap().status != "ready" {
             tokio::time::sleep(Duration::from_millis(1500)).await;
             if self.clone().connect_until(Instant::now()).await.is_ok() {
+                self.reconnect_event("reconnected", started, None);
                 return;
             }
         }
+    }
+
+    /// A reconnect step in the recording's /logs (and the UI's event stream), as a `reconnect` event
+    fn reconnect_event(&self, phase: &str, started: Instant, error: Option<&str>) {
+        if let Some(app) = self.app.upgrade() {
+            app.publish(json!({ "type": "reconnect", "t": now_ms(), "phase": phase, "afterMs": started.elapsed().as_millis() as u64, "error": error, "robot": self.name }));
+        }
+    }
+
+    /// A stalled link (ICE disconnected) is kept while a new one is tried beside it: the dog answers "busy" while it
+    /// still counts the old one, so the switch happens only once the dog has let go of it, without waiting out
+    /// LINK_LOST_AFTER. Stops when the old link comes back, is lost (reconnect() takes over) or the new one is up.
+    async fn race(self: Arc<Self>) {
+        if self.racing.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        crate::dlog!("link to {} stalled: trying a new one beside it", self.ip);
+        let started = Instant::now();
+        self.reconnect_event("stalled", started, None);
+        loop {
+            let stalled = self.conn.lock().await.as_ref().is_some_and(|conn| conn.is_stalled());
+            if self.is_closed() || !stalled || self.state.lock().unwrap().status != "ready" {
+                // the old link came back, or was lost and reconnect() took over
+                let phase = if stalled { "race_ended" } else { "recovered" };
+                self.reconnect_event(phase, started, None);
+                break;
+            }
+            match self.clone().connect_until(Instant::now()).await {
+                Ok(()) => {
+                    crate::dlog!("race: switched to the new link");
+                    self.reconnect_event("switched", started, None);
+                    break;
+                }
+                Err(err) => {
+                    crate::dlog!("race: {err}");
+                    self.reconnect_event("race_retry", started, Some(&err));
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            }
+        }
+        self.racing.store(false, Ordering::Relaxed);
     }
 
     fn start_ticker(self: Arc<Self>) {

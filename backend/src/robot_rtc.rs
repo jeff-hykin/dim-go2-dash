@@ -61,6 +61,8 @@ pub enum ConnEvent {
     Video(Arc<TrackLocalStaticRTP>),
     /// the peer link died (robot off Wi-Fi, out of range, rebooted)
     Lost,
+    /// ICE says disconnected (~5 s without a reply): maybe a blip, maybe the start of a Lost
+    Stalled,
     /// a camera RTP packet (H.264), as it arrived
     Rtp(webrtc::rtp::packet::Packet),
     /// a message on a subscribed topic (`rt/lf/lowstate`, `rt/utlidar/voxel_map_compressed`, …): its JSON, and the
@@ -462,6 +464,8 @@ impl RobotConn {
                     && !closed.swap(true, Ordering::Relaxed)
                 {
                     on_event(ConnEvent::Lost);
+                } else if state == RTCPeerConnectionState::Disconnected && !closed.load(Ordering::Relaxed) {
+                    on_event(ConnEvent::Stalled);
                 }
                 Box::pin(async {})
             }));
@@ -595,6 +599,11 @@ impl RobotConn {
             Some(ssrc) => write_pli(&self.pc, ssrc).await,
             None => self.keyframe_pending.store(true, Ordering::Relaxed),
         }
+    }
+
+    /// ICE says disconnected and hasn't come back (Stalled)
+    pub fn is_stalled(&self) -> bool {
+        self.pc.connection_state() == RTCPeerConnectionState::Disconnected
     }
 
     pub async fn close(&self) {
