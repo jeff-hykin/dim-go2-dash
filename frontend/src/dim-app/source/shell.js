@@ -2,7 +2,7 @@
 // Desktop shows the commands over the app and nothing runs until the user presses Run; they run in one terminal, so sudo asks
 // for the password once; when one fails, the user or Desktop's agent fixes it in that terminal and retries it.
 //
-//     import { runShell } from "https://esm.sh/gh/dimensionalOS/ddtk@v0.18.0/source/shell.js"
+//     import { runShell } from "./shell.js"   // vendored from github.com/dimensionalOS/ddtk (tools/vendor.js)
 //     const result = await runShell({
 //         title: "Fix LAN discovery",
 //         message: "A VPN took the route the Go2 probe needs.",
