@@ -145,9 +145,9 @@
                     outputHashAlgo = "sha256";
                     outputHash = {
                         aarch64-darwin = "sha256-ujwfB0uQ17HeD2t2aMXWD81JLgE8ydF4b+NlzZOMWtA=";
-                        x86_64-darwin = "";
+                        x86_64-darwin = "sha256-r6VffWHHpmVQP0IAQSt0V95NT7QA6GcDbzoZmKrhe0w=";
                         x86_64-linux = "sha256-wGV7tTDAVU10wWkKU1PIm1K8Susp/MjbRZyQiUHam6k=";
-                        aarch64-linux = "";
+                        aarch64-linux = "sha256-JfhLx56sdxkIyLbVcAPNfdNnQF4zbBoSaC1sKjd91W4=";
                     }.${system};
                 };
                 # the page: React + Vite against those modules, offline
