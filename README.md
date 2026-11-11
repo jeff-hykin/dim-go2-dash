@@ -23,7 +23,7 @@ app pulls the keys for every dog on it.
 ## Install
 
 ```sh
-dimos-desktop install https://github.com/jeff-hykin/dim-go2-dash
+dimos-desktop install https://github.com/dimensionalOS/dim-go2-ctrl
 ```
 
 ## Develop
