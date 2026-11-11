@@ -1050,9 +1050,11 @@ nix:
     # CI's Ubuntu runner or any Linux box that pushed); none there: Desktop builds it here
     cache:
         aarch64-linux:
+            - packages.aarch64-linux.dimosApp
             - packages.aarch64-darwin.dimosApp-aarch64-linux
             - packages.x86_64-linux.dimosApp-aarch64-linux
             - packages.aarch64-linux.dimosApp-aarch64-linux
         x86_64-linux:
+            - packages.x86_64-linux.dimosApp
             - packages.aarch64-darwin.dimosApp-x86_64-linux
             - packages.x86_64-linux.dimosApp-x86_64-linux
