@@ -46,6 +46,9 @@
                                 doCheck = false;
                                 # cmake is only for the recorder's libjpeg-turbo (its build script runs it), not a configure step of ours
                                 dontUseCmakeConfigure = true;
+                                # panic locations name each crate's source file, which put the whole vendor dir (400+ crate
+                                # sources) in the backend's runtime closure: written as vendor/<crate> instead
+                                RUSTFLAGS = "--remap-path-prefix=${vendorDir}=vendor";
                             } // extra;
                             cargoArtifacts = craneLib.buildDepsOnly (common // {
                                 # only the build's artifacts are reused; a `cargo check` pass would be a second compile nobody reads
@@ -56,6 +59,8 @@
                             inherit cargoArtifacts;
                             # nothing builds on this target dir, so don't archive it into $out
                             doInstallCargoArtifacts = false;
+                            # fails the build if a crate source path sneaks back into the binary
+                            disallowedReferences = [ vendorDir ];
                         } // package);
                     # 1.89: dimos' recorder needs it (nalgebra, validator), past nixos-25.05's 1.86
                     rust = (import nixpkgs { inherit system; overlays = [ (import rust-overlay) ]; }).rust-bin.stable."1.89.0";
